@@ -2,7 +2,7 @@
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 3022a4b4ff00047ff39872dae4704b089f179ce1286fc792db423160c88b75f8
+-- hash: 1b02a1858ead3517927e9405dabc17ffb37f0df038564d37e8321b18227389ec
 
 name:           wasm
 version:        0.1.0
@@ -33,12 +33,9 @@ library
       alex >=3.1.3
     , happy >=1.9.4
   exposed-modules:
-      Language.Wasm.Types
       Language.Wasm.Lexer
-      Language.Wasm.Parser
-  other-modules:
       Language.Wasm
-      Language.Wasm.Lexer
+  other-modules:
       Paths_wasm
   default-language: Haskell2010
 

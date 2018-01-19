@@ -1,4 +1,4 @@
-module (
+module Language.Wasm (
     something
 ) where
 
