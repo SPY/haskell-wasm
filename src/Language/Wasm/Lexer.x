@@ -34,6 +34,16 @@ $doublequote = \"
 @num = $digit (\_? $digit*)
 @hexnum = $hexdigit (\_? $hexdigit*)
 @id = "$" $idchar+
+@floatfrac = @num "." (@num)?
+@exp = [Ee] $sign? @num
+@scientificint = @num @exp
+@scientificfloat = @floatfrac @exp
+@float = @floatfrac | @scientificint | @scientificfloat
+@hexfloatfrac = "0x" @hexnum "." (@hexnum)?
+@hexexp = [Pp] $sign? @num
+@hexscientificint = "0x" @hexnum @exp
+@hexscientificfloat = @hexfloatfrac @hexexp
+@hexfloat = @hexfloatfrac | @hexscientificint | @hexscientificfloat
 
 tokens :-
 
@@ -45,6 +55,8 @@ tokens :-
 <0> ")"                                   { constToken TCloseBracket }
 <0> $sign? @num                           { parseDecimalSignedInt }
 <0> $sign? "0x" @hexnum                   { parseHexalSignedInt }
+<0> $sign? @float                         { parseDecFloat }
+<0> $sign? @hexfloat                      { parseHexFloat }
 <0, blockComment> @startblockcomment      { startBlockComment }
 <blockComment> [.\n]                      ;
 <blockComment> @endblockcomment           { endBlockComment }
@@ -75,13 +87,16 @@ isAllowedStringChar _userState (_pos, _rest, inp, _) _len _nextInp =
     let code = Char.ord char in
     code >= 0x20 && code /= 0x7f && char /= '"' && char /= '\\'
 
-parseSign :: LBS.ByteString -> ((Integer -> Integer), Int64)
+parseSign :: (Num a) => LBS.ByteString -> ((a -> a), Int64)
 parseSign str =
     let Just (ch, _) = LBSUtf8.decode str in
     case ch of
         '-' -> (negate, 1)
         '+' -> (abs, 1)
         otherwise -> (abs, 0)
+
+{-# SPECIALIZE parseSign :: LBS.ByteString -> ((Integer -> Integer), Int64) #-}
+{-# SPECIALIZE parseSign :: LBS.ByteString -> ((Double -> Double), Int64) #-}
 
 parseHexalSignedInt :: AlexAction Lexeme
 parseHexalSignedInt = token $ \(pos, _, s, _) len -> 
@@ -94,6 +109,17 @@ parseDecimalSignedInt = token $ \(pos, _, s, _) len ->
     let (sign, slen) = parseSign s in
     let num = readDecFromPrefix (len - slen) $ LBSUtf8.drop slen s in
     Lexeme pos $ TIntLit $ sign num
+
+parseDecFloat :: AlexAction Lexeme
+parseDecFloat = token $ \(pos, _, s, _) len ->
+    let str = filter (/= '_') $ takeChars len s in
+    Lexeme pos $ TFloatLit $ read str
+
+parseHexFloat :: AlexAction Lexeme
+parseHexFloat = token $ \(pos, _, s, _) len ->
+    let (sign, slen) = parseSign s in
+    let ('0' : 'x' : str) = filter (/= '_') $ takeChars len $ LBS.drop slen s in
+    Lexeme pos $ TFloatLit $ readHexFloat str
 
 startBlockComment :: AlexAction Lexeme
 startBlockComment _inp _len = do
@@ -222,7 +248,16 @@ addCharToLexerStringValue c = Alex $ \s ->
 
 alexEOF = return $ Lexeme (error "Trying to read EOF position") EOF
 
-readHexFromChar :: Char -> Integer
+takeChars :: Int64 -> LBS.ByteString -> String
+takeChars n str = reverse $ go n str []
+    where
+        go :: Int64 -> LBS.ByteString -> String -> String
+        go 0 _ acc = acc
+        go n str acc = case LBSUtf8.uncons str of
+            Just (c, rest) -> go (n - 1) rest (c : acc)
+            Nothing -> acc
+
+readHexFromChar :: (Num a) => Char -> a
 readHexFromChar chr =
     case chr of 
         '0' -> 0 
@@ -249,10 +284,13 @@ readHexFromChar chr =
         'f' -> 15
         otherwise -> 0
 
+{-# SPECIALIZE readHexFromChar :: Char -> Integer #-}
+{-# SPECIALIZE readHexFromChar :: Char -> Double #-}
+
 readFromPrefix :: Int -> Int64 -> LBS.ByteString -> Integer
 readFromPrefix base n bstr
     | base <= 16 =
-        let str = filter (/= '_') $ LBSUtf8.toString $ LBSUtf8.take n bstr in
+        let str = filter (/= '_') $ takeChars n bstr in
         let len = length str in
         sum $ zipWith (\i c -> readHexFromChar c * (fromIntegral base ^ fromIntegral (len - i))) [1..] str
     | otherwise = error "base has to be less than or equal 16"
@@ -262,6 +300,30 @@ readHexFromPrefix = readFromPrefix 16
 
 readDecFromPrefix :: Int64 -> LBS.ByteString -> Integer
 readDecFromPrefix = readFromPrefix 10
+
+splitBy :: (Char -> Bool) -> String -> (String, String)
+splitBy pred str =
+    case break pred str of
+        (left, (_ : rest)) -> (left, rest)
+        res -> res
+
+readHexFloat :: String -> Double
+readHexFloat str =
+    let (val, exp) = splitBy (\c -> c == 'P' || c == 'p') str in
+    let (int, frac) = splitBy (== '.') val in
+    let intLen = length int in
+    let intVal = sum $ zipWith (\i c -> readHexFromChar c * (16 ^ (intLen - i))) [1..] int in
+    (intVal + readHexFrac frac) * readHexExp exp
+    where
+        readHexExp :: String -> Double
+        readHexExp [] = 1
+        readHexExp expStr = 2 * read expStr
+
+        readHexFrac :: String -> Double
+        readHexFrac [] = 0
+        readHexFrac val =
+            let len = length val in
+            sum $ zipWith (\i c -> readHexFromChar c / (16 ^ len - i)) [1..] val
 
 scanner :: LBS.ByteString -> Either String [Lexeme]
 scanner str = runAlex str loop
