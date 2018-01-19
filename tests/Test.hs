@@ -11,6 +11,6 @@ import qualified Language.Wasm.Lexer as Lexer
 
 main :: IO ()
 main = do
-  file <- LBS.readFile "tests/samples/i64.wast"
+  file <- LBS.readFile "tests/samples/f64.wast"
   print $ map Lexer.tok <$> Lexer.scanner file
   defaultMain $ testGroup "Test Suite" []

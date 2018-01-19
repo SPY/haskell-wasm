@@ -44,10 +44,20 @@ $doublequote = \"
 @hexscientificint = "0x" @hexnum @exp
 @hexscientificfloat = @hexfloatfrac @hexexp
 @hexfloat = @hexfloatfrac | @hexscientificint | @hexscientificfloat
+@nanhex = "nan:0x" @hexnum
 
 tokens :-
 
 <0> $space                                ;
+<0> "nan"                                 { constToken $ TFloatLit nan }
+<0> "+nan"                                { constToken $ TFloatLit nan }
+<0> "-nan"                                { constToken $ TFloatLit minusNaN }
+<0> @nanhex                               { constToken $ TFloatLit nan {- TODO: real hex rep parsing -}}
+<0> "+" @nanhex                           { constToken $ TFloatLit nan {- TODO: real hex rep parsing -}}
+<0> "-" @nanhex                           { constToken $ TFloatLit minusNaN {- TODO: real hex rep parsing -}}
+<0> "inf"                                 { constToken $ TFloatLit inf }
+<0> "+inf"                                 { constToken $ TFloatLit inf }
+<0> "-inf"                                { constToken $ TFloatLit minusInf }
 <0> @keyword                              { tokenStr TKeyword }
 <0> @linecomment                          ;
 <0> @id                                   { tokenStr TId }
@@ -86,6 +96,12 @@ isAllowedStringChar _userState (_pos, _rest, inp, _) _len _nextInp =
     let Just (char, _) = LBSUtf8.decode inp in
     let code = Char.ord char in
     code >= 0x20 && code /= 0x7f && char /= '"' && char /= '\\'
+
+minusNaN, nan, inf, minusInf :: Double
+minusNaN = read "-NaN"
+nan = read "NaN"
+inf = read "Infinity"
+minusInf = read "-Infinity"
 
 parseSign :: (Num a) => LBS.ByteString -> ((a -> a), Int64)
 parseSign str =
