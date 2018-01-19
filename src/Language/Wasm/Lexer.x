@@ -156,6 +156,7 @@ endStringLiteral (pos, _, _inp, _) _len = do
     alexSetStartCode defaultStartCode
     setLexerStringFlag False
     str <- LBSUtf8.fromString . reverse <$> getLexerStringValue
+    setLexerStringValue ""
     return $ Lexeme pos $ TStringLit str
 
 tokenStr :: (LBS.ByteString -> Token) -> AlexAction Lexeme
