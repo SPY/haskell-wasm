@@ -1,12 +1,14 @@
 {
-module Language.Wasm.Lexer ( 
-    scan,
-    alexScan
+module Language.Wasm.Lexer (
+    Lexeme(..),
+    Token(..),
+    scanner
 ) where
 
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Char as Char
 import qualified Data.ByteString.Lazy.UTF8 as LBSUtf8
+import Control.Applicative ((<$>))
 
 }
 
@@ -22,28 +24,31 @@ $idchar    = [$digit $alpha $namepunct]
 $space     = [\  \x09 \x0A \x0D]
 $linechar  = [^ \x09]
 $sign      = [\+ \-]
+$doublequote = \"
 
 @keyword     = $lower $idchar*
 @reserved    = $idchar+
 @linecomment = ";;" $linechar* \x0A
 @startblockcomment = "(;"
-@endblockcomment = "(;"
+@endblockcomment = ";)"
 @num = $digit (\_? $digit*)
 @hexnum = $hexdigit (\_? $hexdigit*)
+@id = "$" $idchar+
 
 tokens :-
 
 <0> $space                                ;
 <0> @keyword                              { tokenStr TKeyword }
 <0> @linecomment                          ;
+<0> @id                                   { tokenStr TId }
 <0> "("                                   { constToken TOpenBracket }
-<0> "("                                   { constToken TCloseBracket }
+<0> ")"                                   { constToken TCloseBracket }
 <0> $sign? @num                           { parseDecimalSignedInt }
 <0> $sign? "0x" @hexnum                   { parseHexalSignedInt }
 <0, blockComment> @startblockcomment      { startBlockComment }
 <blockComment> [.\n]                      ;
 <blockComment> @endblockcomment           { endBlockComment }
-<0> \"                                    { startStringLiteral }
+<0> $doublequote                          { startStringLiteral }
 <stringLiteral> \\ $hexdigit $hexdigit    { appendDoubleHexChar }
 <stringLiteral> \\t                       { appendCharToStringLiteral '\x09' }
 <stringLiteral> \\n                       { appendCharToStringLiteral '\x0A' }
@@ -52,8 +57,8 @@ tokens :-
 <stringLiteral> \\\'                      { appendCharToStringLiteral '\x27' }
 <stringLiteral> \\\\                      { appendCharToStringLiteral '\x5C' }
 <stringLiteral> \\n\{ @hexnum \}          { appendHexEscapedChar }
+<stringLiteral> $doublequote              { endStringLiteral }
 <stringLiteral> . / {isAllowedStringChar} { appendFromHead }
-<stringLiteral> \"                        { endStringLiteral }
 <0> @reserved                             { tokenStr TReserved }
 
 {
@@ -65,7 +70,7 @@ defaultStartCode = 0
 
 -- inner string literal character predicate
 isAllowedStringChar :: user -> AlexInput -> Int -> AlexInput -> Bool
-isAllowedStringChar _userState _prevInp _len (_pos, _rest, inp, _) =
+isAllowedStringChar _userState (_pos, _rest, inp, _) _len _nextInp =
     let Just (char, _) = LBSUtf8.decode inp in
     let code = Char.ord char in
     code >= 0x20 && code /= 0x7f && char /= '"' && char /= '\\'
@@ -150,7 +155,7 @@ endStringLiteral :: AlexAction Lexeme
 endStringLiteral (pos, _, _inp, _) _len = do
     alexSetStartCode defaultStartCode
     setLexerStringFlag False
-    str <- getLexerStringValue
+    str <- LBSUtf8.fromString . reverse <$> getLexerStringValue
     return $ Lexeme pos $ TStringLit str
 
 tokenStr :: (LBS.ByteString -> Token) -> AlexAction Lexeme
@@ -176,7 +181,7 @@ data Lexeme = Lexeme { pos :: AlexPosn, tok :: Token } deriving (Show, Eq)
 
 data AlexUserState = AlexUserState {
         lexerCommentDepth :: Int,
-        lexerStringValue  :: LBS.ByteString,
+        lexerStringValue  :: String,
         lexerIsString     :: Bool
     }
 
@@ -184,7 +189,7 @@ alexInitUserState :: AlexUserState
 alexInitUserState = AlexUserState {
         lexerCommentDepth  = 0,
         lexerIsString      = False,
-        lexerStringValue   = LBS.empty
+        lexerStringValue   = []
     }
 
 getLexerCommentDepth :: Alex Int
@@ -202,19 +207,19 @@ setLexerStringFlag :: Bool -> Alex ()
 setLexerStringFlag isString = Alex $ \s ->
     Right (s{ alex_ust=(alex_ust s){ lexerIsString = isString } }, ())
 
-getLexerStringValue :: Alex LBS.ByteString
+getLexerStringValue :: Alex String
 getLexerStringValue = Alex $ \s@AlexState{alex_ust=ust} -> Right (s, lexerStringValue ust)
 
-setLexerStringValue :: LBS.ByteString -> Alex ()
+setLexerStringValue :: String -> Alex ()
 setLexerStringValue ss = Alex $ \s ->
     Right (s{ alex_ust=(alex_ust s){ lexerStringValue = ss } }, ())
 
 addCharToLexerStringValue :: Char -> Alex ()
 addCharToLexerStringValue c = Alex $ \s ->
     let ust = alex_ust s in
-    Right (s{ alex_ust = ust{ lexerStringValue = LBS.append (LBSUtf8.fromString [c]) (lexerStringValue ust) } }, ())
+    Right (s{ alex_ust = ust{ lexerStringValue = c : lexerStringValue ust } }, ())
 
-alexEOF = return $ Lexeme undefined EOF
+alexEOF = return $ Lexeme (error "Trying to read EOF position") EOF
 
 readHexFromChar :: Char -> Integer
 readHexFromChar chr =
@@ -257,7 +262,13 @@ readHexFromPrefix = readFromPrefix 16
 readDecFromPrefix :: Int64 -> LBS.ByteString -> Integer
 readDecFromPrefix = readFromPrefix 10
 
-scan :: LBS.ByteString -> [Lexeme]
-scan = undefined
-
+scanner :: LBS.ByteString -> Either String [Lexeme]
+scanner str = runAlex str loop
+    where
+        loop :: Alex [Lexeme]
+        loop = do
+            lex <- alexMonadScan
+            case lex of
+                Lexeme _ EOF -> return [lex]
+                otherwise -> (lex :) <$> loop
 }

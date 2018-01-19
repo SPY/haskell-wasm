@@ -5,7 +5,12 @@ module Main (
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Language.Wasm (something)
+import qualified Data.ByteString.Lazy as LBS
+
+import qualified Language.Wasm.Lexer as Lexer
 
 main :: IO ()
-main = defaultMain $ testGroup "Test Suite" []
+main = do
+  file <- LBS.readFile "tests/samples/i64.wast"
+  print $ map Lexer.tok <$> Lexer.scanner file
+  defaultMain $ testGroup "Test Suite" []
