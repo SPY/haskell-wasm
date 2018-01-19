@@ -41,7 +41,7 @@ $doublequote = \"
 @float = @floatfrac | @scientificint | @scientificfloat
 @hexfloatfrac = "0x" @hexnum "." (@hexnum)?
 @hexexp = [Pp] $sign? @num
-@hexscientificint = "0x" @hexnum @exp
+@hexscientificint = "0x" @hexnum @hexexp
 @hexscientificfloat = @hexfloatfrac @hexexp
 @hexfloat = @hexfloatfrac | @hexscientificint | @hexscientificfloat
 @nanhex = "nan:0x" @hexnum
@@ -134,7 +134,7 @@ parseDecFloat = token $ \(pos, _, s, _) len ->
 parseHexFloat :: AlexAction Lexeme
 parseHexFloat = token $ \(pos, _, s, _) len ->
     let (sign, slen) = parseSign s in
-    let ('0' : 'x' : str) = filter (/= '_') $ takeChars len $ LBS.drop slen s in
+    let ('0' : 'x' : str) = filter (/= '_') $ takeChars (len - slen) $ LBS.drop slen s in
     Lexeme pos $ TFloatLit $ readHexFloat str
 
 startBlockComment :: AlexAction Lexeme
@@ -333,6 +333,8 @@ readHexFloat str =
     where
         readHexExp :: String -> Double
         readHexExp [] = 1
+        readHexExp ('+' : rest) = readHexExp rest
+        readHexExp ('-' : rest) = negate $ readHexExp rest
         readHexExp expStr = 2 * read expStr
 
         readHexFrac :: String -> Double
