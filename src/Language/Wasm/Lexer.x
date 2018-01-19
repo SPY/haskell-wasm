@@ -9,6 +9,7 @@ import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Char as Char
 import qualified Data.ByteString.Lazy.UTF8 as LBSUtf8
 import Control.Applicative ((<$>))
+import Control.Monad (when)
 
 }
 
@@ -350,6 +351,11 @@ scanner str = runAlex str loop
         loop = do
             lex <- alexMonadScan
             case lex of
-                Lexeme _ EOF -> return [lex]
+                Lexeme _ EOF -> do
+                    strFlag <- getLexerStringFlag
+                    when strFlag $ alexError "End of file reached before string literal end"
+                    commentDepth <- getLexerCommentDepth
+                    when (commentDepth > 0) $ alexError "End of file reached before block comment end"
+                    return [lex]
                 otherwise -> (lex :) <$> loop
 }
