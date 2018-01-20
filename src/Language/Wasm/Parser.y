@@ -9,7 +9,11 @@ module Language.Wasm.Parser (
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TLEncoding
-import Numeric.Natural
+import qualified Data.Text.Lazy.Read as TLRead
+
+import qualified Data.ByteString.Lazy as LBS
+import Numeric.Natural (Natural)
+import Data.Maybe (fromMaybe)
 
 import Language.Wasm.Lexer (
         Token (
@@ -52,8 +56,35 @@ import Language.Wasm.Lexer (
 'return'           { TKeyword "return" }
 'call'             { TKeyword "call" }
 'call_indirect'    { TKeyword "call_indirect" }
+'drop'             { TKeyword "drop" }
+'select'           { TKeyword "select" }
+'get_local'        { TKeyword "get_local" }
+'set_local'        { TKeyword "set_local" }
+'tee_local'        { TKeyword "tee_local" }
+'get_global'       { TKeyword "get_global" }
+'set_global'       { TKeyword "set_global" }
+'i32.load'         { TKeyword "i32.load" }
+'i64.load'         { TKeyword "i64.load" }
+'f32.load'         { TKeyword "f32.load" }
+'f64.load'         { TKeyword "f64.load" }
+'i32.load8_s'      { TKeyword "i32.load8_s" }
+'i32.load8_u'      { TKeyword "i32.load8_u" }
+'i32.load16_s'     { TKeyword "i32.load16_s" }
+'i32.load16_u'     { TKeyword "i32.load16_u" }
+'i64.load8_s'      { TKeyword "i64.load8_s" }
+'i64.load8_u'      { TKeyword "i64.load8_u" }
+'i64.load16_s'     { TKeyword "i64.load16_s" }
+'i64.load16_u'     { TKeyword "i64.load16_u" }
+'i64.load32_s'     { TKeyword "i64.load32_s" }
+'i64.load32_u'     { TKeyword "i64.load32_u" }
+'i32.store'        { TKeyword "i32.store" }
+'i64.store'        { TKeyword "i64.store" }
+'f32.store'        { TKeyword "f32.store" }
+'f64.store'        { TKeyword "f64.store" }
 id                 { TId $$ }
 u32                { TIntLit (asUInt32 -> Just $$) }
+offset             { TKeyword (asOffset -> Just $$) }
+align              { TKeyword (asAlign -> Just $$) }
 
 %%
 
@@ -105,7 +136,14 @@ funcidx :: { FuncIndex }
 typeidx :: { TypeIndex }
     : u32 { $1 }
 
+localidx :: { LocalIndex }
+    : u32 { $1 }
+
+globalidx :: { GlobalIndex }
+    : u32 { $1 }
+
 plaininstr :: { PlainInstr }
+    -- control instructions
     : 'unreachable'                  { Unreachable }
     | 'nop'                          { Nop }
     | 'br' labelidx                  { Br $2 }
@@ -114,6 +152,34 @@ plaininstr :: { PlainInstr }
     | 'return'                       { Return }
     | 'call' funcidx                 { Call $2 }
     | 'call_indirect' typeuse        { CallIndirect $2 }
+    -- parametric instructions
+    | 'drop'                         { Drop }
+    | 'select'                       { Select }
+    -- variable instructions
+    | 'get_local' localidx           { GetLocal $2 }
+    | 'set_local' localidx           { SetLocal $2 }
+    | 'tee_local' localidx           { TeeLocal $2 }
+    | 'get_global' globalidx         { GetGlobal $2 }
+    | 'set_global' globalidx         { SetGlobal $2 }
+    -- memory instructions
+    | 'i32.load' memarg4             { I32Load $2 }
+    | 'i64.load' memarg8             { I64Load $2 }
+    | 'f32.load' memarg4             { F32Load $2 }
+    | 'f64.load' memarg8             { F64Load $2 }
+    | 'i32.load8_s' memarg1          { I32Load8S $2 }
+    | 'i32.load8_u' memarg1          { I32Load8U $2 }
+    | 'i32.load16_s' memarg2         { I32Load16S $2 }
+    | 'i32.load16_u' memarg2         { I32Load16U $2 }
+    | 'i64.load8_s' memarg1          { I64Load8S $2 }
+    | 'i64.load8_u' memarg1          { I64Load8U $2 }
+    | 'i64.load16_s' memarg2         { I64Load16S $2 }
+    | 'i64.load16_u' memarg2         { I64Load16U $2 }
+    | 'i64.load32_s' memarg4         { I64Load32S $2 }
+    | 'i64.load32_u' memarg4         { I64Load32U $2 }
+    | 'i32.store' memarg4            { I32Store $2 }
+    | 'i64.store' memarg8            { I64Store $2 }
+    | 'f32.store' memarg4            { F32Store $2 }
+    | 'f64.store' memarg8            { F64Store $2 }
 
 typedef :: { TypeDef }
     : '(' 'type' opt(ident) functype ')' { TypeDef $3 $4 }
@@ -122,6 +188,18 @@ typeuse :: { TypeUse }
     : '(' 'type' typeidx ')' { IndexedTypeUse $3 Nothing }
     | '(' 'type' typeidx paramtypes resulttypes ')' { IndexedTypeUse $3 (Just $ FuncType $4 $5) }
     | paramtypes resulttypes { AnonimousTypeUse $ FuncType $1 $2 }
+
+memarg1 :: { MemArg }
+    : opt(offset) opt(align) { MemArg (fromMaybe 0 $1) (fromMaybe 1 $2) }
+
+memarg2 :: { MemArg }
+    : opt(offset) opt(align) { MemArg (fromMaybe 0 $1) (fromMaybe 2 $2) }
+
+memarg4 :: { MemArg }
+    : opt(offset) opt(align) { MemArg (fromMaybe 0 $1) (fromMaybe 4 $2) }
+
+memarg8 :: { MemArg }
+    : opt(offset) opt(align) { MemArg (fromMaybe 0 $1) (fromMaybe 8 $2) }
 
 -- utils
 
@@ -149,6 +227,19 @@ asUInt32 :: Integer -> Maybe Natural
 asUInt32 val
     | val >= 0, val < 2 ^ 32 = Just $ fromIntegral val
     | otherwise = Nothing
+
+asOffset :: LBS.ByteString -> Maybe Natural
+asOffset str = do
+    num <- TL.stripPrefix "offset=" $ TLEncoding.decodeUtf8 str
+    fromIntegral . fst <$> eitherToMaybe (TLRead.decimal num)
+
+asAlign :: LBS.ByteString -> Maybe Natural
+asAlign str = do
+    num <- TL.stripPrefix "align=" $ TLEncoding.decodeUtf8 str
+    fromIntegral . fst <$> eitherToMaybe (TLRead.decimal num)
+
+eitherToMaybe :: Either left right -> Maybe right
+eitherToMaybe = either (const Nothing) Just
 
 data ValueType =
     I32
@@ -180,8 +271,11 @@ data TableType = TableType Limit ElemType deriving (Show, Eq)
 type LabelIndex = Natural
 type FuncIndex = Natural
 type TypeIndex = Natural
+type LocalIndex = Natural
+type GlobalIndex = Natural
 
 data PlainInstr =
+    -- Control instructions
     Unreachable
     | Nop
     | Br LabelIndex
@@ -190,6 +284,34 @@ data PlainInstr =
     | Return
     | Call FuncIndex
     | CallIndirect TypeUse
+    -- Parametric instructions
+    | Drop
+    | Select
+    -- Variable instructions
+    | GetLocal LocalIndex
+    | SetLocal LocalIndex
+    | TeeLocal LocalIndex
+    | GetGlobal GlobalIndex
+    | SetGlobal GlobalIndex
+    -- Memory instructions
+    | I32Load MemArg
+    | I64Load MemArg
+    | F32Load MemArg
+    | F64Load MemArg
+    | I32Load8S MemArg
+    | I32Load8U MemArg
+    | I32Load16S MemArg
+    | I32Load16U MemArg
+    | I64Load8S MemArg
+    | I64Load8U MemArg
+    | I64Load16S MemArg
+    | I64Load16U MemArg
+    | I64Load32S MemArg
+    | I64Load32U MemArg
+    | I32Store MemArg
+    | I64Store MemArg
+    | F32Store MemArg
+    | F64Store MemArg
     deriving (Show, Eq)
 
 data TypeDef = TypeDef (Maybe Ident) FuncType deriving (Show, Eq)
@@ -198,6 +320,8 @@ data TypeUse =
     IndexedTypeUse TypeIndex (Maybe FuncType)
     | AnonimousTypeUse FuncType
     deriving (Show, Eq)
+
+data MemArg = MemArg { offset :: Natural, align :: Natural } deriving (Show, Eq)
 
 happyError tokens = error $ "Error occuried: " ++ show tokens 
 
