@@ -81,6 +81,13 @@ import Language.Wasm.Lexer (
 'i64.store'        { TKeyword "i64.store" }
 'f32.store'        { TKeyword "f32.store" }
 'f64.store'        { TKeyword "f64.store" }
+'i32.store8'       { TKeyword "i32.store8" }
+'i32.store16'      { TKeyword "i32.store16" }
+'i64.store8'       { TKeyword "i64.store" }
+'i64.store16'      { TKeyword "i64.store" }
+'i64.store32'      { TKeyword "i64.store" }
+'current_memory'   { TKeyword "current_memory" }
+'grow_memory'      { TKeyword "grow_memory" }
 id                 { TId $$ }
 u32                { TIntLit (asUInt32 -> Just $$) }
 offset             { TKeyword (asOffset -> Just $$) }
@@ -180,6 +187,13 @@ plaininstr :: { PlainInstr }
     | 'i64.store' memarg8            { I64Store $2 }
     | 'f32.store' memarg4            { F32Store $2 }
     | 'f64.store' memarg8            { F64Store $2 }
+    | 'i32.store8' memarg1           { I32Store8 $2 }
+    | 'i32.store16' memarg2          { I32Store16 $2 }
+    | 'i64.store8' memarg1           { I64Store8 $2 }
+    | 'i64.store16' memarg2          { I64Store16 $2 }
+    | 'i64.store32' memarg4          { I64Store32 $2 }
+    | 'current_memory'               { CurrentMemory }
+    | 'grow_memory'                  { GrowMemory }
 
 typedef :: { TypeDef }
     : '(' 'type' opt(ident) functype ')' { TypeDef $3 $4 }
@@ -312,6 +326,13 @@ data PlainInstr =
     | I64Store MemArg
     | F32Store MemArg
     | F64Store MemArg
+    | I32Store8 MemArg
+    | I32Store16 MemArg
+    | I64Store8 MemArg
+    | I64Store16 MemArg
+    | I64Store32 MemArg
+    | CurrentMemory
+    | GrowMemory
     deriving (Show, Eq)
 
 data TypeDef = TypeDef (Maybe Ident) FuncType deriving (Show, Eq)
