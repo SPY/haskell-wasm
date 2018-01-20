@@ -34,6 +34,7 @@ library
     , happy >=1.9.4
   exposed-modules:
       Language.Wasm.Lexer
+      Language.Wasm.Parser
       Language.Wasm
   other-modules:
       Paths_wasm
