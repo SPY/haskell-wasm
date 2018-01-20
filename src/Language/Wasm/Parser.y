@@ -43,13 +43,22 @@ import Language.Wasm.Lexer (
 'f64'              { TKeyword "f64" }
 'mut'              { TKeyword "mut" }
 'anyfunc'          { TKeyword "anyfunc" }
+'type'             { TKeyword "type" }
+'unreachable'      { TKeyword "unreachable" }
+'nop'              { TKeyword "nop" }
+'br'               { TKeyword "br" }
+'br_if'            { TKeyword "br_if" }
+'br_table'         { TKeyword "br_table" }
+'return'           { TKeyword "return" }
+'call'             { TKeyword "call" }
+'call_indirect'    { TKeyword "call_indirect" }
 id                 { TId $$ }
 u32                { TIntLit (asUInt32 -> Just $$) }
 
 %%
 
 functype :: { FuncType }
-    : '(' 'func' paramtypes resulttypes ')' { FunctType $3 $4 }
+    : '(' 'func' paramtypes resulttypes ')' { FuncType $3 $4 }
 
 paramtypes :: { [ParamType] }
     : list(paramtype) { concat $1 }
@@ -87,6 +96,33 @@ globaltype :: { GlobalType }
     : valtype { Const $1 }
     | '(' 'mut' valtype ')' { Mut $3 }
 
+labelidx :: { LabelIndex }
+    : u32 { $1 }
+
+funcidx :: { FuncIndex }
+    : u32 { $1 }
+
+typeidx :: { TypeIndex }
+    : u32 { $1 }
+
+plaininstr :: { PlainInstr }
+    : 'unreachable'                  { Unreachable }
+    | 'nop'                          { Nop }
+    | 'br' labelidx                  { Br $2 }
+    | 'br_if' labelidx               { BrIf $2 }
+    | 'br_table' rev_list1(labelidx) { BrTable (reverse $ tail $2) (head $2) }
+    | 'return'                       { Return }
+    | 'call' funcidx                 { Call $2 }
+    | 'call_indirect' typeuse        { CallIndirect $2 }
+
+typedef :: { TypeDef }
+    : '(' 'type' opt(ident) functype ')' { TypeDef $3 $4 }
+
+typeuse :: { TypeUse }
+    : '(' 'type' typeidx ')' { IndexedTypeUse $3 Nothing }
+    | '(' 'type' typeidx paramtypes resulttypes ')' { IndexedTypeUse $3 (Just $ FuncType $4 $5) }
+    | paramtypes resulttypes { AnonimousTypeUse $ FuncType $1 $2 }
+
 -- utils
 
 rev_list(p)
@@ -103,6 +139,10 @@ list(p)
 list1(p)
     : rev_list1(p)   { reverse $1 }
 
+opt(p)
+    : p { Just $1 }
+    |   { Nothing }
+
 {
 
 asUInt32 :: Integer -> Maybe Natural
@@ -117,7 +157,7 @@ data ValueType =
     | F64
     deriving (Show, Eq)
 
-data FuncType = FunctType {
+data FuncType = FuncType {
         params :: [ParamType],
         results :: [ValueType]
     } deriving (Show, Eq)
@@ -136,6 +176,28 @@ data Limit = Limit Natural (Maybe Natural) deriving (Show, Eq)
 data ElemType = AnyFunc deriving (Show, Eq)
 
 data TableType = TableType Limit ElemType deriving (Show, Eq)
+
+type LabelIndex = Natural
+type FuncIndex = Natural
+type TypeIndex = Natural
+
+data PlainInstr =
+    Unreachable
+    | Nop
+    | Br LabelIndex
+    | BrIf LabelIndex
+    | BrTable [LabelIndex] LabelIndex
+    | Return
+    | Call FuncIndex
+    | CallIndirect TypeUse
+    deriving (Show, Eq)
+
+data TypeDef = TypeDef (Maybe Ident) FuncType deriving (Show, Eq)
+
+data TypeUse =
+    IndexedTypeUse TypeIndex (Maybe FuncType)
+    | AnonimousTypeUse FuncType
+    deriving (Show, Eq)
 
 happyError tokens = error $ "Error occuried: " ++ show tokens 
 
