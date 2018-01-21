@@ -4,7 +4,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 
 module Language.Wasm.Parser (
-    
+    foldedinstr
 ) where
 
 import qualified Data.Text as T
@@ -33,7 +33,7 @@ import Language.Wasm.Lexer (
 
 }
 
-%name functype functype
+%name foldedinstr foldedinstr
 %tokentype { Token }
 
 %token
@@ -222,6 +222,7 @@ import Language.Wasm.Lexer (
 'if'                  { TKeyword "if" }
 'else'                { TKeyword "else" }
 'end'                 { TKeyword "end" }
+'then'                { TKeyword "then" }
 id                    { TId $$ }
 u32                   { TIntLit (asUInt32 -> Just $$) }
 i32                   { TIntLit (asInt32 -> Just $$) }
@@ -273,19 +274,24 @@ globaltype :: { GlobalType }
     | '(' 'mut' valtype ')' { Mut $3 }
 
 labelidx :: { LabelIndex }
-    : u32 { $1 }
+    : u32 { Index $1 }
+    | ident { Named $1 }
 
 funcidx :: { FuncIndex }
-    : u32 { $1 }
+    : u32 { Index $1 }
+    | ident { Named $1 }
 
 typeidx :: { TypeIndex }
-    : u32 { $1 }
+    : u32 { Index $1 }
+    | ident { Named $1 }
 
 localidx :: { LocalIndex }
-    : u32 { $1 }
+    : u32 { Index $1 }
+    | ident { Named $1 }
 
 globalidx :: { GlobalIndex }
-    : u32 { $1 }
+    : u32 { Index $1 }
+    | ident { Named $1 }
 
 plaininstr :: { PlainInstr }
     -- control instructions
@@ -488,7 +494,17 @@ instr :: { Instruction }
     -- TODO: check if optional labels are equal if they exist
     | 'loop' opt(ident) opt(resulttype) list(instr) 'end' opt(ident) { LoopInstr $2 (fromMaybe [] $3) $4 }
     -- TODO: check if optional labels are equal if they exist
-    | 'if' opt(ident) opt(resulttype) list(instr) 'else' opt(ident) list(instr) 'end' opt(ident) { IfInstr $2 (fromMaybe [] $3) $4 $7 }
+    | 'if' opt(ident) opt(resulttype) list(instr)
+        'else' opt(ident) list(instr)
+        'end' opt(ident) { IfInstr $2 (fromMaybe [] $3) $4 $7 }
+
+foldedinstr :: { [Instruction] }
+    : '(' plaininstr list(foldedinstr) ')' { concat $3 ++ [PlainInstr $2] }
+    | '(' 'block' opt(ident) opt(resulttype) list(instr) ')' { [BlockInstr $3 (fromMaybe [] $4) $5] }
+    | '(' 'loop' opt(ident) opt(resulttype) list(instr) ')' { [LoopInstr $3 (fromMaybe [] $4) $5] }
+    | '(' 'if' opt(ident) opt(resulttype) list(foldedinstr)
+        '(' 'then' list(instr) ')'
+        '(' 'else' list(instr) opt(')') ')' { concat $5 ++ [IfInstr $3 (fromMaybe [] $4) $8 $12] }
 
 -- utils
 
@@ -573,11 +589,13 @@ data ElemType = AnyFunc deriving (Show, Eq)
 
 data TableType = TableType Limit ElemType deriving (Show, Eq)
 
-type LabelIndex = Natural
-type FuncIndex = Natural
-type TypeIndex = Natural
-type LocalIndex = Natural
-type GlobalIndex = Natural
+data Index = Named Ident | Index Natural deriving (Show, Eq)
+
+type LabelIndex = Index
+type FuncIndex = Index
+type TypeIndex = Index
+type LocalIndex = Index
+type GlobalIndex = Index
 
 data PlainInstr =
     -- Control instructions
