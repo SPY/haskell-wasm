@@ -223,6 +223,11 @@ import Language.Wasm.Lexer (
 'else'                { TKeyword "else" }
 'end'                 { TKeyword "end" }
 'then'                { TKeyword "then" }
+'table'               { TKeyword "table" }
+'memory'              { TKeyword "memory" }
+'global'              { TKeyword "global" }
+'import'              { TKeyword "import" }
+'local'               { TKeyword "local" }
 id                    { TId $$ }
 u32                   { TIntLit (asUInt32 -> Just $$) }
 i32                   { TIntLit (asInt32 -> Just $$) }
@@ -231,6 +236,7 @@ f32                   { TFloatLit (asFloat32 -> $$) }
 f64                   { TFloatLit (asFloat64 -> $$) }
 offset                { TKeyword (asOffset -> Just $$) }
 align                 { TKeyword (asAlign -> Just $$) }
+name                  { TStringLit (asName -> Just $$) }
 
 %%
 
@@ -242,7 +248,7 @@ paramtypes :: { [ParamType] }
 
 paramtype :: { [ParamType] }
     : '(' 'param' ident valtype ')' { [ParamType (Just $3) $4] }
-    | '(' 'param' list1(valtype) ')' { map (ParamType Nothing) $3 }
+    | '(' 'param' list(valtype) ')' { map (ParamType Nothing) $3 }
 
 ident :: { Ident }
     : id { Ident (TL.toStrict (TLEncoding.decodeUtf8 $1)) }
@@ -506,6 +512,25 @@ foldedinstr :: { [Instruction] }
         '(' 'then' list(instr) ')'
         '(' 'else' list(instr) opt(')') ')' { concat $5 ++ [IfInstr $3 (fromMaybe [] $4) $8 $12] }
 
+importdesc :: { ImportDesc }
+    : '(' 'func' opt(ident) typeuse ')' { ImportFunc $3 $4 }
+    | '(' 'table' opt(ident) tabletype ')' { ImportTable $3 $4 }
+    | '(' 'memory' opt(ident) limits ')' { ImportMemory $3 $4 }
+    | '(' 'global' opt(ident) globaltype ')' { ImportGlobal $3 $4 }
+
+import :: { Import }
+    : '(' 'import' name name importdesc ')' { Import $3 $4 $5 }
+
+localtypes :: { [LocalType] }
+    : list(localtype) { concat $1 }
+
+localtype :: { [LocalType] }
+    : '(' 'local' ident valtype ')' { [LocalType (Just $3) $4] }
+    | '(' 'local' list(valtype) ')' { map (LocalType Nothing) $3 }
+
+function :: { Function }
+    : '(' 'func' opt(ident) typeuse localtypes list(foldedinstr) ')' { Function $3 $4 $5 (concat $6) }
+
 -- utils
 
 rev_list(p)
@@ -558,6 +583,12 @@ asAlign :: LBS.ByteString -> Maybe Natural
 asAlign str = do
     num <- TL.stripPrefix "align=" $ TLEncoding.decodeUtf8 str
     fromIntegral . fst <$> eitherToMaybe (TLRead.decimal num)
+
+-- TODO: check name conditions.
+-- Presuming the source text is itself encoded correctly,
+-- strings that do not contain any uses of hexadecimal byte escapes are always valid names.
+asName :: LBS.ByteString -> Maybe TL.Text
+asName = Just . TLEncoding.decodeUtf8
 
 eitherToMaybe :: Either left right -> Maybe right
 eitherToMaybe = either (const Nothing) Just
@@ -798,6 +829,28 @@ data Instruction =
         resultType :: [ValueType],
         trueBranch :: [Instruction],
         falseBranch :: [Instruction]
+    }
+    deriving (Show, Eq)
+
+data Import = Import { sourceModule :: TL.Text, name :: TL.Text, desc :: ImportDesc } deriving (Show, Eq)
+
+data ImportDesc =
+    ImportFunc (Maybe Ident) TypeUse
+    | ImportTable (Maybe Ident) TableType
+    | ImportMemory (Maybe Ident) Limit
+    | ImportGlobal (Maybe Ident) GlobalType
+    deriving (Show, Eq)
+
+data LocalType = LocalType {
+        ident :: Maybe Ident,
+        localType :: ValueType
+    } deriving (Show, Eq)
+
+data Function = Function {
+        ident :: Maybe Ident,
+        funType :: TypeUse,
+        locals :: [LocalType],
+        body :: [Instruction]
     }
     deriving (Show, Eq)
 
