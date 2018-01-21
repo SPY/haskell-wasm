@@ -1,6 +1,7 @@
 {
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 
 module Language.Wasm.Parser (
     
@@ -216,6 +217,11 @@ import Language.Wasm.Lexer (
 'i64.reinterpret/f64' { TKeyword "i64.reinterpret/f64" }
 'f32.reinterpret/i32' { TKeyword "f32.reinterpret/i32" }
 'f64.reinterpret/i64' { TKeyword "f64.reinterpret/i64" }
+'block'               { TKeyword "block" }
+'loop'                { TKeyword "loop" }
+'if'                  { TKeyword "if" }
+'else'                { TKeyword "else" }
+'end'                 { TKeyword "end" }
 id                    { TId $$ }
 u32                   { TIntLit (asUInt32 -> Just $$) }
 i32                   { TIntLit (asInt32 -> Just $$) }
@@ -474,6 +480,15 @@ memarg4 :: { MemArg }
 
 memarg8 :: { MemArg }
     : opt(offset) opt(align) { MemArg (fromMaybe 0 $1) (fromMaybe 8 $2) }
+
+instr :: { Instruction }
+    : plaininstr { PlainInstr $1 }
+    -- TODO: check if optional labels are equal if they exist
+    | 'block' opt(ident) opt(resulttype) list(instr) 'end' opt(ident) { BlockInstr $2 (fromMaybe [] $3) $4 }
+    -- TODO: check if optional labels are equal if they exist
+    | 'loop' opt(ident) opt(resulttype) list(instr) 'end' opt(ident) { LoopInstr $2 (fromMaybe [] $3) $4 }
+    -- TODO: check if optional labels are equal if they exist
+    | 'if' opt(ident) opt(resulttype) list(instr) 'else' opt(ident) list(instr) 'end' opt(ident) { IfInstr $2 (fromMaybe [] $3) $4 $7 }
 
 -- utils
 
@@ -747,6 +762,26 @@ data TypeUse =
     deriving (Show, Eq)
 
 data MemArg = MemArg { offset :: Natural, align :: Natural } deriving (Show, Eq)
+
+data Instruction =
+    PlainInstr PlainInstr
+    | BlockInstr {
+        label :: Maybe Ident,
+        resultType :: [ValueType],
+        body :: [Instruction]
+    }
+    | LoopInstr {
+        label :: Maybe Ident,
+        resultType :: [ValueType],
+        body :: [Instruction]
+    }
+    | IfInstr {
+        label :: Maybe Ident,
+        resultType :: [ValueType],
+        trueBranch :: [Instruction],
+        falseBranch :: [Instruction]
+    }
+    deriving (Show, Eq)
 
 happyError tokens = error $ "Error occuried: " ++ show tokens 
 
