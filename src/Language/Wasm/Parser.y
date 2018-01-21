@@ -272,7 +272,7 @@ resulttypes :: { [ValueType] }
     : list(resulttype) { concat $1 }
 
 resulttype :: { [ValueType] }
-    : '(' 'result' list1(valtype) ')' { $3 }
+    : '(' 'result' list(valtype) ')' { $3 }
 
 limits :: { Limit }
     : u32 u32 { Limit (fromIntegral $1) (Just $ fromIntegral $2) }
@@ -494,9 +494,25 @@ typedef :: { TypeDef }
     : '(' 'type' opt(ident) functype ')' { TypeDef $3 $4 }
 
 typeuse :: { TypeUse }
-    : '(' 'type' typeidx ')' { IndexedTypeUse $3 Nothing }
-    | '(' 'type' typeidx paramtypes resulttypes ')' { IndexedTypeUse $3 (Just $ FuncType $4 $5) }
-    | paramtypes resulttypes { AnonimousTypeUse $ FuncType $1 $2 }
+    : '(' typeuse1 { $2 }
+    | {- empty -} { AnonimousTypeUse $ FuncType [] [] }
+
+typeuse1 :: { TypeUse }
+    : 'type' typeidx typedtypeuse { IndexedTypeUse $2 $3 }
+    | paramsresultstypeuse { AnonimousTypeUse $1 }
+
+typedtypeuse :: { Maybe FuncType }
+    : ')' { Nothing }
+    | '(' paramsresultstypeuse { Just $2 }
+
+paramsresultstypeuse :: { FuncType }
+    : paramsresultstypeuse '(' paramsresulttypeuse { mergeFuncType $1 $3 }
+    | paramsresulttypeuse { $1 }
+
+paramsresulttypeuse :: { FuncType }
+    : 'param' list(valtype) ')' { FuncType (map (ParamType Nothing) $2) [] }
+    | 'param' ident valtype ')' { FuncType [ParamType (Just $2) $3] [] }
+    | 'result' list(valtype) ')' { FuncType [] $2 }
 
 memarg1 :: { MemArg }
     : opt(offset) opt(align) { MemArg (fromMaybe 0 $1) (fromMaybe 1 $2) }
@@ -626,6 +642,9 @@ opt(p)
     |   { Nothing }
 
 {
+
+mergeFuncType :: FuncType -> FuncType -> FuncType
+mergeFuncType (FuncType lps lrs) (FuncType rps rrs) = FuncType (lps ++ rps) (lrs ++ rrs)
 
 asUInt32 :: Integer -> Maybe Natural
 asUInt32 val
