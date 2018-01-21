@@ -520,6 +520,7 @@ importdesc :: { ImportDesc }
 
 import :: { Import }
     : '(' 'import' name name importdesc ')' { Import $3 $4 $5 }
+    | '(' 'func' opt(ident) '(' 'import' name name ')' typeuse ')' { Import $6 $7 $ ImportFunc $3 $9 }
 
 localtypes :: { [LocalType] }
     : list(localtype) { concat $1 }
