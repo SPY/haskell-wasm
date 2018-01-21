@@ -8,9 +8,10 @@ import Test.Tasty.HUnit
 import qualified Data.ByteString.Lazy as LBS
 
 import qualified Language.Wasm.Lexer as Lexer
+import qualified Language.Wasm.Parser as Parser
 
 main :: IO ()
 main = do
-  file <- LBS.readFile "tests/samples/f64.wast"
-  print $ map Lexer.tok <$> Lexer.scanner file
+  file <- LBS.readFile "tests/samples/mod.wast"
+  print $ Parser.parseModule . map Lexer.tok <$> Lexer.scanner file
   defaultMain $ testGroup "Test Suite" []

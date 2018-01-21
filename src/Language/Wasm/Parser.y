@@ -4,7 +4,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 
 module Language.Wasm.Parser (
-    foldedinstr
+    parseModule
 ) where
 
 import qualified Data.Text as T
@@ -33,7 +33,7 @@ import Language.Wasm.Lexer (
 
 }
 
-%name foldedinstr foldedinstr
+%name parseModule mod
 %tokentype { Token }
 
 %token
@@ -227,7 +227,13 @@ import Language.Wasm.Lexer (
 'memory'              { TKeyword "memory" }
 'global'              { TKeyword "global" }
 'import'              { TKeyword "import" }
+'export'              { TKeyword "export" }
 'local'               { TKeyword "local" }
+'elem'                { TKeyword "elem" }
+'data'                { TKeyword "data" }
+'offset'              { TKeyword "offset" }
+'start'               { TKeyword "start" }
+'module'              { TKeyword "module" }
 id                    { TId $$ }
 u32                   { TIntLit (asUInt32 -> Just $$) }
 i32                   { TIntLit (asInt32 -> Just $$) }
@@ -237,6 +243,7 @@ f64                   { TFloatLit (asFloat64 -> $$) }
 offset                { TKeyword (asOffset -> Just $$) }
 align                 { TKeyword (asAlign -> Just $$) }
 name                  { TStringLit (asName -> Just $$) }
+string                { TStringLit (asString -> Just $$) }
 
 %%
 
@@ -296,6 +303,14 @@ localidx :: { LocalIndex }
     | ident { Named $1 }
 
 globalidx :: { GlobalIndex }
+    : u32 { Index $1 }
+    | ident { Named $1 }
+
+tableidx :: { TableIndex }
+    : u32 { Index $1 }
+    | ident { Named $1 }
+
+memidx :: { MemoryIndex }
     : u32 { Index $1 }
     | ident { Named $1 }
 
@@ -543,6 +558,51 @@ memory :: { Memory }
 table :: { Table }
     : '(' 'table' opt(ident) tabletype ')' { Table $3 $4 }
 
+exportdesc :: { ExportDesc }
+    : '(' 'func' funcidx ')' { ExportFunc $3 }
+    | '(' 'table' tableidx ')' { ExportTable $3 }
+    | '(' 'memory' memidx ')' { ExportMemory $3 }
+    | '(' 'global' globalidx ')' { ExportGlobal $3 }
+
+export :: { Export }
+    : '(' 'export' name exportdesc ')' { Export $3 $4 }
+
+start :: { StartFunction }
+    : '(' 'start' funcidx ')' { StartFunction $3 }
+
+-- TODO: Spec from 09 Jan 2018 declares 'offset' keyword as mandatory,
+-- but collection of testcases omits 'offset' in this position
+-- I am going to support both options for now, but maybe it has to be updated in future.
+offsetexpr :: { [Instruction] }
+    : '(' 'offset' foldedinstr ')' { $3 }
+    | foldedinstr { $1 } 
+
+elemsegment :: { ElemSegment }
+    : '(' 'elem' opt(tableidx) offsetexpr list(funcidx) ')' { ElemSegment (fromMaybe (Index 0) $3) $4 $5 }
+
+datasegment :: { DataSegment }
+    : '(' 'data' opt(memidx) offsetexpr list(string) ')' { DataSegment (fromMaybe (Index 0) $3) $4 (TL.concat $5) }
+
+modulefield :: { ModuleField }
+    : typedef { MFType $1 }
+    | import { MFImport $1 }
+    | function { MFFunc $1 }
+    | table { MFTable $1 }
+    | memory { MFMem $1 }
+    | global { MFGlobal $1 }
+    | export { MFExport $1 }
+    | start { MFStart $1 }
+    | elemsegment { MFElem $1 }
+    | datasegment { MFData $1 }
+
+modulefields :: { Module }
+    : modulefields modulefield { appendModuleField $2 $1 }
+    | { emptyModule }
+
+mod :: { Module }
+    : '(' 'module' modulefields ')' { reverseModuleFields $3 }
+    | modulefields { reverseModuleFields $1 }
+
 -- utils
 
 rev_list(p)
@@ -602,6 +662,9 @@ asAlign str = do
 asName :: LBS.ByteString -> Maybe TL.Text
 asName = Just . TLEncoding.decodeUtf8
 
+asString :: LBS.ByteString -> Maybe TL.Text
+asString = Just . TLEncoding.decodeUtf8
+
 eitherToMaybe :: Either left right -> Maybe right
 eitherToMaybe = either (const Nothing) Just
 
@@ -639,6 +702,8 @@ type FuncIndex = Index
 type TypeIndex = Index
 type LocalIndex = Index
 type GlobalIndex = Index
+type TableIndex = Index
+type MemoryIndex = Index
 
 data PlainInstr =
     -- Control instructions
@@ -844,7 +909,11 @@ data Instruction =
     }
     deriving (Show, Eq)
 
-data Import = Import { sourceModule :: TL.Text, name :: TL.Text, desc :: ImportDesc } deriving (Show, Eq)
+data Import = Import {
+        sourceModule :: TL.Text,
+        name :: TL.Text,
+        desc :: ImportDesc
+    } deriving (Show, Eq)
 
 data ImportDesc =
     ImportFunc (Maybe Ident) TypeUse
@@ -876,6 +945,106 @@ data Global = Global {
 data Memory = Memory (Maybe Ident) Limit deriving (Show, Eq)
 
 data Table = Table (Maybe Ident) TableType deriving (Show, Eq)
+
+data ExportDesc =
+    ExportFunc FuncIndex
+    | ExportTable TableIndex
+    | ExportMemory MemoryIndex
+    | ExportGlobal GlobalIndex
+    deriving (Show, Eq)
+
+data Export = Export {
+        name :: TL.Text,
+        desc :: ExportDesc
+    }
+    deriving (Show, Eq)
+
+data StartFunction = StartFunction FuncIndex deriving (Show, Eq)
+
+data ElemSegment = ElemSegment {
+        tableIndex :: TableIndex,
+        offset :: [Instruction],
+        funcIndexes :: [FuncIndex]
+    }
+    deriving (Show, Eq)
+
+data DataSegment = DataSegment {
+        memIndex :: MemoryIndex,
+        offset :: [Instruction],
+        datastring :: TL.Text
+    }
+    deriving (Show, Eq)
+
+data ModuleField =
+    MFType TypeDef
+    | MFImport Import
+    | MFFunc Function
+    | MFTable Table
+    | MFMem Memory
+    | MFGlobal Global
+    | MFExport Export
+    | MFStart StartFunction
+    | MFElem ElemSegment
+    | MFData DataSegment
+    deriving(Show, Eq)
+
+data Module = Module {
+        types     :: [TypeDef],
+        imports   :: [Import],
+        functions :: [Function],
+        tables    :: [Table],
+        memories  :: [Memory],
+        globals   :: [Global],
+        exports   :: [Export],
+        start     :: Maybe StartFunction,
+        elems     :: [ElemSegment],
+        datas     :: [DataSegment]
+    }
+    deriving (Show, Eq)
+
+emptyModule :: Module
+emptyModule =
+    Module {
+        types = [],
+        imports = [],
+        functions = [],
+        tables = [],
+        memories = [],
+        globals = [],
+        exports = [],
+        start = Nothing,
+        elems = [],
+        datas = []
+    }
+
+appendModuleField :: ModuleField -> Module -> Module
+appendModuleField field mod =
+    case field of
+        MFType typeDef -> mod { types = typeDef : types mod }
+        MFImport imp -> mod { imports = imp : imports mod }
+        MFFunc func -> mod { functions = func : functions mod }
+        MFTable table -> mod { tables = table : tables mod }
+        MFMem mem -> mod { memories = mem : memories mod }
+        MFGlobal global -> mod { globals = global : globals mod }
+        MFExport exp -> mod { exports = exp : exports mod }
+        MFStart startFunc -> mod { start = Just startFunc }
+        MFElem elem -> mod { elems = elem : elems mod }
+        MFData dataSeg -> mod { datas = dataSeg : datas mod }
+
+reverseModuleFields :: Module -> Module
+reverseModuleFields mod =
+    Module {
+        types = reverse $ types mod,
+        imports = reverse $ imports mod,
+        functions = reverse $ functions mod,
+        tables = reverse $ tables mod,
+        memories = reverse $ memories mod,
+        globals = reverse $ globals mod,
+        exports = reverse $ exports mod,
+        start = start mod,
+        elems = reverse $ elems mod,
+        datas = reverse $ datas mod
+    }
 
 happyError tokens = error $ "Error occuried: " ++ show tokens 
 
