@@ -2,6 +2,7 @@
 module Language.Wasm.Lexer (
     Lexeme(..),
     Token(..),
+    AlexPosn(..),
     scanner
 ) where
 

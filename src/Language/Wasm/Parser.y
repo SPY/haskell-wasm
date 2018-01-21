@@ -28,222 +28,224 @@ import Language.Wasm.Lexer (
             TCloseBracket,
             TReserved,
             EOF
-        )
+        ),
+        Lexeme(..),
+        AlexPosn(..)
     )
 
 }
 
 %name parseModule mod
-%tokentype { Token }
+%tokentype { Lexeme }
 
 %token
 
-'('                { TOpenBracket }
-')'                { TCloseBracket }
-'func'                { TKeyword "func" }
-'param'               { TKeyword "param" }
-'result'              { TKeyword "result" }
-'i32'                 { TKeyword "i32" }
-'i64'                 { TKeyword "i64" }
-'f32'                 { TKeyword "f32" }
-'f64'                 { TKeyword "f64" }
-'mut'                 { TKeyword "mut" }
-'anyfunc'             { TKeyword "anyfunc" }
-'type'                { TKeyword "type" }
-'unreachable'         { TKeyword "unreachable" }
-'nop'                 { TKeyword "nop" }
-'br'                  { TKeyword "br" }
-'br_if'               { TKeyword "br_if" }
-'br_table'            { TKeyword "br_table" }
-'return'              { TKeyword "return" }
-'call'                { TKeyword "call" }
-'call_indirect'       { TKeyword "call_indirect" }
-'drop'                { TKeyword "drop" }
-'select'              { TKeyword "select" }
-'get_local'           { TKeyword "get_local" }
-'set_local'           { TKeyword "set_local" }
-'tee_local'           { TKeyword "tee_local" }
-'get_global'          { TKeyword "get_global" }
-'set_global'          { TKeyword "set_global" }
-'i32.load'            { TKeyword "i32.load" }
-'i64.load'            { TKeyword "i64.load" }
-'f32.load'            { TKeyword "f32.load" }
-'f64.load'            { TKeyword "f64.load" }
-'i32.load8_s'         { TKeyword "i32.load8_s" }
-'i32.load8_u'         { TKeyword "i32.load8_u" }
-'i32.load16_s'        { TKeyword "i32.load16_s" }
-'i32.load16_u'        { TKeyword "i32.load16_u" }
-'i64.load8_s'         { TKeyword "i64.load8_s" }
-'i64.load8_u'         { TKeyword "i64.load8_u" }
-'i64.load16_s'        { TKeyword "i64.load16_s" }
-'i64.load16_u'        { TKeyword "i64.load16_u" }
-'i64.load32_s'        { TKeyword "i64.load32_s" }
-'i64.load32_u'        { TKeyword "i64.load32_u" }
-'i32.store'           { TKeyword "i32.store" }
-'i64.store'           { TKeyword "i64.store" }
-'f32.store'           { TKeyword "f32.store" }
-'f64.store'           { TKeyword "f64.store" }
-'i32.store8'          { TKeyword "i32.store8" }
-'i32.store16'         { TKeyword "i32.store16" }
-'i64.store8'          { TKeyword "i64.store" }
-'i64.store16'         { TKeyword "i64.store" }
-'i64.store32'         { TKeyword "i64.store" }
-'current_memory'      { TKeyword "current_memory" }
-'grow_memory'         { TKeyword "grow_memory" }
-'i32.const'           { TKeyword "i32.const" }
-'i64.const'           { TKeyword "i64.const" }
-'f32.const'           { TKeyword "f32.const" }
-'f64.const'           { TKeyword "f64.const" }
-'i32.clz'             { TKeyword "i32.clz" }
-'i32.ctz'             { TKeyword "i32.ctz" }
-'i32.popcnt'          { TKeyword "i32.popcnt" }
-'i32.add'             { TKeyword "i32.add" }
-'i32.sub'             { TKeyword "i32.sub" }
-'i32.mul'             { TKeyword "i32.mul" }
-'i32.div_s'           { TKeyword "i32.div_s" }
-'i32.div_u'           { TKeyword "i32.div_u" }
-'i32.rem_s'           { TKeyword "i32.rem_s" }
-'i32.rem_u'           { TKeyword "i32.rem_u" }
-'i32.and'             { TKeyword "i32.and" }
-'i32.or'              { TKeyword "i32.or" }
-'i32.xor'             { TKeyword "i32.xor" }
-'i32.shl'             { TKeyword "i32.shl" }
-'i32.shr_s'           { TKeyword "i32.shr_s" }
-'i32.shr_u'           { TKeyword "i32.shr_u" }
-'i32.rotl'            { TKeyword "i32.rotl" }
-'i32.rotr'            { TKeyword "i32.rotr" }
-'i64.clz'             { TKeyword "i64.clz" }
-'i64.ctz'             { TKeyword "i64.ctz" }
-'i64.popcnt'          { TKeyword "i64.popcnt" }
-'i64.add'             { TKeyword "i64.add" }
-'i64.sub'             { TKeyword "i64.sub" }
-'i64.mul'             { TKeyword "i64.mul" }
-'i64.div_s'           { TKeyword "i64.div_s" }
-'i64.div_u'           { TKeyword "i64.div_u" }
-'i64.rem_s'           { TKeyword "i64.rem_s" }
-'i64.rem_u'           { TKeyword "i64.rem_u" }
-'i64.and'             { TKeyword "i64.and" }
-'i64.or'              { TKeyword "i64.or" }
-'i64.xor'             { TKeyword "i64.xor" }
-'i64.shl'             { TKeyword "i64.shl" }
-'i64.shr_s'           { TKeyword "i64.shr_s" }
-'i64.shr_u'           { TKeyword "i64.shr_u" }
-'i64.rotl'            { TKeyword "i64.rotl" }
-'i64.rotr'            { TKeyword "i64.rotr" }
-'f32.abs'             { TKeyword "f32.abs" }
-'f32.neg'             { TKeyword "f32.neg" }
-'f32.ceil'            { TKeyword "f32.ceil" }
-'f32.floor'           { TKeyword "f32.floor" }
-'f32.trunc'           { TKeyword "f32.trunc" }
-'f32.nearest'         { TKeyword "f32.nearest" }
-'f32.sqrt'            { TKeyword "f32.sqrt" }
-'f32.add'             { TKeyword "f32.add" }
-'f32.sub'             { TKeyword "f32.sub" }
-'f32.mul'             { TKeyword "f32.mul" }
-'f32.div'             { TKeyword "f32.div" }
-'f32.min'             { TKeyword "f32.min" }
-'f32.max'             { TKeyword "f32.max" }
-'f32.copysign'        { TKeyword "f32.copysign" }
-'f64.abs'             { TKeyword "f64.abs" }
-'f64.neg'             { TKeyword "f64.neg" }
-'f64.ceil'            { TKeyword "f64.ceil" }
-'f64.floor'           { TKeyword "f64.floor" }
-'f64.trunc'           { TKeyword "f64.trunc" }
-'f64.nearest'         { TKeyword "f64.nearest" }
-'f64.sqrt'            { TKeyword "f64.sqrt" }
-'f64.add'             { TKeyword "f64.add" }
-'f64.sub'             { TKeyword "f64.sub" }
-'f64.mul'             { TKeyword "f64.mul" }
-'f64.div'             { TKeyword "f64.div" }
-'f64.min'             { TKeyword "f64.min" }
-'f64.max'             { TKeyword "f64.max" }
-'f64.copysign'        { TKeyword "f64.copysign" }
-'i32.eqz'             { TKeyword "i32.eqz" }
-'i32.eq'              { TKeyword "i32.eq" }
-'i32.ne'              { TKeyword "i32.ne" }
-'i32.lt_s'            { TKeyword "i32.lt_s" }
-'i32.lt_u'            { TKeyword "i32.lt_u" }
-'i32.gt_s'            { TKeyword "i32.gt_s" }
-'i32.gt_u'            { TKeyword "i32.gt_u" }
-'i32.le_s'            { TKeyword "i32.le_s" }
-'i32.le_u'            { TKeyword "i32.le_u" }
-'i32.ge_s'            { TKeyword "i32.ge_s" }
-'i32.ge_u'            { TKeyword "i32.ge_u" }
-'i64.eqz'             { TKeyword "i64.eqz" }
-'i64.eq'              { TKeyword "i64.eq" }
-'i64.ne'              { TKeyword "i64.ne" }
-'i64.lt_s'            { TKeyword "i64.lt_s" }
-'i64.lt_u'            { TKeyword "i64.lt_u" }
-'i64.gt_s'            { TKeyword "i64.gt_s" }
-'i64.gt_u'            { TKeyword "i64.gt_u" }
-'i64.le_s'            { TKeyword "i64.le_s" }
-'i64.le_u'            { TKeyword "i64.le_u" }
-'i64.ge_s'            { TKeyword "i64.ge_s" }
-'i64.ge_u'            { TKeyword "i64.ge_u" }
-'f32.eq'              { TKeyword "f32.eq" }
-'f32.ne'              { TKeyword "f32.ne" }
-'f32.lt'              { TKeyword "f32.lt" }
-'f32.gt'              { TKeyword "f32.gt" }
-'f32.le'              { TKeyword "f32.le" }
-'f32.ge'              { TKeyword "f32.ge" }
-'f64.eq'              { TKeyword "f64.eq" }
-'f64.ne'              { TKeyword "f64.ne" }
-'f64.lt'              { TKeyword "f64.lt" }
-'f64.gt'              { TKeyword "f64.gt" }
-'f64.le'              { TKeyword "f64.le" }
-'f64.ge'              { TKeyword "f64.ge" }
-'i32.wrap/i64'        { TKeyword "i32.wrap/i64" }
-'i32.trunc_s/f32'     { TKeyword "i32.trunc_s/f32" }
-'i32.trunc_u/f32'     { TKeyword "i32.trunc_u/f32" }
-'i32.trunc_s/f64'     { TKeyword "i32.trunc_s/f64" }
-'i32.trunc_u/f64'     { TKeyword "i32.trunc_u/f64" }
-'i64.extend_s/i32'    { TKeyword "i64.extend_s/i32" }
-'i64.extend_u/i32'    { TKeyword "i64.extend_u/i32" }
-'i64.trunc_s/f32'     { TKeyword "i64.trunc_s/f32" }
-'i64.trunc_u/f32'     { TKeyword "i64.trunc_u/f32" }
-'i64.trunc_s/f64'     { TKeyword "i64.trunc_s/f64" }
-'i64.trunc_u/f64'     { TKeyword "i64.trunc_u/f64" }
-'f32.convert_s/i32'   { TKeyword "f32.convert_s/i32" }
-'f32.convert_u/i32'   { TKeyword "f32.convert_u/i32" }
-'f32.convert_s/i64'   { TKeyword "f32.convert_s/i64" }
-'f32.convert_u/i64'   { TKeyword "f32.convert_u/i64" }
-'f32.demote/f64'      { TKeyword "f32.demote/f64" }
-'f64.convert_s/i32'   { TKeyword "f64.convert_s/i32" }
-'f64.convert_u/i32'   { TKeyword "f64.convert_u/i32" }
-'f64.convert_s/i64'   { TKeyword "f64.convert_s/i64" }
-'f64.convert_u/i64'   { TKeyword "f64.convert_u/i64" }
-'f64.promote/f32'     { TKeyword "f64.promote/f32" }
-'i32.reinterpret/f32' { TKeyword "i32.reinterpret/f32" }
-'i64.reinterpret/f64' { TKeyword "i64.reinterpret/f64" }
-'f32.reinterpret/i32' { TKeyword "f32.reinterpret/i32" }
-'f64.reinterpret/i64' { TKeyword "f64.reinterpret/i64" }
-'block'               { TKeyword "block" }
-'loop'                { TKeyword "loop" }
-'if'                  { TKeyword "if" }
-'else'                { TKeyword "else" }
-'end'                 { TKeyword "end" }
-'then'                { TKeyword "then" }
-'table'               { TKeyword "table" }
-'memory'              { TKeyword "memory" }
-'global'              { TKeyword "global" }
-'import'              { TKeyword "import" }
-'export'              { TKeyword "export" }
-'local'               { TKeyword "local" }
-'elem'                { TKeyword "elem" }
-'data'                { TKeyword "data" }
-'offset'              { TKeyword "offset" }
-'start'               { TKeyword "start" }
-'module'              { TKeyword "module" }
-id                    { TId $$ }
-u32                   { TIntLit (asUInt32 -> Just $$) }
-i32                   { TIntLit (asInt32 -> Just $$) }
-i64                   { TIntLit (asInt64 -> Just $$) }
-f32                   { TFloatLit (asFloat32 -> $$) }
-f64                   { TFloatLit (asFloat64 -> $$) }
-offset                { TKeyword (asOffset -> Just $$) }
-align                 { TKeyword (asAlign -> Just $$) }
-name                  { TStringLit (asName -> Just $$) }
-string                { TStringLit (asString -> Just $$) }
+'('                   { Lexeme _ TOpenBracket }
+')'                   { Lexeme _ TCloseBracket }
+'func'                { Lexeme _ (TKeyword "func") }
+'param'               { Lexeme _ (TKeyword "param") }
+'result'              { Lexeme _ (TKeyword "result") }
+'i32'                 { Lexeme _ (TKeyword "i32") }
+'i64'                 { Lexeme _ (TKeyword "i64") }
+'f32'                 { Lexeme _ (TKeyword "f32") }
+'f64'                 { Lexeme _ (TKeyword "f64") }
+'mut'                 { Lexeme _ (TKeyword "mut") }
+'anyfunc'             { Lexeme _ (TKeyword "anyfunc") }
+'type'                { Lexeme _ (TKeyword "type") }
+'unreachable'         { Lexeme _ (TKeyword "unreachable") }
+'nop'                 { Lexeme _ (TKeyword "nop") }
+'br'                  { Lexeme _ (TKeyword "br") }
+'br_if'               { Lexeme _ (TKeyword "br_if") }
+'br_table'            { Lexeme _ (TKeyword "br_table") }
+'return'              { Lexeme _ (TKeyword "return") }
+'call'                { Lexeme _ (TKeyword "call") }
+'call_indirect'       { Lexeme _ (TKeyword "call_indirect") }
+'drop'                { Lexeme _ (TKeyword "drop") }
+'select'              { Lexeme _ (TKeyword "select") }
+'get_local'           { Lexeme _ (TKeyword "get_local") }
+'set_local'           { Lexeme _ (TKeyword "set_local") }
+'tee_local'           { Lexeme _ (TKeyword "tee_local") }
+'get_global'          { Lexeme _ (TKeyword "get_global") }
+'set_global'          { Lexeme _ (TKeyword "set_global") }
+'i32.load'            { Lexeme _ (TKeyword "i32.load") }
+'i64.load'            { Lexeme _ (TKeyword "i64.load") }
+'f32.load'            { Lexeme _ (TKeyword "f32.load") }
+'f64.load'            { Lexeme _ (TKeyword "f64.load") }
+'i32.load8_s'         { Lexeme _ (TKeyword "i32.load8_s") }
+'i32.load8_u'         { Lexeme _ (TKeyword "i32.load8_u") }
+'i32.load16_s'        { Lexeme _ (TKeyword "i32.load16_s") }
+'i32.load16_u'        { Lexeme _ (TKeyword "i32.load16_u") }
+'i64.load8_s'         { Lexeme _ (TKeyword "i64.load8_s") }
+'i64.load8_u'         { Lexeme _ (TKeyword "i64.load8_u") }
+'i64.load16_s'        { Lexeme _ (TKeyword "i64.load16_s") }
+'i64.load16_u'        { Lexeme _ (TKeyword "i64.load16_u") }
+'i64.load32_s'        { Lexeme _ (TKeyword "i64.load32_s") }
+'i64.load32_u'        { Lexeme _ (TKeyword "i64.load32_u") }
+'i32.store'           { Lexeme _ (TKeyword "i32.store") }
+'i64.store'           { Lexeme _ (TKeyword "i64.store") }
+'f32.store'           { Lexeme _ (TKeyword "f32.store") }
+'f64.store'           { Lexeme _ (TKeyword "f64.store") }
+'i32.store8'          { Lexeme _ (TKeyword "i32.store8") }
+'i32.store16'         { Lexeme _ (TKeyword "i32.store16") }
+'i64.store8'          { Lexeme _ (TKeyword "i64.store") }
+'i64.store16'         { Lexeme _ (TKeyword "i64.store") }
+'i64.store32'         { Lexeme _ (TKeyword "i64.store") }
+'current_memory'      { Lexeme _ (TKeyword "current_memory") }
+'grow_memory'         { Lexeme _ (TKeyword "grow_memory") }
+'i32.const'           { Lexeme _ (TKeyword "i32.const") }
+'i64.const'           { Lexeme _ (TKeyword "i64.const") }
+'f32.const'           { Lexeme _ (TKeyword "f32.const") }
+'f64.const'           { Lexeme _ (TKeyword "f64.const") }
+'i32.clz'             { Lexeme _ (TKeyword "i32.clz") }
+'i32.ctz'             { Lexeme _ (TKeyword "i32.ctz") }
+'i32.popcnt'          { Lexeme _ (TKeyword "i32.popcnt") }
+'i32.add'             { Lexeme _ (TKeyword "i32.add") }
+'i32.sub'             { Lexeme _ (TKeyword "i32.sub") }
+'i32.mul'             { Lexeme _ (TKeyword "i32.mul") }
+'i32.div_s'           { Lexeme _ (TKeyword "i32.div_s") }
+'i32.div_u'           { Lexeme _ (TKeyword "i32.div_u") }
+'i32.rem_s'           { Lexeme _ (TKeyword "i32.rem_s") }
+'i32.rem_u'           { Lexeme _ (TKeyword "i32.rem_u") }
+'i32.and'             { Lexeme _ (TKeyword "i32.and") }
+'i32.or'              { Lexeme _ (TKeyword "i32.or") }
+'i32.xor'             { Lexeme _ (TKeyword "i32.xor") }
+'i32.shl'             { Lexeme _ (TKeyword "i32.shl") }
+'i32.shr_s'           { Lexeme _ (TKeyword "i32.shr_s") }
+'i32.shr_u'           { Lexeme _ (TKeyword "i32.shr_u") }
+'i32.rotl'            { Lexeme _ (TKeyword "i32.rotl") }
+'i32.rotr'            { Lexeme _ (TKeyword "i32.rotr") }
+'i64.clz'             { Lexeme _ (TKeyword "i64.clz") }
+'i64.ctz'             { Lexeme _ (TKeyword "i64.ctz") }
+'i64.popcnt'          { Lexeme _ (TKeyword "i64.popcnt") }
+'i64.add'             { Lexeme _ (TKeyword "i64.add") }
+'i64.sub'             { Lexeme _ (TKeyword "i64.sub") }
+'i64.mul'             { Lexeme _ (TKeyword "i64.mul") }
+'i64.div_s'           { Lexeme _ (TKeyword "i64.div_s") }
+'i64.div_u'           { Lexeme _ (TKeyword "i64.div_u") }
+'i64.rem_s'           { Lexeme _ (TKeyword "i64.rem_s") }
+'i64.rem_u'           { Lexeme _ (TKeyword "i64.rem_u") }
+'i64.and'             { Lexeme _ (TKeyword "i64.and") }
+'i64.or'              { Lexeme _ (TKeyword "i64.or") }
+'i64.xor'             { Lexeme _ (TKeyword "i64.xor") }
+'i64.shl'             { Lexeme _ (TKeyword "i64.shl") }
+'i64.shr_s'           { Lexeme _ (TKeyword "i64.shr_s") }
+'i64.shr_u'           { Lexeme _ (TKeyword "i64.shr_u") }
+'i64.rotl'            { Lexeme _ (TKeyword "i64.rotl") }
+'i64.rotr'            { Lexeme _ (TKeyword "i64.rotr") }
+'f32.abs'             { Lexeme _ (TKeyword "f32.abs") }
+'f32.neg'             { Lexeme _ (TKeyword "f32.neg") }
+'f32.ceil'            { Lexeme _ (TKeyword "f32.ceil") }
+'f32.floor'           { Lexeme _ (TKeyword "f32.floor") }
+'f32.trunc'           { Lexeme _ (TKeyword "f32.trunc") }
+'f32.nearest'         { Lexeme _ (TKeyword "f32.nearest") }
+'f32.sqrt'            { Lexeme _ (TKeyword "f32.sqrt") }
+'f32.add'             { Lexeme _ (TKeyword "f32.add") }
+'f32.sub'             { Lexeme _ (TKeyword "f32.sub") }
+'f32.mul'             { Lexeme _ (TKeyword "f32.mul") }
+'f32.div'             { Lexeme _ (TKeyword "f32.div") }
+'f32.min'             { Lexeme _ (TKeyword "f32.min") }
+'f32.max'             { Lexeme _ (TKeyword "f32.max") }
+'f32.copysign'        { Lexeme _ (TKeyword "f32.copysign") }
+'f64.abs'             { Lexeme _ (TKeyword "f64.abs") }
+'f64.neg'             { Lexeme _ (TKeyword "f64.neg") }
+'f64.ceil'            { Lexeme _ (TKeyword "f64.ceil") }
+'f64.floor'           { Lexeme _ (TKeyword "f64.floor") }
+'f64.trunc'           { Lexeme _ (TKeyword "f64.trunc") }
+'f64.nearest'         { Lexeme _ (TKeyword "f64.nearest") }
+'f64.sqrt'            { Lexeme _ (TKeyword "f64.sqrt") }
+'f64.add'             { Lexeme _ (TKeyword "f64.add") }
+'f64.sub'             { Lexeme _ (TKeyword "f64.sub") }
+'f64.mul'             { Lexeme _ (TKeyword "f64.mul") }
+'f64.div'             { Lexeme _ (TKeyword "f64.div") }
+'f64.min'             { Lexeme _ (TKeyword "f64.min") }
+'f64.max'             { Lexeme _ (TKeyword "f64.max") }
+'f64.copysign'        { Lexeme _ (TKeyword "f64.copysign") }
+'i32.eqz'             { Lexeme _ (TKeyword "i32.eqz") }
+'i32.eq'              { Lexeme _ (TKeyword "i32.eq") }
+'i32.ne'              { Lexeme _ (TKeyword "i32.ne") }
+'i32.lt_s'            { Lexeme _ (TKeyword "i32.lt_s") }
+'i32.lt_u'            { Lexeme _ (TKeyword "i32.lt_u") }
+'i32.gt_s'            { Lexeme _ (TKeyword "i32.gt_s") }
+'i32.gt_u'            { Lexeme _ (TKeyword "i32.gt_u") }
+'i32.le_s'            { Lexeme _ (TKeyword "i32.le_s") }
+'i32.le_u'            { Lexeme _ (TKeyword "i32.le_u") }
+'i32.ge_s'            { Lexeme _ (TKeyword "i32.ge_s") }
+'i32.ge_u'            { Lexeme _ (TKeyword "i32.ge_u") }
+'i64.eqz'             { Lexeme _ (TKeyword "i64.eqz") }
+'i64.eq'              { Lexeme _ (TKeyword "i64.eq") }
+'i64.ne'              { Lexeme _ (TKeyword "i64.ne") }
+'i64.lt_s'            { Lexeme _ (TKeyword "i64.lt_s") }
+'i64.lt_u'            { Lexeme _ (TKeyword "i64.lt_u") }
+'i64.gt_s'            { Lexeme _ (TKeyword "i64.gt_s") }
+'i64.gt_u'            { Lexeme _ (TKeyword "i64.gt_u") }
+'i64.le_s'            { Lexeme _ (TKeyword "i64.le_s") }
+'i64.le_u'            { Lexeme _ (TKeyword "i64.le_u") }
+'i64.ge_s'            { Lexeme _ (TKeyword "i64.ge_s") }
+'i64.ge_u'            { Lexeme _ (TKeyword "i64.ge_u") }
+'f32.eq'              { Lexeme _ (TKeyword "f32.eq") }
+'f32.ne'              { Lexeme _ (TKeyword "f32.ne") }
+'f32.lt'              { Lexeme _ (TKeyword "f32.lt") }
+'f32.gt'              { Lexeme _ (TKeyword "f32.gt") }
+'f32.le'              { Lexeme _ (TKeyword "f32.le") }
+'f32.ge'              { Lexeme _ (TKeyword "f32.ge") }
+'f64.eq'              { Lexeme _ (TKeyword "f64.eq") }
+'f64.ne'              { Lexeme _ (TKeyword "f64.ne") }
+'f64.lt'              { Lexeme _ (TKeyword "f64.lt") }
+'f64.gt'              { Lexeme _ (TKeyword "f64.gt") }
+'f64.le'              { Lexeme _ (TKeyword "f64.le") }
+'f64.ge'              { Lexeme _ (TKeyword "f64.ge") }
+'i32.wrap/i64'        { Lexeme _ (TKeyword "i32.wrap/i64") }
+'i32.trunc_s/f32'     { Lexeme _ (TKeyword "i32.trunc_s/f32") }
+'i32.trunc_u/f32'     { Lexeme _ (TKeyword "i32.trunc_u/f32") }
+'i32.trunc_s/f64'     { Lexeme _ (TKeyword "i32.trunc_s/f64") }
+'i32.trunc_u/f64'     { Lexeme _ (TKeyword "i32.trunc_u/f64") }
+'i64.extend_s/i32'    { Lexeme _ (TKeyword "i64.extend_s/i32") }
+'i64.extend_u/i32'    { Lexeme _ (TKeyword "i64.extend_u/i32") }
+'i64.trunc_s/f32'     { Lexeme _ (TKeyword "i64.trunc_s/f32") }
+'i64.trunc_u/f32'     { Lexeme _ (TKeyword "i64.trunc_u/f32") }
+'i64.trunc_s/f64'     { Lexeme _ (TKeyword "i64.trunc_s/f64") }
+'i64.trunc_u/f64'     { Lexeme _ (TKeyword "i64.trunc_u/f64") }
+'f32.convert_s/i32'   { Lexeme _ (TKeyword "f32.convert_s/i32") }
+'f32.convert_u/i32'   { Lexeme _ (TKeyword "f32.convert_u/i32") }
+'f32.convert_s/i64'   { Lexeme _ (TKeyword "f32.convert_s/i64") }
+'f32.convert_u/i64'   { Lexeme _ (TKeyword "f32.convert_u/i64") }
+'f32.demote/f64'      { Lexeme _ (TKeyword "f32.demote/f64") }
+'f64.convert_s/i32'   { Lexeme _ (TKeyword "f64.convert_s/i32") }
+'f64.convert_u/i32'   { Lexeme _ (TKeyword "f64.convert_u/i32") }
+'f64.convert_s/i64'   { Lexeme _ (TKeyword "f64.convert_s/i64") }
+'f64.convert_u/i64'   { Lexeme _ (TKeyword "f64.convert_u/i64") }
+'f64.promote/f32'     { Lexeme _ (TKeyword "f64.promote/f32") }
+'i32.reinterpret/f32' { Lexeme _ (TKeyword "i32.reinterpret/f32") }
+'i64.reinterpret/f64' { Lexeme _ (TKeyword "i64.reinterpret/f64") }
+'f32.reinterpret/i32' { Lexeme _ (TKeyword "f32.reinterpret/i32") }
+'f64.reinterpret/i64' { Lexeme _ (TKeyword "f64.reinterpret/i64") }
+'block'               { Lexeme _ (TKeyword "block") }
+'loop'                { Lexeme _ (TKeyword "loop") }
+'if'                  { Lexeme _ (TKeyword "if") }
+'else'                { Lexeme _ (TKeyword "else") }
+'end'                 { Lexeme _ (TKeyword "end") }
+'then'                { Lexeme _ (TKeyword "then") }
+'table'               { Lexeme _ (TKeyword "table") }
+'memory'              { Lexeme _ (TKeyword "memory") }
+'global'              { Lexeme _ (TKeyword "global") }
+'import'              { Lexeme _ (TKeyword "import") }
+'export'              { Lexeme _ (TKeyword "export") }
+'local'               { Lexeme _ (TKeyword "local") }
+'elem'                { Lexeme _ (TKeyword "elem") }
+'data'                { Lexeme _ (TKeyword "data") }
+'offset'              { Lexeme _ (TKeyword "offset") }
+'start'               { Lexeme _ (TKeyword "start") }
+'module'              { Lexeme _ (TKeyword "module") }
+id                    { Lexeme _ (TId $$) }
+u32                   { Lexeme _ (TIntLit (asUInt32 -> Just $$)) }
+i32                   { Lexeme _ (TIntLit (asInt32 -> Just $$)) }
+i64                   { Lexeme _ (TIntLit (asInt64 -> Just $$)) }
+f32                   { Lexeme _ (TFloatLit (asFloat32 -> $$)) }
+f64                   { Lexeme _ (TFloatLit (asFloat64 -> $$)) }
+offset                { Lexeme _ (TKeyword (asOffset -> Just $$)) }
+align                 { Lexeme _ (TKeyword (asAlign -> Just $$)) }
+name                  { Lexeme _ (TStringLit (asName -> Just $$)) }
+string                { Lexeme _ (TStringLit (asString -> Just $$)) }
 
 %%
 
@@ -1046,6 +1048,12 @@ reverseModuleFields mod =
         datas = reverse $ datas mod
     }
 
-happyError tokens = error $ "Error occuried: " ++ show tokens 
+happyError (Lexeme _ EOF : []) = error $ "Error occuried during parsing phase at the end of file"
+happyError (Lexeme (AlexPn abs line col) tok : tokens) = error $
+    "Error occuried during parsing phase. " ++
+    "Line " ++ show line ++ ", " ++
+    "Column " ++ show col ++ ", " ++
+    "Token " ++ show tok ++ ". " ++
+    "Token lookahed: " ++ show (take 3 tokens)
 
 }

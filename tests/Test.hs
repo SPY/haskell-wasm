@@ -13,5 +13,5 @@ import qualified Language.Wasm.Parser as Parser
 main :: IO ()
 main = do
   file <- LBS.readFile "tests/samples/mod.wast"
-  print $ Parser.parseModule . map Lexer.tok <$> Lexer.scanner file
+  print $ Parser.parseModule <$> Lexer.scanner file
   defaultMain $ testGroup "Test Suite" []
