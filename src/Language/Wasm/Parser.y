@@ -429,6 +429,31 @@ plaininstr :: { PlainInstr }
     | 'f64.gt'                       { F64Gt }
     | 'f64.le'                       { F64Le }
     | 'f64.ge'                       { F64Ge }
+    | 'i32.wrap/i64'                 { I32WrapI64 }
+    | 'i32.trunc_s/f32'              { I32TruncSF32 }
+    | 'i32.trunc_u/f32'              { I32TruncUF32 }
+    | 'i32.trunc_s/f64'              { I32TruncSF64 }
+    | 'i32.trunc_u/f64'              { I32TruncUF64 }
+    | 'i64.extend_s/i32'             { I64ExtendSI32 }
+    | 'i64.extend_u/i32'             { I64ExtendUI32 }
+    | 'i64.trunc_s/f32'              { I64TruncSF32 }
+    | 'i64.trunc_u/f32'              { I64TruncUF32 }
+    | 'i64.trunc_s/f64'              { I64TruncSF64 }
+    | 'i64.trunc_u/f64'              { I64TruncUF64 }
+    | 'f32.convert_s/i32'            { F32ConvertSI32 }
+    | 'f32.convert_u/i32'            { F32ConvertUI32 }
+    | 'f32.convert_s/i64'            { F32ConvertSI64 }
+    | 'f32.convert_u/i64'            { F32ConvertUI64 }
+    | 'f32.demote/f64'               { F32DemoteF64 }
+    | 'f64.convert_s/i32'            { F64ConvertSI32 }
+    | 'f64.convert_u/i32'            { F64ConvertUI32 }
+    | 'f64.convert_s/i64'            { F64ConvertSI64 }
+    | 'f64.convert_u/i64'            { F64ConvertUI64 }
+    | 'f64.promote/f32'              { F64PromoteF32 }
+    | 'i32.reinterpret/f32'          { I32ReinterpretF32 }
+    | 'i64.reinterpret/f64'          { I64ReinterpretF64 }
+    | 'f32.reinterpret/i32'          { F32ReinterpretI32 }
+    | 'f64.reinterpret/i64'          { F64ReinterpretI64 }
 
 typedef :: { TypeDef }
     : '(' 'type' opt(ident) functype ')' { TypeDef $3 $4 }
@@ -687,6 +712,31 @@ data PlainInstr =
     | F64Gt
     | F64Le
     | F64Ge
+    | I32WrapI64
+    | I32TruncSF32
+    | I32TruncUF32
+    | I32TruncSF64
+    | I32TruncUF64
+    | I64ExtendSI32
+    | I64ExtendUI32
+    | I64TruncSF32
+    | I64TruncUF32
+    | I64TruncSF64
+    | I64TruncUF64
+    | F32ConvertSI32
+    | F32ConvertUI32
+    | F32ConvertSI64
+    | F32ConvertUI64
+    | F32DemoteF64
+    | F64ConvertSI32
+    | F64ConvertUI32
+    | F64ConvertSI64
+    | F64ConvertUI64
+    | F64PromoteF32
+    | I32ReinterpretF32
+    | I64ReinterpretF64
+    | F32ReinterpretI32
+    | F64ReinterpretI64
     deriving (Show, Eq)
 
 data TypeDef = TypeDef (Maybe Ident) FuncType deriving (Show, Eq)
