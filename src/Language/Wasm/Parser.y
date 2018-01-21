@@ -521,6 +521,8 @@ importdesc :: { ImportDesc }
 import :: { Import }
     : '(' 'import' name name importdesc ')' { Import $3 $4 $5 }
     | '(' 'func' opt(ident) '(' 'import' name name ')' typeuse ')' { Import $6 $7 $ ImportFunc $3 $9 }
+    | '(' 'global' opt(ident) '(' 'import' name name ')' globaltype ')' { Import $6 $7 $ ImportGlobal $3 $9 }
+    | '(' 'memory' opt(ident) '(' 'import' name name ')' limits ')' { Import $6 $7 $ ImportMemory $3 $9 }
 
 localtypes :: { [LocalType] }
     : list(localtype) { concat $1 }
@@ -531,6 +533,15 @@ localtype :: { [LocalType] }
 
 function :: { Function }
     : '(' 'func' opt(ident) typeuse localtypes list(foldedinstr) ')' { Function $3 $4 $5 (concat $6) }
+
+global :: { Global }
+    : '(' 'global' opt(ident) globaltype list(foldedinstr) ')' { Global $3 $4 (concat $5) }
+
+memory :: { Memory }
+    : '(' 'memory' opt(ident) limits ')' { Memory $3 $4 }
+
+table :: { Table }
+    : '(' 'table' opt(ident) tabletype ')' { Table $3 $4 }
 
 -- utils
 
@@ -854,6 +865,17 @@ data Function = Function {
         body :: [Instruction]
     }
     deriving (Show, Eq)
+
+data Global = Global {
+        ident :: Maybe Ident,
+        globalType :: GlobalType,
+        initializer :: [Instruction]
+    }
+    deriving (Show, Eq)
+
+data Memory = Memory (Maybe Ident) Limit deriving (Show, Eq)
+
+data Table = Table (Maybe Ident) TableType deriving (Show, Eq)
 
 happyError tokens = error $ "Error occuried: " ++ show tokens 
 
