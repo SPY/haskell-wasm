@@ -6,8 +6,8 @@
   ;; Syntax
 
   (func)
-  (func (import "extern_mod" "external_func") (param i32 i32) (result i64))
-  (func (import "extern_mod" "external_func") (type $sig) (param i32 i32) (result i64))
+  (func (export "f") (import "extern_mod" "external_func") (param i32 i32) (result i64))
+  (func (export "fff") (import "extern_mod" "external_func") (type $sig) (param i32 i32) (result i64))
   (func (import "extern_mod" "external_func") (type $sig))
   (func $add (param $x i32) (param $y i32) (result i32) (i32.add (i32.const 20) (i32.const 22)))
   (func (export "f"))

@@ -249,6 +249,7 @@ offset                { Lexeme _ (TKeyword (asOffset -> Just $$)) }
 align                 { Lexeme _ (TKeyword (asAlign -> Just $$)) }
 name                  { Lexeme _ (TStringLit (asName -> Just $$)) }
 string                { Lexeme _ (TStringLit (asString -> Just $$)) }
+EOF                   { Lexeme _ EOF }
 
 %%
 
@@ -577,7 +578,15 @@ localtype :: { [LocalType] }
 
 -- FUNCTION --
 function :: { [ModuleField] }
-    : 'func' opt(ident) import_typeuse_locals_body { [appendIdent $2 $3] }
+    : 'func' opt(ident) export_import_typeuse_locals_body { map (appendIdent $2) $3 }
+
+export_import_typeuse_locals_body :: { [ModuleField] }
+    : ')' { [MFFunc $ Function Nothing (AnonimousTypeUse $ FuncType [] []) [] []] }
+    | '(' export_import_typeuse_locals_body1 { $2 }
+
+export_import_typeuse_locals_body1 :: { [ModuleField] }
+    : 'export' name ')' export_import_typeuse_locals_body { (MFExport $ Export $2 $ ExportFunc Nothing) : $4 }
+    | import_typeuse_locals_body1 { [$1] }
 
 import_typeuse_locals_body :: { ModuleField }
     : '(' import_typeuse_locals_body1 { $2 }
@@ -629,7 +638,7 @@ table :: { Table }
     : 'table' opt(ident) tabletype ')' { Table $2 $3 }
 
 exportdesc :: { ExportDesc }
-    : '(' 'func' funcidx ')' { ExportFunc $3 }
+    : '(' 'func' funcidx ')' { ExportFunc (Just $3) }
     | '(' 'table' tableidx ')' { ExportTable $3 }
     | '(' 'memory' memidx ')' { ExportMemory $3 }
     | '(' 'global' globalidx ')' { ExportGlobal $3 }
@@ -679,8 +688,8 @@ modulefields :: { Module }
     | {- empty -} { emptyModule }
 
 mod :: { Module }
-    : '(' 'module' modulefields ')' { reverseModuleFields $3 }
-    | modulefields { reverseModuleFields $1 }
+    : '(' 'module' modulefields ')' EOF { reverseModuleFields $3 }
+    | modulefields EOF { reverseModuleFields $1 }
 
 -- utils
 
@@ -716,6 +725,7 @@ t3thd (_, _, a) = a
 appendIdent :: Maybe Ident -> ModuleField -> ModuleField
 appendIdent i (MFFunc fun) = MFFunc $ fun { ident = i }
 appendIdent i (MFImport (Import sm name (ImportFunc _ typeUse))) = MFImport $ Import sm name $ ImportFunc i typeUse
+appendIdent i (MFExport (Export name (ExportFunc _))) = MFExport $ Export name $ ExportFunc $ Named <$> i
 appendIdent _ mf = mf
 
 prependFuncParams :: [ParamType] -> FuncType -> FuncType
@@ -729,8 +739,8 @@ mergeFuncType (FuncType lps lrs) (FuncType rps rrs) = FuncType (lps ++ rps) (lrs
 
 asUInt32 :: Integer -> Maybe Natural
 asUInt32 val
-    | val >= 0, val < 2 ^ 32 = Debug.trace ("success as uint32 " ++ show val) $ Just $ fromIntegral val
-    | otherwise = Debug.trace ("Unsuccess as uint32 " ++ show val) $ Nothing
+    | val >= 0, val < 2 ^ 32 = Just $ fromIntegral val
+    | otherwise = Nothing
 
 asInt32 :: Integer -> Maybe Integer
 asInt32 val
@@ -1052,7 +1062,7 @@ data Memory = Memory (Maybe Ident) Limit deriving (Show, Eq)
 data Table = Table (Maybe Ident) TableType deriving (Show, Eq)
 
 data ExportDesc =
-    ExportFunc FuncIndex
+    ExportFunc (Maybe FuncIndex)
     | ExportTable TableIndex
     | ExportMemory MemoryIndex
     | ExportGlobal GlobalIndex
