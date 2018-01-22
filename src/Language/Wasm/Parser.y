@@ -254,14 +254,11 @@ EOF                   { Lexeme _ EOF }
 %%
 
 functype :: { FuncType }
-    : '(' 'func' paramtypes resulttypes ')' { FuncType $3 $4 }
+    : '(' 'func' params_results { $3 }
 
-paramtypes :: { [ParamType] }
-    : list(paramtype) { concat $1 }
-
-paramtype :: { [ParamType] }
-    : '(' 'param' ident valtype ')' { [ParamType (Just $3) $4] }
-    | '(' 'param' list(valtype) ')' { map (ParamType Nothing) $3 }
+params_results :: { FuncType }
+    : ')' { FuncType [] [] }
+    | '(' paramsresultstypeuse ')' { $2 }
 
 ident :: { Ident }
     : id { Ident (TL.toStrict (TLEncoding.decodeUtf8 $1)) }
@@ -271,22 +268,6 @@ valtype :: { ValueType }
     | 'i64' { I64 }
     | 'f32' { F32 }
     | 'f64' { F64 }
-
-resulttypes :: { [ValueType] }
-    : list(resulttype) { concat $1 }
-
-resulttype :: { [ValueType] }
-    : '(' 'result' list(valtype) ')' { $3 }
-
-limits :: { Limit }
-    : u32 u32 { Limit (fromIntegral $1) (Just $ fromIntegral $2) }
-    | u32 { Limit (fromIntegral $1) Nothing }
-
-elemtype :: { ElemType }
-    : 'anyfunc' { AnyFunc }
-
-tabletype :: { TableType }
-    : limits elemtype { TableType $1 $2 }
 
 globaltype :: { GlobalType }
     : valtype { Const $1 }
@@ -535,6 +516,9 @@ memarg4 :: { MemArg }
 memarg8 :: { MemArg }
     : opt(offset) opt(align) { MemArg (fromMaybe 0 $1) (fromMaybe 8 $2) }
 
+resulttype :: { [ValueType] }
+    : '(' 'result' list(valtype) ')' { $3 }
+
 instr :: { Instruction }
     : plaininstr { PlainInstr $1 }
     -- TODO: check if optional labels are equal if they exist
@@ -558,16 +542,13 @@ foldedinst1 :: { [Instruction] }
         '(' 'else' list(instr) opt(')') ')' { concat $4 ++ [IfInstr $2 (fromMaybe [] $3) $7 $11] }
 
 importdesc :: { ImportDesc }
-    : '(' 'func' opt(ident) typeuse ')' { ImportFunc $3 $4 }
-    | '(' 'table' opt(ident) tabletype ')' { ImportTable $3 $4 }
-    | '(' 'memory' opt(ident) limits ')' { ImportMemory $3 $4 }
-    | '(' 'global' opt(ident) globaltype ')' { ImportGlobal $3 $4 }
+    : 'func' opt(ident) typeuse ')' { ImportFunc $2 $3 }
+    | 'table' opt(ident) tabletype ')' { ImportTable $2 $3 }
+    | 'memory' opt(ident) limits ')' { ImportMemory $2 $3 }
+    | 'global' opt(ident) globaltype ')' { ImportGlobal $2 $3 }
 
 import :: { Import }
-    : 'import' name name importdesc ')' { Import $2 $3 $4 }
-    --| '(' 'func' opt(ident) '(' 'import' name name ')' typeuse ')' { Import $6 $7 $ ImportFunc $3 $9 }
-    --| '(' 'global' opt(ident) '(' 'import' name name ')' globaltype ')' { Import $6 $7 $ ImportGlobal $3 $9 }
-    --| '(' 'memory' opt(ident) '(' 'import' name name ')' limits ')' { Import $6 $7 $ ImportMemory $3 $9 }
+    : 'import' name name '(' importdesc ')' { Import $2 $3 $5 }
 
 localtypes :: { [LocalType] }
     : list(localtype) { concat $1 }
@@ -634,17 +615,39 @@ global :: { Global }
 memory :: { Memory }
     : 'memory' opt(ident) limits ')' { Memory $2 $3 }
 
-table :: { Table }
-    : 'table' opt(ident) tabletype ')' { Table $2 $3 }
+-- TABLE --
+limits :: { Limit }
+    : u32 u32 { Limit (fromIntegral $1) (Just $ fromIntegral $2) }
+    | u32 { Limit (fromIntegral $1) Nothing }
+
+elemtype :: { ElemType }
+    : 'anyfunc' { AnyFunc }
+
+tabletype :: { TableType }
+    : limits elemtype { TableType $1 $2 }
+
+table :: { [ModuleField] }
+    : 'table' opt(ident) limits_elemtype_elem { map (appendIdent $2) $3 }
+
+limits_elemtype_elem :: { [ModuleField] }
+    : tabletype ')' { [MFTable $ Table Nothing $1] }
+    | elemtype '(' 'elem' list(funcidx) ')' ')' {
+            let funcsLen = fromIntegral $ length $4 in [
+                MFTable $ Table Nothing $ TableType (Limit funcsLen (Just funcsLen)) $1,
+                MFElem $ ElemSegment (Index 0) [PlainInstr $ I32Const 0] $4
+            ]
+        }
+
+-- TABLE END --
 
 exportdesc :: { ExportDesc }
-    : '(' 'func' funcidx ')' { ExportFunc (Just $3) }
-    | '(' 'table' tableidx ')' { ExportTable $3 }
-    | '(' 'memory' memidx ')' { ExportMemory $3 }
-    | '(' 'global' globalidx ')' { ExportGlobal $3 }
+    : 'func' funcidx ')' { ExportFunc (Just $2) }
+    | 'table' tableidx ')' { ExportTable $2 }
+    | 'memory' memidx ')' { ExportMemory $2 }
+    | 'global' globalidx ')' { ExportGlobal $2 }
 
 export :: { Export }
-    : 'export' name exportdesc ')' { Export $2 $3 }
+    : 'export' name '(' exportdesc ')' { Export $2 $4 }
 
 start :: { StartFunction }
     : 'start' funcidx ')' { StartFunction $2 }
@@ -665,7 +668,6 @@ datasegment :: { DataSegment }
 modulefield1_single :: { ModuleField }
     : typedef { MFType $1 }
     | import { MFImport $1 }
-    | table { MFTable $1 }
     | memory { MFMem $1 }
     | global { MFGlobal $1 }
     | export { MFExport $1 }
@@ -675,6 +677,7 @@ modulefield1_single :: { ModuleField }
 
 modulefield1_multi :: { [ModuleField] }
     : function { $1 }
+    | table { $1 }
 
 modulefield1 :: { [ModuleField] }
     : modulefield1_single { [$1] }
@@ -726,6 +729,8 @@ appendIdent :: Maybe Ident -> ModuleField -> ModuleField
 appendIdent i (MFFunc fun) = MFFunc $ fun { ident = i }
 appendIdent i (MFImport (Import sm name (ImportFunc _ typeUse))) = MFImport $ Import sm name $ ImportFunc i typeUse
 appendIdent i (MFExport (Export name (ExportFunc _))) = MFExport $ Export name $ ExportFunc $ Named <$> i
+appendIdent i (MFTable (Table _ tableType)) = MFTable $ Table i tableType
+appendIdent (Just id) (MFElem segm) = MFElem $ segm { tableIndex = Named id }
 appendIdent _ mf = mf
 
 prependFuncParams :: [ParamType] -> FuncType -> FuncType

@@ -1,3 +1,5 @@
+(; Function definitions parsing ;)
+
 (module
   ;; Auxiliary definition
   (type $sig (func))
@@ -20,7 +22,7 @@
   (func (local $x i32))
   (func (local i32 f64 i64))
   (func (local i32) (local f64))
-  (func (local i32 f32) (local $x i64) (local) (local i32 f64))
+  (func $complex (local i32 f32) (local $x i64) (local) (local i32 f64))
 
   (func (param))
   (func (param) (param))
