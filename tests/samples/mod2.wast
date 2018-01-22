@@ -29,6 +29,11 @@
   (type $forward (func (param i32)))
 
   (table anyfunc (elem $print_i32 $print_f64))
+  (table (export "my-table") anyfunc (elem $print_i32 $print_f64))
+  (table (export "my-table") (export "my-table2") anyfunc (elem $print_i32 $print_f64))
+  (table (import "external-mod" "external-table") 0 anyfunc)
+  (table (export "my-table") (import "external-mod" "external-table") 0 anyfunc)
+  (table (export "my-table") (export "my-table2") (import "external-mod" "external-table") 0 anyfunc)
 
   (func (export "print32") (param $i i32)
     (local $x f32)

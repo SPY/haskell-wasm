@@ -617,8 +617,7 @@ memory :: { Memory }
 
 -- TABLE --
 limits :: { Limit }
-    : u32 u32 { Limit (fromIntegral $1) (Just $ fromIntegral $2) }
-    | u32 { Limit (fromIntegral $1) Nothing }
+    : u32 opt(u32) { Limit (fromIntegral $1) (fromIntegral `fmap` $2) }
 
 elemtype :: { ElemType }
     : 'anyfunc' { AnyFunc }
@@ -632,17 +631,22 @@ table :: { [ModuleField] }
 limits_elemtype_elem :: { [ModuleField] }
     : tabletype ')' { [MFTable $ Table Nothing $1] }
     | elemtype '(' 'elem' list(funcidx) ')' ')' {
-            let funcsLen = fromIntegral $ length $4 in [
-                MFTable $ Table Nothing $ TableType (Limit funcsLen (Just funcsLen)) $1,
-                MFElem $ ElemSegment (Index 0) [PlainInstr $ I32Const 0] $4
-            ]
-        }
+        let funcsLen = fromIntegral $ length $4 in [
+            MFTable $ Table Nothing $ TableType (Limit funcsLen (Just funcsLen)) $1,
+            MFElem $ ElemSegment (Index 0) [PlainInstr $ I32Const 0] $4
+        ]
+    }
+    | '(' import_export_table { $2 }
+
+import_export_table :: { [ModuleField] }
+    : 'import' name name ')' tabletype ')' { [MFImport $ Import $2 $3 $ ImportTable Nothing $5] }
+    | 'export' name ')' limits_elemtype_elem { (MFExport $ Export $2 $ ExportTable Nothing) : $4 }
 
 -- TABLE END --
 
 exportdesc :: { ExportDesc }
     : 'func' funcidx ')' { ExportFunc (Just $2) }
-    | 'table' tableidx ')' { ExportTable $2 }
+    | 'table' tableidx ')' { ExportTable (Just $2) }
     | 'memory' memidx ')' { ExportMemory $2 }
     | 'global' globalidx ')' { ExportGlobal $2 }
 
@@ -728,7 +732,9 @@ t3thd (_, _, a) = a
 appendIdent :: Maybe Ident -> ModuleField -> ModuleField
 appendIdent i (MFFunc fun) = MFFunc $ fun { ident = i }
 appendIdent i (MFImport (Import sm name (ImportFunc _ typeUse))) = MFImport $ Import sm name $ ImportFunc i typeUse
+appendIdent i (MFImport (Import sm name (ImportTable _ elemType))) = MFImport $ Import sm name $ ImportTable i elemType
 appendIdent i (MFExport (Export name (ExportFunc _))) = MFExport $ Export name $ ExportFunc $ Named <$> i
+appendIdent i (MFExport (Export name (ExportTable _))) = MFExport $ Export name $ ExportTable $ Named <$> i
 appendIdent i (MFTable (Table _ tableType)) = MFTable $ Table i tableType
 appendIdent (Just id) (MFElem segm) = MFElem $ segm { tableIndex = Named id }
 appendIdent _ mf = mf
@@ -1068,7 +1074,7 @@ data Table = Table (Maybe Ident) TableType deriving (Show, Eq)
 
 data ExportDesc =
     ExportFunc (Maybe FuncIndex)
-    | ExportTable TableIndex
+    | ExportTable (Maybe TableIndex)
     | ExportMemory MemoryIndex
     | ExportGlobal GlobalIndex
     deriving (Show, Eq)
