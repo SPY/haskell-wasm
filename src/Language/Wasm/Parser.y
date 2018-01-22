@@ -14,6 +14,7 @@ import qualified Data.Text.Lazy.Read as TLRead
 
 import qualified Data.ByteString.Lazy as LBS
 import Data.Maybe (fromMaybe)
+import Data.List (foldl')
 
 import Numeric.Natural (Natural)
 
@@ -497,19 +498,20 @@ plaininstr :: { PlainInstr }
     | 'f64.reinterpret/i64'          { F64ReinterpretI64 }
 
 typedef :: { TypeDef }
-    : '(' 'type' opt(ident) functype ')' { TypeDef $3 $4 }
+    : 'type' opt(ident) functype ')' { TypeDef $2 $3 }
 
+-- TODO: it does not properly handle call_indirect instruction use. it expects to be last expression before common ')'
 typeuse :: { TypeUse }
     : '(' typeuse1 { $2 }
     | {- empty -} { AnonimousTypeUse $ FuncType [] [] }
 
 typeuse1 :: { TypeUse }
-    : 'type' typeidx typedtypeuse { IndexedTypeUse $2 $3 }
+    : 'type' typeidx ')' typedtypeuse { IndexedTypeUse $2 $4 }
     | paramsresultstypeuse { AnonimousTypeUse $1 }
 
 typedtypeuse :: { Maybe FuncType }
-    : ')' { Nothing }
-    | '(' paramsresultstypeuse { Just $2 }
+    : '(' paramsresultstypeuse { Just $2 }
+    | {- empty -} { Nothing }
 
 paramsresultstypeuse :: { FuncType }
     : paramsresultstypeuse '(' paramsresulttypeuse { mergeFuncType $1 $3 }
@@ -561,10 +563,10 @@ importdesc :: { ImportDesc }
     | '(' 'global' opt(ident) globaltype ')' { ImportGlobal $3 $4 }
 
 import :: { Import }
-    : '(' 'import' name name importdesc ')' { Import $3 $4 $5 }
-    | '(' 'func' opt(ident) '(' 'import' name name ')' typeuse ')' { Import $6 $7 $ ImportFunc $3 $9 }
-    | '(' 'global' opt(ident) '(' 'import' name name ')' globaltype ')' { Import $6 $7 $ ImportGlobal $3 $9 }
-    | '(' 'memory' opt(ident) '(' 'import' name name ')' limits ')' { Import $6 $7 $ ImportMemory $3 $9 }
+    : 'import' name name importdesc ')' { Import $2 $3 $4 }
+    --| '(' 'func' opt(ident) '(' 'import' name name ')' typeuse ')' { Import $6 $7 $ ImportFunc $3 $9 }
+    --| '(' 'global' opt(ident) '(' 'import' name name ')' globaltype ')' { Import $6 $7 $ ImportGlobal $3 $9 }
+    --| '(' 'memory' opt(ident) '(' 'import' name name ')' limits ')' { Import $6 $7 $ ImportMemory $3 $9 }
 
 localtypes :: { [LocalType] }
     : list(localtype) { concat $1 }
@@ -574,8 +576,16 @@ localtype :: { [LocalType] }
     | '(' 'local' list(valtype) ')' { map (LocalType Nothing) $3 }
 
 -- FUNCTION --
-function :: { Function }
-    : '(' 'func' opt(ident) typeuse_locals_body { Function $3 (t3fst $4) (t3snd $4) (t3thd $4) }
+function :: { [ModuleField] }
+    : 'func' opt(ident) import_typeuse_locals_body { [appendIdent $2 $3] }
+
+import_typeuse_locals_body :: { ModuleField }
+    : '(' import_typeuse_locals_body1 { $2 }
+    | ')' { MFFunc $ Function Nothing (AnonimousTypeUse $ FuncType [] []) [] [] }
+
+import_typeuse_locals_body1 :: { ModuleField }
+    : 'import' name name ')' typeuse ')' { MFImport $ Import $2 $3 $ ImportFunc Nothing $5 }
+    | typeuse_locals_body1 { MFFunc $ Function Nothing (t3fst $1) (t3snd $1) (t3thd $1) }
 
 typeuse_locals_body :: { (TypeUse, [LocalType], [Instruction]) }
     : '(' typeuse_locals_body1 { $2 }
@@ -610,13 +620,13 @@ locals_body1 :: { ([LocalType], [Instruction]) }
 -- FUNCTION END --
 
 global :: { Global }
-    : '(' 'global' opt(ident) globaltype list(foldedinstr) ')' { Global $3 $4 (concat $5) }
+    : 'global' opt(ident) globaltype list(foldedinstr) ')' { Global $2 $3 (concat $4) }
 
 memory :: { Memory }
-    : '(' 'memory' opt(ident) limits ')' { Memory $3 $4 }
+    : 'memory' opt(ident) limits ')' { Memory $2 $3 }
 
 table :: { Table }
-    : '(' 'table' opt(ident) tabletype ')' { Table $3 $4 }
+    : 'table' opt(ident) tabletype ')' { Table $2 $3 }
 
 exportdesc :: { ExportDesc }
     : '(' 'func' funcidx ')' { ExportFunc $3 }
@@ -625,10 +635,10 @@ exportdesc :: { ExportDesc }
     | '(' 'global' globalidx ')' { ExportGlobal $3 }
 
 export :: { Export }
-    : '(' 'export' name exportdesc ')' { Export $3 $4 }
+    : 'export' name exportdesc ')' { Export $2 $3 }
 
 start :: { StartFunction }
-    : '(' 'start' funcidx ')' { StartFunction $3 }
+    : 'start' funcidx ')' { StartFunction $2 }
 
 -- TODO: Spec from 09 Jan 2018 declares 'offset' keyword as mandatory,
 -- but collection of testcases omits 'offset' in this position
@@ -638,15 +648,14 @@ offsetexpr :: { [Instruction] }
     | foldedinstr { $1 } 
 
 elemsegment :: { ElemSegment }
-    : '(' 'elem' opt(tableidx) offsetexpr list(funcidx) ')' { ElemSegment (fromMaybe (Index 0) $3) $4 $5 }
+    : 'elem' opt(tableidx) offsetexpr list(funcidx) ')' { ElemSegment (fromMaybe (Index 0) $2) $3 $4 }
 
 datasegment :: { DataSegment }
-    : '(' 'data' opt(memidx) offsetexpr list(string) ')' { DataSegment (fromMaybe (Index 0) $3) $4 (TL.concat $5) }
+    : 'data' opt(memidx) offsetexpr list(string) ')' { DataSegment (fromMaybe (Index 0) $2) $3 (TL.concat $4) }
 
-modulefield :: { ModuleField }
+modulefield1_single :: { ModuleField }
     : typedef { MFType $1 }
     | import { MFImport $1 }
-    | function { MFFunc $1 }
     | table { MFTable $1 }
     | memory { MFMem $1 }
     | global { MFGlobal $1 }
@@ -655,9 +664,19 @@ modulefield :: { ModuleField }
     | elemsegment { MFElem $1 }
     | datasegment { MFData $1 }
 
+modulefield1_multi :: { [ModuleField] }
+    : function { $1 }
+
+modulefield1 :: { [ModuleField] }
+    : modulefield1_single { [$1] }
+    | modulefield1_multi { $1 }
+
+modulefield :: { [ModuleField] }
+    : '(' modulefield1 { $2 }
+
 modulefields :: { Module }
-    : modulefields modulefield { appendModuleField $2 $1 }
-    | { emptyModule }
+    : modulefields modulefield { foldl' (flip appendModuleField) $1 $2 }
+    | {- empty -} { emptyModule }
 
 mod :: { Module }
     : '(' 'module' modulefields ')' { reverseModuleFields $3 }
@@ -693,6 +712,11 @@ t3snd (_, a, _) = a
 
 t3thd :: (a, b, c) -> c
 t3thd (_, _, a) = a
+
+appendIdent :: Maybe Ident -> ModuleField -> ModuleField
+appendIdent i (MFFunc fun) = MFFunc $ fun { ident = i }
+appendIdent i (MFImport (Import sm name (ImportFunc _ typeUse))) = MFImport $ Import sm name $ ImportFunc i typeUse
+appendIdent _ mf = mf
 
 prependFuncParams :: [ParamType] -> FuncType -> FuncType
 prependFuncParams prep (FuncType params results) = FuncType (prep ++ params) results
