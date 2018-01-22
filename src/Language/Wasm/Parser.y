@@ -33,6 +33,8 @@ import Language.Wasm.Lexer (
         AlexPosn(..)
     )
 
+import Debug.Trace as Debug
+
 }
 
 %name parseModule mod
@@ -316,6 +318,10 @@ memidx :: { MemoryIndex }
     : u32 { Index $1 }
     | ident { Named $1 }
 
+int32 :: { Integer }
+    : u32 { fromIntegral $1 }
+    | i32 { $1 }
+
 plaininstr :: { PlainInstr }
     -- control instructions
     : 'unreachable'                  { Unreachable }
@@ -362,7 +368,7 @@ plaininstr :: { PlainInstr }
     | 'current_memory'               { CurrentMemory }
     | 'grow_memory'                  { GrowMemory }
     -- numeric instructions
-    | 'i32.const' i32                { I32Const $2 }
+    | 'i32.const' int32              { I32Const $2 }
     | 'i64.const' i64                { I64Const $2 }
     | 'f32.const' f32                { F32Const $2 }
     | 'f64.const' f64                { F64Const $2 }
@@ -538,12 +544,15 @@ instr :: { Instruction }
         'end' opt(ident) { IfInstr $2 (fromMaybe [] $3) $4 $7 }
 
 foldedinstr :: { [Instruction] }
-    : '(' plaininstr list(foldedinstr) ')' { concat $3 ++ [PlainInstr $2] }
-    | '(' 'block' opt(ident) opt(resulttype) list(instr) ')' { [BlockInstr $3 (fromMaybe [] $4) $5] }
-    | '(' 'loop' opt(ident) opt(resulttype) list(instr) ')' { [LoopInstr $3 (fromMaybe [] $4) $5] }
-    | '(' 'if' opt(ident) opt(resulttype) list(foldedinstr)
+    : '(' foldedinst1 { $2 }
+
+foldedinst1 :: { [Instruction] }
+    : plaininstr list(foldedinstr) ')' { concat $2 ++ [PlainInstr $1] }
+    | 'block' opt(ident) opt(resulttype) list(instr) ')' { [BlockInstr $2 (fromMaybe [] $3) $4] }
+    | 'loop' opt(ident) opt(resulttype) list(instr) ')' { [LoopInstr $2 (fromMaybe [] $3) $4] }
+    | 'if' opt(ident) opt(resulttype) list(foldedinstr)
         '(' 'then' list(instr) ')'
-        '(' 'else' list(instr) opt(')') ')' { concat $5 ++ [IfInstr $3 (fromMaybe [] $4) $8 $12] }
+        '(' 'else' list(instr) opt(')') ')' { concat $4 ++ [IfInstr $2 (fromMaybe [] $3) $7 $11] }
 
 importdesc :: { ImportDesc }
     : '(' 'func' opt(ident) typeuse ')' { ImportFunc $3 $4 }
@@ -564,8 +573,41 @@ localtype :: { [LocalType] }
     : '(' 'local' ident valtype ')' { [LocalType (Just $3) $4] }
     | '(' 'local' list(valtype) ')' { map (LocalType Nothing) $3 }
 
+-- FUNCTION --
 function :: { Function }
-    : '(' 'func' opt(ident) typeuse localtypes list(foldedinstr) ')' { Function $3 $4 $5 (concat $6) }
+    : '(' 'func' opt(ident) typeuse_locals_body { Function $3 (t3fst $4) (t3snd $4) (t3thd $4) }
+
+typeuse_locals_body :: { (TypeUse, [LocalType], [Instruction]) }
+    : '(' typeuse_locals_body1 { $2 }
+    | ')' { (AnonimousTypeUse $ FuncType [] [], [], []) }
+
+typeuse_locals_body1 :: { (TypeUse, [LocalType], [Instruction]) }
+    : 'type' typeidx ')' signature_locals_body { (IndexedTypeUse $2 (t3fst $4), t3snd $4, t3thd $4) }
+    | signature_locals_body1 { (AnonimousTypeUse (fromMaybe emptyFuncType $ t3fst $1), t3snd $1, t3thd $1) }
+
+signature_locals_body :: { (Maybe FuncType, [LocalType], [Instruction]) }
+    : ')' { (Nothing, [], []) }
+    | '(' signature_locals_body1 { $2 }
+
+signature_locals_body1 :: { (Maybe FuncType, [LocalType], [Instruction]) }
+    : 'param' list(valtype) ')' signature_locals_body
+        { (Just $ prependFuncParams (map (ParamType Nothing) $2) $ fromMaybe emptyFuncType $ t3fst $4, t3snd $4, t3thd $4) }
+    | 'param' ident valtype ')' signature_locals_body
+        { (Just $ prependFuncParams [ParamType (Just $2) $3] $ fromMaybe emptyFuncType $ t3fst $5, t3snd $5, t3thd $5) }
+    | 'result' list(valtype) ')' signature_locals_body
+        { (Just $ prependFuncResults $2 $ fromMaybe emptyFuncType $ t3fst $4, t3snd $4, t3thd $4) }
+    | locals_body1 { (Nothing, fst $1, snd $1) }
+
+locals_body :: { ([LocalType], [Instruction]) }
+    : ')' { ([], []) }
+    | '(' locals_body1 { $2 }
+
+locals_body1 :: { ([LocalType], [Instruction]) }
+    : 'local' list(valtype) ')' locals_body { (map (LocalType Nothing) $2 ++ fst $4, snd $4) }
+    | 'local' ident valtype ')' locals_body { (LocalType (Just $2) $3 : fst $5, snd $5) }
+    | foldedinst1 ')' { ([], $1) }
+
+-- FUNCTION END --
 
 global :: { Global }
     : '(' 'global' opt(ident) globaltype list(foldedinstr) ')' { Global $3 $4 (concat $5) }
@@ -643,13 +685,28 @@ opt(p)
 
 {
 
+t3fst :: (a, b, c) -> a
+t3fst (a, _, _) = a
+
+t3snd :: (a, b, c) -> b
+t3snd (_, a, _) = a
+
+t3thd :: (a, b, c) -> c
+t3thd (_, _, a) = a
+
+prependFuncParams :: [ParamType] -> FuncType -> FuncType
+prependFuncParams prep (FuncType params results) = FuncType (prep ++ params) results
+
+prependFuncResults :: [ValueType] -> FuncType -> FuncType
+prependFuncResults prep (FuncType params results) = FuncType params (prep ++ results)
+
 mergeFuncType :: FuncType -> FuncType -> FuncType
 mergeFuncType (FuncType lps lrs) (FuncType rps rrs) = FuncType (lps ++ rps) (lrs ++ rrs)
 
 asUInt32 :: Integer -> Maybe Natural
 asUInt32 val
-    | val >= 0, val < 2 ^ 32 = Just $ fromIntegral val
-    | otherwise = Nothing
+    | val >= 0, val < 2 ^ 32 = Debug.trace ("success as uint32 " ++ show val) $ Just $ fromIntegral val
+    | otherwise = Debug.trace ("Unsuccess as uint32 " ++ show val) $ Nothing
 
 asInt32 :: Integer -> Maybe Integer
 asInt32 val
@@ -700,6 +757,9 @@ data FuncType = FuncType {
         params :: [ParamType],
         results :: [ValueType]
     } deriving (Show, Eq)
+
+emptyFuncType :: FuncType
+emptyFuncType = FuncType [] []
 
 data ParamType = ParamType {
         ident :: Maybe Ident,
