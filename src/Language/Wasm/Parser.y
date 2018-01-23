@@ -501,7 +501,6 @@ plaininstr :: { PlainInstr }
 typedef :: { TypeDef }
     : 'type' opt(ident) functype ')' { TypeDef $2 $3 }
 
--- TODO: it does not properly handle call_indirect instruction use. it expects to be last expression before common ')'
 typeuse :: { TypeUse }
     : '(' typeuse1 { $2 }
     | {- empty -} { AnonimousTypeUse $ FuncType [] [] }
@@ -535,24 +534,10 @@ memarg4 :: { MemArg }
 memarg8 :: { MemArg }
     : opt(offset) opt(align) { MemArg (fromMaybe 0 $1) (fromMaybe 8 $2) }
 
-resulttype :: { [ValueType] }
-    : '(' 'result' list(valtype) ')' { $3 }
-
-instr :: { Instruction }
-    : plaininstr { PlainInstr $1 }
-    -- TODO: check if optional labels are equal if they exist
-    | 'block' opt(ident) opt(resulttype) list(instr) 'end' opt(ident) { BlockInstr $2 (fromMaybe [] $3) $4 }
-    -- TODO: check if optional labels are equal if they exist
-    | 'loop' opt(ident) opt(resulttype) list(instr) 'end' opt(ident) { LoopInstr $2 (fromMaybe [] $3) $4 }
-    -- TODO: check if optional labels are equal if they exist
-    | 'if' opt(ident) opt(resulttype) list(instr)
-        'else' opt(ident) list(instr)
-        'end' opt(ident) { IfInstr $2 (fromMaybe [] $3) $4 $7 }
-
 foldedinstr :: { [Instruction] }
-    : '(' foldedinst1 { $2 }
+    : '(' foldedinstr1 { $2 }
 
-foldedinst1 :: { [Instruction] }
+foldedinstr1 :: { [Instruction] }
     : plaininstr list(foldedinstr) ')' { concat $2 ++ [PlainInstr $1] }
     | 'call_indirect' folded_call_indirect { $2 }
     | 'block' opt(ident) folded_block { [$3 $2] }
@@ -565,7 +550,7 @@ folded_block :: { Maybe Ident -> Instruction }
 
 folded_block1 :: { Maybe Ident -> Instruction }
     : 'result' valtype ')' list(foldedinstr) ')' { \ident -> BlockInstr ident [$2] (concat $4) }
-    | foldedinst1 list(foldedinstr) ')' { \ident -> BlockInstr ident [] ($1 ++ concat $2) }
+    | foldedinstr1 list(foldedinstr) ')' { \ident -> BlockInstr ident [] ($1 ++ concat $2) }
 
 folded_loop :: { Maybe Ident -> Instruction }
     : ')' { \ident -> LoopInstr ident [] [] }
@@ -573,16 +558,16 @@ folded_loop :: { Maybe Ident -> Instruction }
 
 folded_loop1 :: { Maybe Ident -> Instruction }
     : 'result' valtype ')' list(foldedinstr) ')' { \ident -> LoopInstr ident [$2] (concat $4) }
-    | foldedinst1 list(foldedinstr) ')' { \ident -> LoopInstr ident [] ($1 ++ concat $2) }
+    | foldedinstr1 list(foldedinstr) ')' { \ident -> LoopInstr ident [] ($1 ++ concat $2) }
 
 folded_if_result :: { Maybe Ident -> [Instruction] }
     : 'result' valtype ')' '(' folded_then_else { \ident -> [IfInstr ident [$2] (fst $5) (snd $5)] }
-    | 'result' valtype ')' '(' foldedinst1 '(' folded_then_else { \ident -> $5 ++ [IfInstr ident [$2] (fst $7) (snd $7)] }
+    | 'result' valtype ')' '(' foldedinstr1 '(' folded_then_else { \ident -> $5 ++ [IfInstr ident [$2] (fst $7) (snd $7)] }
     | folded_if { $1 }
 
 folded_if :: { Maybe Ident -> [Instruction] }
     : folded_then_else { \ident -> [IfInstr ident [] (fst $1) (snd $1)] }
-    | foldedinst1 '(' folded_then_else { \ident -> $1 ++ [IfInstr ident [] (fst $3) (snd $3)] }
+    | foldedinstr1 '(' folded_then_else { \ident -> $1 ++ [IfInstr ident [] (fst $3) (snd $3)] }
 
 folded_then_else :: { ([Instruction], [Instruction]) }
     : 'then' list(foldedinstr) ')' folded_else { (concat $2, $4)}
@@ -611,7 +596,7 @@ folded_call_indirect_functype1 :: { (Maybe FuncType, [Instruction]) }
     : paramsresulttypeuse folded_call_indirect_functype {
         (Just $ mergeFuncType $1 $ fromMaybe emptyFuncType $ fst $2, snd $2)
     }
-    | foldedinst1 list(foldedinstr) ')' { (Nothing, $1 ++ concat $2) }
+    | foldedinstr1 list(foldedinstr) ')' { (Nothing, $1 ++ concat $2) }
 
 importdesc :: { ImportDesc }
     : 'func' opt(ident) typeuse ')' { ImportFunc $2 $3 }
@@ -621,13 +606,6 @@ importdesc :: { ImportDesc }
 
 import :: { Import }
     : 'import' name name '(' importdesc ')' { Import $2 $3 $5 }
-
-localtypes :: { [LocalType] }
-    : list(localtype) { concat $1 }
-
-localtype :: { [LocalType] }
-    : '(' 'local' ident valtype ')' { [LocalType (Just $3) $4] }
-    | '(' 'local' list(valtype) ')' { map (LocalType Nothing) $3 }
 
 -- FUNCTION --
 function :: { [ModuleField] }
@@ -677,13 +655,14 @@ locals_body :: { ([LocalType], [Instruction]) }
 locals_body1 :: { ([LocalType], [Instruction]) }
     : 'local' list(valtype) ')' locals_body { (map (LocalType Nothing) $2 ++ fst $4, snd $4) }
     | 'local' ident valtype ')' locals_body { (LocalType (Just $2) $3 : fst $5, snd $5) }
-    | foldedinst1 list(foldedinstr) ')' { ([], $1 ++ concat $2) }
+    | foldedinstr1 list(foldedinstr) ')' { ([], $1 ++ concat $2) }
 
 -- FUNCTION END --
 
 global :: { Global }
     : 'global' opt(ident) globaltype list(foldedinstr) ')' { Global $2 $3 (concat $4) }
 
+-- TODO: inline exports and imports
 memory :: { Memory }
     : 'memory' opt(ident) limits ')' { Memory $2 $3 }
 
@@ -733,7 +712,7 @@ start :: { StartFunction }
 -- I am going to support both options for now, but maybe it has to be updated in future.
 offsetexpr :: { [Instruction] }
     : 'offset' foldedinstr ')' { $2 }
-    | foldedinst1 { $1 }
+    | foldedinstr1 { $1 }
 
 elemsegment :: { ElemSegment }
     : 'elem' opt(tableidx) '(' offsetexpr list(funcidx) ')' { ElemSegment (fromMaybe (Index 0) $2) $4 $5 }
@@ -783,12 +762,9 @@ rev_list1(p)
 list(p)
     : rev_list(p)    { reverse $1 }
 
-list1(p)
-    : rev_list1(p)   { reverse $1 }
-
 opt(p)
     : p { Just $1 }
-    |   { Nothing }
+    | {- empty -} { Nothing }
 
 {
 
