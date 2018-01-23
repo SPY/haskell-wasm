@@ -271,10 +271,6 @@ valtype :: { ValueType }
     | 'f32' { F32 }
     | 'f64' { F64 }
 
-globaltype :: { GlobalType }
-    : valtype { Const $1 }
-    | '(' 'mut' valtype ')' { Mut $3 }
-
 labelidx :: { LabelIndex }
     : u32 { Index $1 }
     | ident { Named $1 }
@@ -660,8 +656,25 @@ locals_body1 :: { ([LocalType], [Instruction]) }
 
 -- FUNCTION END --
 
-global :: { Global }
-    : 'global' opt(ident) globaltype list(foldedinstr) ')' { Global $2 $3 (concat $4) }
+global :: { [ModuleField] }
+    : 'global' opt(ident) global_type_export_import { $3 $2 }
+
+globaltype :: { GlobalType }
+    : valtype { Const $1 }
+    | '(' 'mut' valtype ')' { Mut $3 }
+
+global_type_export_import :: { Maybe Ident -> [ModuleField] }
+    : valtype list(foldedinstr) ')' { \ident -> [MFGlobal $ Global ident (Const $1) $ concat $2] }
+    | '(' global_mut_export_import { $2 }
+
+global_mut_export_import :: { Maybe Ident -> [ModuleField] }
+    : 'mut' valtype ')' list(foldedinstr) ')' { \ident -> [MFGlobal $ Global ident (Mut $2) $ concat $4] }
+    | 'export' name ')' global_type_export_import {
+        \ident -> (MFExport $ Export $2 $ ExportGlobal $ Named `fmap` ident) : ($4 ident)
+    }
+    | 'import' name name ')' globaltype ')' {
+        \ident -> [MFImport $ Import $2 $3 $ ImportGlobal ident $5]
+    }
 
 -- TODO: inline exports and imports
 memory :: { Memory }
@@ -699,8 +712,8 @@ import_export_table :: { [ModuleField] }
 exportdesc :: { ExportDesc }
     : 'func' funcidx ')' { ExportFunc (Just $2) }
     | 'table' tableidx ')' { ExportTable (Just $2) }
-    | 'memory' memidx ')' { ExportMemory $2 }
-    | 'global' globalidx ')' { ExportGlobal $2 }
+    | 'memory' memidx ')' { ExportMemory (Just $2) }
+    | 'global' globalidx ')' { ExportGlobal (Just $2) }
 
 export :: { Export }
     : 'export' name '(' exportdesc ')' { Export $2 $4 }
@@ -725,7 +738,6 @@ modulefield1_single :: { ModuleField }
     : typedef { MFType $1 }
     | import { MFImport $1 }
     | memory { MFMem $1 }
-    | global { MFGlobal $1 }
     | export { MFExport $1 }
     | start { MFStart $1 }
     | elemsegment { MFElem $1 }
@@ -734,6 +746,7 @@ modulefield1_single :: { ModuleField }
 modulefield1_multi :: { [ModuleField] }
     : function { $1 }
     | table { $1 }
+    | global { $1 }
 
 modulefield1 :: { [ModuleField] }
     : modulefield1_single { [$1] }
@@ -1130,8 +1143,8 @@ data Table = Table (Maybe Ident) TableType deriving (Show, Eq)
 data ExportDesc =
     ExportFunc (Maybe FuncIndex)
     | ExportTable (Maybe TableIndex)
-    | ExportMemory MemoryIndex
-    | ExportGlobal GlobalIndex
+    | ExportMemory (Maybe MemoryIndex)
+    | ExportGlobal (Maybe GlobalIndex)
     deriving (Show, Eq)
 
 data Export = Export {
