@@ -619,17 +619,9 @@ export_import_typeuse_locals_body1 :: { [ModuleField] }
     : 'export' name ')' export_import_typeuse_locals_body { (MFExport $ Export $2 $ ExportFunc Nothing) : $4 }
     | import_typeuse_locals_body1 { [$1] }
 
-import_typeuse_locals_body :: { ModuleField }
-    : '(' import_typeuse_locals_body1 { $2 }
-    | ')' { MFFunc $ Function Nothing (AnonimousTypeUse $ FuncType [] []) [] [] }
-
 import_typeuse_locals_body1 :: { ModuleField }
     : 'import' name name ')' typeuse ')' { MFImport $ Import $2 $3 $ ImportFunc Nothing $5 }
     | typeuse_locals_body1 { MFFunc $ Function Nothing (t3fst $1) (t3snd $1) (t3thd $1) }
-
-typeuse_locals_body :: { (TypeUse, [LocalType], [Instruction]) }
-    : '(' typeuse_locals_body1 { $2 }
-    | ')' { (AnonimousTypeUse $ FuncType [] [], [], []) }
 
 typeuse_locals_body1 :: { (TypeUse, [LocalType], [Instruction]) }
     : 'type' typeidx ')' signature_locals_body { (IndexedTypeUse $2 (t3fst $4), t3snd $4, t3thd $4) }

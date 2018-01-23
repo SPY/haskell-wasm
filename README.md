@@ -7,7 +7,7 @@
 
 ## Status
   * Lexer: supports nested block comments and all lexemes from Spec
-  * Parser: parses all examples from WebAssembly Core TestsSuit
+  * Parser: parses all examples from WebAssembly Core TestsSuit(including folded instructions parsing)
 
 ## ToDo
   * Improve error messages for text representation parsing
