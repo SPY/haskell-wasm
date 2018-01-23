@@ -90,9 +90,9 @@ import Debug.Trace as Debug
 'f64.store'           { Lexeme _ (TKeyword "f64.store") }
 'i32.store8'          { Lexeme _ (TKeyword "i32.store8") }
 'i32.store16'         { Lexeme _ (TKeyword "i32.store16") }
-'i64.store8'          { Lexeme _ (TKeyword "i64.store") }
-'i64.store16'         { Lexeme _ (TKeyword "i64.store") }
-'i64.store32'         { Lexeme _ (TKeyword "i64.store") }
+'i64.store8'          { Lexeme _ (TKeyword "i64.store8") }
+'i64.store16'         { Lexeme _ (TKeyword "i64.store16") }
+'i64.store32'         { Lexeme _ (TKeyword "i64.store32") }
 'current_memory'      { Lexeme _ (TKeyword "current_memory") }
 'grow_memory'         { Lexeme _ (TKeyword "grow_memory") }
 'i32.const'           { Lexeme _ (TKeyword "i32.const") }
@@ -247,7 +247,6 @@ f32                   { Lexeme _ (TFloatLit (asFloat32 -> $$)) }
 f64                   { Lexeme _ (TFloatLit (asFloat64 -> $$)) }
 offset                { Lexeme _ (TKeyword (asOffset -> Just $$)) }
 align                 { Lexeme _ (TKeyword (asAlign -> Just $$)) }
-name                  { Lexeme _ (TStringLit (asName -> Just $$)) }
 string                { Lexeme _ (TStringLit (asString -> Just $$)) }
 EOF                   { Lexeme _ EOF }
 
@@ -259,6 +258,9 @@ functype :: { FuncType }
 params_results :: { FuncType }
     : ')' { FuncType [] [] }
     | '(' paramsresultstypeuse ')' { $2 }
+
+name :: { TL.Text }
+    : string { $1 }
 
 ident :: { Ident }
     : id { Ident (TL.toStrict (TLEncoding.decodeUtf8 $1)) }
@@ -730,14 +732,14 @@ start :: { StartFunction }
 -- but collection of testcases omits 'offset' in this position
 -- I am going to support both options for now, but maybe it has to be updated in future.
 offsetexpr :: { [Instruction] }
-    : '(' 'offset' foldedinstr ')' { $3 }
-    | foldedinstr { $1 } 
+    : 'offset' foldedinstr ')' { $2 }
+    | foldedinst1 { $1 }
 
 elemsegment :: { ElemSegment }
-    : 'elem' opt(tableidx) offsetexpr list(funcidx) ')' { ElemSegment (fromMaybe (Index 0) $2) $3 $4 }
+    : 'elem' opt(tableidx) '(' offsetexpr list(funcidx) ')' { ElemSegment (fromMaybe (Index 0) $2) $4 $5 }
 
 datasegment :: { DataSegment }
-    : 'data' opt(memidx) offsetexpr list(string) ')' { DataSegment (fromMaybe (Index 0) $2) $3 (TL.concat $4) }
+    : 'data' opt(memidx) '(' offsetexpr list(string) ')' { DataSegment (fromMaybe (Index 0) $2) $4 (TL.concat $5) }
 
 modulefield1_single :: { ModuleField }
     : typedef { MFType $1 }
