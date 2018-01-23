@@ -553,12 +553,25 @@ foldedinstr :: { [Instruction] }
 foldedinst1 :: { [Instruction] }
     : plaininstr list(foldedinstr) ')' { concat $2 ++ [PlainInstr $1] }
     | 'call_indirect' folded_call_indirect { $2 }
-    | 'block' opt(ident) opt(resulttype) list(instr) ')' { [BlockInstr $2 (fromMaybe [] $3) $4] }
-    | 'loop' opt(ident) opt(resulttype) list(instr) ')' { [LoopInstr $2 (fromMaybe [] $3) $4] }
+    | 'block' opt(ident) folded_block { [$3 $2] }
+    | 'loop' opt(ident) folded_loop { [$3 $2] }
     | 'if' opt(ident) '(' folded_if_result { $4 $2 }
-        -- opt(resulttype) list(foldedinstr)
-        -- '(' 'then' list(instr) ')'
-        -- '(' 'else' list(instr) opt(')') ')' { concat $4 ++ [IfInstr $2 (fromMaybe [] $3) $7 $11] }
+
+folded_block :: { Maybe Ident -> Instruction }
+    : ')' { \ident -> BlockInstr ident [] [] }
+    | '(' folded_block1 { $2 }
+
+folded_block1 :: { Maybe Ident -> Instruction }
+    : 'result' valtype ')' list(foldedinstr) ')' { \ident -> BlockInstr ident [$2] (concat $4) }
+    | foldedinst1 list(foldedinstr) ')' { \ident -> BlockInstr ident [] ($1 ++ concat $2) }
+
+folded_loop :: { Maybe Ident -> Instruction }
+    : ')' { \ident -> LoopInstr ident [] [] }
+    | '(' folded_loop1 { $2 }
+
+folded_loop1 :: { Maybe Ident -> Instruction }
+    : 'result' valtype ')' list(foldedinstr) ')' { \ident -> LoopInstr ident [$2] (concat $4) }
+    | foldedinst1 list(foldedinstr) ')' { \ident -> LoopInstr ident [] ($1 ++ concat $2) }
 
 folded_if_result :: { Maybe Ident -> [Instruction] }
     : 'result' valtype ')' '(' folded_then_else { \ident -> [IfInstr ident [$2] (fst $5) (snd $5)] }

@@ -12,6 +12,6 @@ import qualified Language.Wasm.Parser as Parser
 
 main :: IO ()
 main = do
-  file <- LBS.readFile "tests/samples/if.wast"
+  file <- LBS.readFile "tests/samples/loop.wast"
   print $ Parser.parseModule <$> Lexer.scanner file
   defaultMain $ testGroup "Test Suite" []
