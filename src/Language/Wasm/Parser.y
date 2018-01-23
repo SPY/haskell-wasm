@@ -305,6 +305,22 @@ int32 :: { Integer }
     : u32 { fromIntegral $1 }
     | i32 { $1 }
 
+int64 :: { Integer }
+    : u32 { fromIntegral $1 }
+    | i32 { $1 }
+    | i64 { $1 }
+
+float32 :: { Float }
+    : u32 { fromIntegral $1 }
+    | i32 { fromIntegral $1 }
+    | f32 { $1 }
+
+float64 :: { Double }
+    : u32 { fromIntegral $1 }
+    | i32 { fromIntegral $1 }
+    | f32 { realToFrac $1 }
+    | f64 { realToFrac $1 }
+
 plaininstr :: { PlainInstr }
     -- control instructions
     : 'unreachable'                  { Unreachable }
@@ -314,7 +330,8 @@ plaininstr :: { PlainInstr }
     | 'br_table' rev_list1(labelidx) { BrTable (reverse $ tail $2) (head $2) }
     | 'return'                       { Return }
     | 'call' funcidx                 { Call $2 }
-    | 'call_indirect' typeuse        { CallIndirect $2 }
+    -- | 'call_indirect' typeuse        { CallIndirect $2 }
+    -- call_inderict has special case in folded form
     -- parametric instructions
     | 'drop'                         { Drop }
     | 'select'                       { Select }
@@ -352,9 +369,9 @@ plaininstr :: { PlainInstr }
     | 'grow_memory'                  { GrowMemory }
     -- numeric instructions
     | 'i32.const' int32              { I32Const $2 }
-    | 'i64.const' i64                { I64Const $2 }
-    | 'f32.const' f32                { F32Const $2 }
-    | 'f64.const' f64                { F64Const $2 }
+    | 'i64.const' int64              { I64Const $2 }
+    | 'f32.const' float32            { F32Const $2 }
+    | 'f64.const' float64            { F64Const $2 }
     | 'i32.clz'                      { I32Clz }
     | 'i32.ctz'                      { I32Ctz }
     | 'i32.popcnt'                   { I32Popcnt }
@@ -535,11 +552,34 @@ foldedinstr :: { [Instruction] }
 
 foldedinst1 :: { [Instruction] }
     : plaininstr list(foldedinstr) ')' { concat $2 ++ [PlainInstr $1] }
+    | 'call_indirect' folded_call_indirect { $2 }
     | 'block' opt(ident) opt(resulttype) list(instr) ')' { [BlockInstr $2 (fromMaybe [] $3) $4] }
     | 'loop' opt(ident) opt(resulttype) list(instr) ')' { [LoopInstr $2 (fromMaybe [] $3) $4] }
     | 'if' opt(ident) opt(resulttype) list(foldedinstr)
         '(' 'then' list(instr) ')'
         '(' 'else' list(instr) opt(')') ')' { concat $4 ++ [IfInstr $2 (fromMaybe [] $3) $7 $11] }
+
+folded_call_indirect :: { [Instruction] }
+    : ')' { [PlainInstr $ CallIndirect $ AnonimousTypeUse $ FuncType [] []] }
+    | '(' folded_call_indirect_typeuse { (PlainInstr $ CallIndirect $ fst $2) : snd $2 }
+
+folded_call_indirect_typeuse :: { (TypeUse, [Instruction]) }
+    : 'type' typeidx ')' folded_call_indirect_functype {
+        (IndexedTypeUse $2 $ fst $4, snd $4)
+    }
+    | folded_call_indirect_functype1 {
+        (AnonimousTypeUse $ fromMaybe (FuncType [] []) $ fst $1, snd $1)
+    }
+
+folded_call_indirect_functype :: { (Maybe FuncType, [Instruction]) }
+    : '(' folded_call_indirect_functype1 { $2 }
+    | ')' { (Nothing, []) }
+
+folded_call_indirect_functype1 :: { (Maybe FuncType, [Instruction]) }
+    : paramsresulttypeuse folded_call_indirect_functype {
+        (Just $ mergeFuncType $1 $ fromMaybe emptyFuncType $ fst $2, snd $2)
+    }
+    | foldedinst1 list(foldedinstr) ')' { (Nothing, $1 ++ concat $2) }
 
 importdesc :: { ImportDesc }
     : 'func' opt(ident) typeuse ')' { ImportFunc $2 $3 }
@@ -605,7 +645,7 @@ locals_body :: { ([LocalType], [Instruction]) }
 locals_body1 :: { ([LocalType], [Instruction]) }
     : 'local' list(valtype) ')' locals_body { (map (LocalType Nothing) $2 ++ fst $4, snd $4) }
     | 'local' ident valtype ')' locals_body { (LocalType (Just $2) $3 : fst $5, snd $5) }
-    | foldedinst1 ')' { ([], $1) }
+    | foldedinst1 list(foldedinstr) ')' { ([], $1 ++ concat $2) }
 
 -- FUNCTION END --
 
