@@ -646,7 +646,7 @@ signature_locals_body1 :: { (Maybe FuncType, [LocalType], [Instruction]) }
         { (Just $ prependFuncParams [ParamType (Just $2) $3] $ fromMaybe emptyFuncType $ t3fst $5, t3snd $5, t3thd $5) }
     | 'result' list(valtype) ')' signature_locals_body
         { (Just $ prependFuncResults $2 $ fromMaybe emptyFuncType $ t3fst $4, t3snd $4, t3thd $4) }
-    | locals_body1 { (Nothing, fst $1, snd $1) }
+    | locals_body1 { (Nothing, fst $1, snd $1) } 
 
 locals_body :: { ([LocalType], [Instruction]) }
     : ')' { ([], []) }
@@ -746,8 +746,11 @@ modulefields :: { Module }
     | {- empty -} { emptyModule }
 
 mod :: { Module }
-    : '(' 'module' modulefields ')' EOF { reverseModuleFields $3 }
-    | modulefields EOF { reverseModuleFields $1 }
+    : '(' mod1 { $2 }
+
+mod1 :: { Module }
+    : 'module' modulefields ')' EOF { reverseModuleFields $2 }
+    | modulefield1 modulefields EOF { reverseModuleFields $ foldl' (flip appendModuleField) $2 $1 }
 
 -- utils
 
