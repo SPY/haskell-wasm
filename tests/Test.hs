@@ -15,7 +15,7 @@ import qualified Language.Wasm.Parser as Parser
 import qualified Debug.Trace as Debug
 
 isRight :: (Show b) => Either a b -> Bool
-isRight (Right x) = length (show x) > 0
+isRight (Right x) = show x `seq` True
 isRight _         = False
 
 main :: IO ()

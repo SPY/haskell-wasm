@@ -621,24 +621,33 @@ export_import_typeuse_locals_body1 :: { [ModuleField] }
 
 import_typeuse_locals_body1 :: { ModuleField }
     : 'import' name name ')' typeuse ')' { MFImport $ Import $2 $3 $ ImportFunc Nothing $5 }
-    | typeuse_locals_body1 { MFFunc $ Function Nothing (t3fst $1) (t3snd $1) (t3thd $1) }
+    | typeuse_locals_body1 { MFFunc $1 }
 
-typeuse_locals_body1 :: { (TypeUse, [LocalType], [Instruction]) }
-    : 'type' typeidx ')' signature_locals_body { (IndexedTypeUse $2 (t3fst $4), t3snd $4, t3thd $4) }
-    | signature_locals_body1 { (AnonimousTypeUse (fromMaybe emptyFuncType $ t3fst $1), t3snd $1, t3thd $1) }
+typeuse_locals_body1 :: { Function }
+    : 'type' typeidx ')' signature_locals_body {
+        let (AnonimousTypeUse signature) = funcType $4 in
+        let typeSign = if signature == emptyFuncType then Nothing else Just signature in
+        $4 { funcType = IndexedTypeUse $2 typeSign }
+    }
+    | signature_locals_body1 { $1 }
 
-signature_locals_body :: { (Maybe FuncType, [LocalType], [Instruction]) }
-    : ')' { (Nothing, [], []) }
+signature_locals_body :: { Function }
+    : ')' { emptyFunction }
     | '(' signature_locals_body1 { $2 }
 
-signature_locals_body1 :: { (Maybe FuncType, [LocalType], [Instruction]) }
-    : 'param' list(valtype) ')' signature_locals_body
-        { (Just $ prependFuncParams (map (ParamType Nothing) $2) $ fromMaybe emptyFuncType $ t3fst $4, t3snd $4, t3thd $4) }
-    | 'param' ident valtype ')' signature_locals_body
-        { (Just $ prependFuncParams [ParamType (Just $2) $3] $ fromMaybe emptyFuncType $ t3fst $5, t3snd $5, t3thd $5) }
-    | 'result' list(valtype) ')' signature_locals_body
-        { (Just $ prependFuncResults $2 $ fromMaybe emptyFuncType $ t3fst $4, t3snd $4, t3thd $4) }
-    | locals_body1 { (Nothing, fst $1, snd $1) } 
+signature_locals_body1 :: { Function }
+    : 'param' list(valtype) ')' signature_locals_body {
+        prependFuncParams (map (ParamType Nothing) $2) $4
+    }
+    | 'param' ident valtype ')' signature_locals_body {
+        prependFuncParams [ParamType (Just $2) $3] $5
+    }
+    | 'result' list(valtype) ')' signature_locals_body {
+        prependFuncResults $2 $4
+    }
+    | locals_body1 {
+        emptyFunction { locals = fst $1, body = snd $1 }
+    } 
 
 locals_body :: { ([LocalType], [Instruction]) }
     : ')' { ([], []) }
@@ -763,15 +772,6 @@ opt(p)
 
 {
 
-t3fst :: (a, b, c) -> a
-t3fst (a, _, _) = a
-
-t3snd :: (a, b, c) -> b
-t3snd (_, a, _) = a
-
-t3thd :: (a, b, c) -> c
-t3thd (_, _, a) = a
-
 appendIdent :: Maybe Ident -> ModuleField -> ModuleField
 appendIdent i (MFFunc fun) = MFFunc $ fun { ident = i }
 appendIdent i (MFImport (Import sm name (ImportFunc _ typeUse))) = MFImport $ Import sm name $ ImportFunc i typeUse
@@ -782,11 +782,14 @@ appendIdent i (MFTable (Table _ tableType)) = MFTable $ Table i tableType
 appendIdent (Just id) (MFElem segm) = MFElem $ segm { tableIndex = Named id }
 appendIdent _ mf = mf
 
-prependFuncParams :: [ParamType] -> FuncType -> FuncType
-prependFuncParams prep (FuncType params results) = FuncType (prep ++ params) results
+-- partial function by intention
+prependFuncParams :: [ParamType] -> Function -> Function
+prependFuncParams prep f@(Function { funcType = AnonimousTypeUse ft }) =
+    f { funcType = AnonimousTypeUse $ ft { params = prep ++ params ft } }
 
-prependFuncResults :: [ValueType] -> FuncType -> FuncType
-prependFuncResults prep (FuncType params results) = FuncType params (prep ++ results)
+prependFuncResults :: [ValueType] -> Function -> Function
+prependFuncResults prep f@(Function { funcType = AnonimousTypeUse ft }) =
+    f { funcType = AnonimousTypeUse $ ft { results = prep ++ results ft } }
 
 mergeFuncType :: FuncType -> FuncType -> FuncType
 mergeFuncType (FuncType lps lrs) (FuncType rps rrs) = FuncType (lps ++ rps) (lrs ++ rrs)
@@ -1098,11 +1101,20 @@ data LocalType = LocalType {
 
 data Function = Function {
         ident :: Maybe Ident,
-        funType :: TypeUse,
+        funcType :: TypeUse,
         locals :: [LocalType],
         body :: [Instruction]
     }
     deriving (Show, Eq)
+
+emptyFunction :: Function
+emptyFunction =
+    Function {
+        ident = Nothing,
+        funcType = AnonimousTypeUse emptyFuncType,
+        locals = [],
+        body = []
+    }
 
 data Global = Global {
         ident :: Maybe Ident,
