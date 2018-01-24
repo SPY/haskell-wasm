@@ -676,9 +676,23 @@ global_mut_export_import :: { Maybe Ident -> [ModuleField] }
         \ident -> [MFImport $ Import $2 $3 $ ImportGlobal ident $5]
     }
 
--- TODO: inline exports and imports
-memory :: { Memory }
-    : 'memory' opt(ident) limits ')' { Memory $2 $3 }
+memory :: { [ModuleField] }
+    : 'memory' opt(ident) memory_limits_export_import { $3 $2 }
+
+memory_limits_export_import :: { Maybe Ident -> [ModuleField] }
+    : memory_limits { $1 }
+    | '(' memory_limits_export_import1 { $2 }
+
+memory_limits_export_import1 :: { Maybe Ident -> [ModuleField] }
+    : 'export' name ')' memory_limits_export_import {
+        \ident -> (MFExport $ Export $2 $ ExportMemory $ Named `fmap` ident) : $4 ident
+    }
+    | 'import' name name ')' limits ')' {
+        \ident -> [MFImport $ Import $2 $3 $ ImportMemory ident $5]
+    }
+
+memory_limits :: { Maybe Ident -> [ModuleField] }
+    : limits ')' { \ident -> [MFMem $ Memory ident $1] }
 
 -- TABLE --
 limits :: { Limit }
@@ -737,7 +751,6 @@ datasegment :: { DataSegment }
 modulefield1_single :: { ModuleField }
     : typedef { MFType $1 }
     | import { MFImport $1 }
-    | memory { MFMem $1 }
     | export { MFExport $1 }
     | start { MFStart $1 }
     | elemsegment { MFElem $1 }
@@ -746,6 +759,7 @@ modulefield1_single :: { ModuleField }
 modulefield1_multi :: { [ModuleField] }
     : function { $1 }
     | table { $1 }
+    | memory { $1 }
     | global { $1 }
 
 modulefield1 :: { [ModuleField] }
