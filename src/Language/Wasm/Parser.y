@@ -370,129 +370,129 @@ plaininstr :: { PlainInstr }
     | 'i64.const' int64              { I64Const $2 }
     | 'f32.const' float32            { F32Const $2 }
     | 'f64.const' float64            { F64Const $2 }
-    | 'i32.clz'                      { I32Clz }
-    | 'i32.ctz'                      { I32Ctz }
-    | 'i32.popcnt'                   { I32Popcnt }
-    | 'i32.add'                      { I32Add }
-    | 'i32.sub'                      { I32Sub }
-    | 'i32.mul'                      { I32Mul }
-    | 'i32.div_s'                    { I32DivS }
-    | 'i32.div_u'                    { I32DivU }
-    | 'i32.rem_s'                    { I32RemS }
-    | 'i32.rem_u'                    { I32RemU }
-    | 'i32.and'                      { I32And }
-    | 'i32.or'                       { I32Or }
-    | 'i32.xor'                      { I32Xor }
-    | 'i32.shl'                      { I32Shl }
-    | 'i32.shr_s'                    { I32ShrS }
-    | 'i32.shr_u'                    { I32ShrU }
-    | 'i32.rotl'                     { I32Rotl }
-    | 'i32.rotr'                     { I32Rotr }
-    | 'i64.clz'                      { I64Clz }
-    | 'i64.ctz'                      { I64Ctz }
-    | 'i64.popcnt'                   { I64Popcnt }
-    | 'i64.add'                      { I64Add }
-    | 'i64.sub'                      { I64Sub }
-    | 'i64.mul'                      { I64Mul }
-    | 'i64.div_s'                    { I64DivS }
-    | 'i64.div_u'                    { I64DivU }
-    | 'i64.rem_s'                    { I64RemS }
-    | 'i64.rem_u'                    { I64RemU }
-    | 'i64.and'                      { I64And }
-    | 'i64.or'                       { I64Or }
-    | 'i64.xor'                      { I64Xor }
-    | 'i64.shl'                      { I64Shl }
-    | 'i64.shr_s'                    { I64ShrS }
-    | 'i64.shr_u'                    { I64ShrU }
-    | 'i64.rotl'                     { I64Rotl }
-    | 'i64.rotr'                     { I64Rotr }
-    | 'f32.abs'                      { F32Abs }
-    | 'f32.neg'                      { F32Neg }
-    | 'f32.ceil'                     { F32Ceil }
-    | 'f32.floor'                    { F32Floor }
-    | 'f32.trunc'                    { F32Trunc }
-    | 'f32.nearest'                  { F32Nearest }
-    | 'f32.sqrt'                     { F32Sqrt }
-    | 'f32.add'                      { F32Add }
-    | 'f32.sub'                      { F32Sub }
-    | 'f32.mul'                      { F32Mul }
-    | 'f32.div'                      { F32Div }
-    | 'f32.min'                      { F32Min }
-    | 'f32.max'                      { F32Max }
-    | 'f32.copysign'                 { F32Copysign }
-    | 'f64.abs'                      { F64Abs }
-    | 'f64.neg'                      { F64Neg }
-    | 'f64.ceil'                     { F64Ceil }
-    | 'f64.floor'                    { F64Floor }
-    | 'f64.trunc'                    { F64Trunc }
-    | 'f64.nearest'                  { F64Nearest }
-    | 'f64.sqrt'                     { F64Sqrt }
-    | 'f64.add'                      { F64Add }
-    | 'f64.sub'                      { F64Sub }
-    | 'f64.mul'                      { F64Mul }
-    | 'f64.div'                      { F64Div }
-    | 'f64.min'                      { F64Min }
-    | 'f64.max'                      { F64Max }
-    | 'f64.copysign'                 { F64Copysign }
+    | 'i32.clz'                      { IUnOp BS32 IClz }
+    | 'i32.ctz'                      { IUnOp BS32 ICtz }
+    | 'i32.popcnt'                   { IUnOp BS32 IPopcnt }
+    | 'i32.add'                      { IBinOp BS32 IAdd }
+    | 'i32.sub'                      { IBinOp BS32 ISub }
+    | 'i32.mul'                      { IBinOp BS32 IMul }
+    | 'i32.div_s'                    { IBinOp BS32 IDivS }
+    | 'i32.div_u'                    { IBinOp BS32 IDivU }
+    | 'i32.rem_s'                    { IBinOp BS32 IRemS }
+    | 'i32.rem_u'                    { IBinOp BS32 IRemU }
+    | 'i32.and'                      { IBinOp BS32 IAnd }
+    | 'i32.or'                       { IBinOp BS32 IOr }
+    | 'i32.xor'                      { IBinOp BS32 IXor }
+    | 'i32.shl'                      { IBinOp BS32 IShl }
+    | 'i32.shr_s'                    { IBinOp BS32 IShrS }
+    | 'i32.shr_u'                    { IBinOp BS32 IShrU }
+    | 'i32.rotl'                     { IBinOp BS32 IRotl }
+    | 'i32.rotr'                     { IBinOp BS32 IRotr }
+    | 'i64.clz'                      { IUnOp BS64 IClz }
+    | 'i64.ctz'                      { IUnOp BS64 ICtz }
+    | 'i64.popcnt'                   { IUnOp BS64 IPopcnt }
+    | 'i64.add'                      { IBinOp BS64 IAdd }
+    | 'i64.sub'                      { IBinOp BS64 ISub }
+    | 'i64.mul'                      { IBinOp BS64 IMul }
+    | 'i64.div_s'                    { IBinOp BS64 IDivS }
+    | 'i64.div_u'                    { IBinOp BS64 IDivU }
+    | 'i64.rem_s'                    { IBinOp BS64 IRemS }
+    | 'i64.rem_u'                    { IBinOp BS64 IRemU }
+    | 'i64.and'                      { IBinOp BS64 IAnd }
+    | 'i64.or'                       { IBinOp BS64 IOr }
+    | 'i64.xor'                      { IBinOp BS64 IXor }
+    | 'i64.shl'                      { IBinOp BS64 IShl }
+    | 'i64.shr_s'                    { IBinOp BS64 IShrS }
+    | 'i64.shr_u'                    { IBinOp BS64 IShrU }
+    | 'i64.rotl'                     { IBinOp BS64 IRotl }
+    | 'i64.rotr'                     { IBinOp BS64 IRotr }
+    | 'f32.abs'                      { FUnOp BS32 FAbs }
+    | 'f32.neg'                      { FUnOp BS32 FNeg }
+    | 'f32.ceil'                     { FUnOp BS32 FCeil }
+    | 'f32.floor'                    { FUnOp BS32 FFloor }
+    | 'f32.trunc'                    { FUnOp BS32 FTrunc }
+    | 'f32.nearest'                  { FUnOp BS32 FNearest }
+    | 'f32.sqrt'                     { FUnOp BS32 FSqrt }
+    | 'f32.add'                      { FBinOp BS32 FAdd }
+    | 'f32.sub'                      { FBinOp BS32 FSub }
+    | 'f32.mul'                      { FBinOp BS32 FMul }
+    | 'f32.div'                      { FBinOp BS32 FDiv }
+    | 'f32.min'                      { FBinOp BS32 FMin }
+    | 'f32.max'                      { FBinOp BS32 FMax }
+    | 'f32.copysign'                 { FBinOp BS32 FCopySign }
+    | 'f64.abs'                      { FUnOp BS64 FAbs }
+    | 'f64.neg'                      { FUnOp BS64 FNeg }
+    | 'f64.ceil'                     { FUnOp BS64 FCeil }
+    | 'f64.floor'                    { FUnOp BS64 FFloor }
+    | 'f64.trunc'                    { FUnOp BS64 FTrunc }
+    | 'f64.nearest'                  { FUnOp BS64 FNearest }
+    | 'f64.sqrt'                     { FUnOp BS64 FSqrt }
+    | 'f64.add'                      { FBinOp BS64 FAdd }
+    | 'f64.sub'                      { FBinOp BS64 FSub }
+    | 'f64.mul'                      { FBinOp BS64 FMul }
+    | 'f64.div'                      { FBinOp BS64 FDiv }
+    | 'f64.min'                      { FBinOp BS64 FMin }
+    | 'f64.max'                      { FBinOp BS64 FMax }
+    | 'f64.copysign'                 { FBinOp BS64 FCopySign }
     | 'i32.eqz'                      { I32Eqz }
-    | 'i32.eq'                       { I32Eq }
-    | 'i32.ne'                       { I32Ne }
-    | 'i32.lt_s'                     { I32LtS }
-    | 'i32.lt_u'                     { I32LtU }
-    | 'i32.gt_s'                     { I32GtS }
-    | 'i32.gt_u'                     { I32GtU }
-    | 'i32.le_s'                     { I32LeS }
-    | 'i32.le_u'                     { I32LeU }
-    | 'i32.ge_s'                     { I32GeS }
-    | 'i32.ge_u'                     { I32GeU }
+    | 'i32.eq'                       { IRelOp BS32 IEq }
+    | 'i32.ne'                       { IRelOp BS32 INe }
+    | 'i32.lt_s'                     { IRelOp BS32 ILtS }
+    | 'i32.lt_u'                     { IRelOp BS32 ILtU }
+    | 'i32.gt_s'                     { IRelOp BS32 IGtS }
+    | 'i32.gt_u'                     { IRelOp BS32 IGtU }
+    | 'i32.le_s'                     { IRelOp BS32 ILeS }
+    | 'i32.le_u'                     { IRelOp BS32 ILeU }
+    | 'i32.ge_s'                     { IRelOp BS32 IGeS }
+    | 'i32.ge_u'                     { IRelOp BS32 IGeU }
     | 'i64.eqz'                      { I64Eqz }
-    | 'i64.eq'                       { I64Eq }
-    | 'i64.ne'                       { I64Ne }
-    | 'i64.lt_s'                     { I64LtS }
-    | 'i64.lt_u'                     { I64LtU }
-    | 'i64.gt_s'                     { I64GtS }
-    | 'i64.gt_u'                     { I64GtU }
-    | 'i64.le_s'                     { I64LeS }
-    | 'i64.le_u'                     { I64LeU }
-    | 'i64.ge_s'                     { I64GeS }
-    | 'i64.ge_u'                     { I64GeU }
-    | 'f32.eq'                       { F32Eq }
-    | 'f32.ne'                       { F32Ne }
-    | 'f32.lt'                       { F32Lt }
-    | 'f32.gt'                       { F32Gt }
-    | 'f32.le'                       { F32Le }
-    | 'f32.ge'                       { F32Ge }
-    | 'f64.eq'                       { F64Eq }
-    | 'f64.ne'                       { F64Ne }
-    | 'f64.lt'                       { F64Lt }
-    | 'f64.gt'                       { F64Gt }
-    | 'f64.le'                       { F64Le }
-    | 'f64.ge'                       { F64Ge }
+    | 'i64.eq'                       { IRelOp BS64 IEq }
+    | 'i64.ne'                       { IRelOp BS64 INe }
+    | 'i64.lt_s'                     { IRelOp BS64 ILtS }
+    | 'i64.lt_u'                     { IRelOp BS64 ILtU }
+    | 'i64.gt_s'                     { IRelOp BS64 IGtS }
+    | 'i64.gt_u'                     { IRelOp BS64 IGtU }
+    | 'i64.le_s'                     { IRelOp BS64 ILeS }
+    | 'i64.le_u'                     { IRelOp BS64 ILeU }
+    | 'i64.ge_s'                     { IRelOp BS64 IGeS }
+    | 'i64.ge_u'                     { IRelOp BS64 IGeU }
+    | 'f32.eq'                       { FRelOp BS32 FEq }
+    | 'f32.ne'                       { FRelOp BS32 FNe }
+    | 'f32.lt'                       { FRelOp BS32 FLt }
+    | 'f32.gt'                       { FRelOp BS32 FGt }
+    | 'f32.le'                       { FRelOp BS32 FLe }
+    | 'f32.ge'                       { FRelOp BS32 FGe }
+    | 'f64.eq'                       { FRelOp BS64 FEq }
+    | 'f64.ne'                       { FRelOp BS64 FNe }
+    | 'f64.lt'                       { FRelOp BS64 FLt }
+    | 'f64.gt'                       { FRelOp BS64 FGt }
+    | 'f64.le'                       { FRelOp BS64 FLe }
+    | 'f64.ge'                       { FRelOp BS64 FGe }
     | 'i32.wrap/i64'                 { I32WrapI64 }
-    | 'i32.trunc_s/f32'              { I32TruncSF32 }
-    | 'i32.trunc_u/f32'              { I32TruncUF32 }
-    | 'i32.trunc_s/f64'              { I32TruncSF64 }
-    | 'i32.trunc_u/f64'              { I32TruncUF64 }
+    | 'i32.trunc_s/f32'              { ITruncFS BS32 BS32 }
+    | 'i32.trunc_u/f32'              { ITruncFU BS32 BS32 }
+    | 'i32.trunc_s/f64'              { ITruncFS BS32 BS64 }
+    | 'i32.trunc_u/f64'              { ITruncFU BS32 BS64 }
     | 'i64.extend_s/i32'             { I64ExtendSI32 }
     | 'i64.extend_u/i32'             { I64ExtendUI32 }
-    | 'i64.trunc_s/f32'              { I64TruncSF32 }
-    | 'i64.trunc_u/f32'              { I64TruncUF32 }
-    | 'i64.trunc_s/f64'              { I64TruncSF64 }
-    | 'i64.trunc_u/f64'              { I64TruncUF64 }
-    | 'f32.convert_s/i32'            { F32ConvertSI32 }
-    | 'f32.convert_u/i32'            { F32ConvertUI32 }
-    | 'f32.convert_s/i64'            { F32ConvertSI64 }
-    | 'f32.convert_u/i64'            { F32ConvertUI64 }
+    | 'i64.trunc_s/f32'              { ITruncFS BS64 BS32 }
+    | 'i64.trunc_u/f32'              { ITruncFU BS64 BS32 }
+    | 'i64.trunc_s/f64'              { ITruncFS BS64 BS64 }
+    | 'i64.trunc_u/f64'              { ITruncFU BS64 BS64 }
+    | 'f32.convert_s/i32'            { FConvertIS BS32 BS32 }
+    | 'f32.convert_u/i32'            { FConvertIU BS32 BS32 }
+    | 'f32.convert_s/i64'            { FConvertIS BS32 BS64 }
+    | 'f32.convert_u/i64'            { FConvertIU BS32 BS64 }
     | 'f32.demote/f64'               { F32DemoteF64 }
-    | 'f64.convert_s/i32'            { F64ConvertSI32 }
-    | 'f64.convert_u/i32'            { F64ConvertUI32 }
-    | 'f64.convert_s/i64'            { F64ConvertSI64 }
-    | 'f64.convert_u/i64'            { F64ConvertUI64 }
+    | 'f64.convert_s/i32'            { FConvertIS BS64 BS32 }
+    | 'f64.convert_u/i32'            { FConvertIU BS64 BS32 }
+    | 'f64.convert_s/i64'            { FConvertIS BS64 BS64 }
+    | 'f64.convert_u/i64'            { FConvertIU BS64 BS64 }
     | 'f64.promote/f32'              { F64PromoteF32 }
-    | 'i32.reinterpret/f32'          { I32ReinterpretF32 }
-    | 'i64.reinterpret/f64'          { I64ReinterpretF64 }
-    | 'f32.reinterpret/i32'          { F32ReinterpretI32 }
-    | 'f64.reinterpret/i64'          { F64ReinterpretI64 }
+    | 'i32.reinterpret/f32'          { IReinterpretF BS32 }
+    | 'i64.reinterpret/f64'          { IReinterpretF BS64 }
+    | 'f32.reinterpret/i32'          { FReinterpretI BS32 }
+    | 'f64.reinterpret/i64'          { FReinterpretI BS64 }
 
 typedef :: { TypeDef }
     : 'type' opt(ident) functype ')' { TypeDef $2 $3 }
@@ -920,6 +920,36 @@ type GlobalIndex = Index
 type TableIndex = Index
 type MemoryIndex = Index
 
+data BitSize = BS32 | BS64 deriving (Show, Eq)
+
+data IUnOp = IClz |ICtz | IPopcnt deriving (Show, Eq)
+
+data IBinOp =
+    IAdd
+    | ISub
+    | IMul
+    | IDivU
+    | IDivS
+    | IRemU
+    | IRemS
+    | IAnd
+    | IOr
+    | IXor
+    | IShl
+    | IShrU
+    | IShrS
+    | IRotl
+    | IRotr
+    deriving (Show, Eq)
+
+data IRelOp = IEq | INe | ILtU | ILtS | IGtU | IGtS | ILeU | ILeS | IGeU | IGeS deriving (Show, Eq)
+
+data FUnOp = FAbs | FNeg | FSqrt | FCeil | FFloor | FTrunc | FNearest deriving (Show, Eq)
+
+data FBinOp = FAdd | FSub | FMul | FDiv | FMin | FMax | FCopySign deriving (Show, Eq)
+
+data FRelOp = FEq | FNe | FLt | FGt | FLe | FGe deriving (Show, Eq)
+
 data PlainInstr =
     -- Control instructions
     Unreachable
@@ -970,129 +1000,25 @@ data PlainInstr =
     | I64Const Integer
     | F32Const Float
     | F64Const Double
-    | I32Clz
-    | I32Ctz
-    | I32Popcnt
-    | I32Add
-    | I32Sub
-    | I32Mul
-    | I32DivS
-    | I32DivU
-    | I32RemS
-    | I32RemU
-    | I32And
-    | I32Or
-    | I32Xor
-    | I32Shl
-    | I32ShrS
-    | I32ShrU
-    | I32Rotl
-    | I32Rotr
-    | I64Clz
-    | I64Ctz
-    | I64Popcnt
-    | I64Add
-    | I64Sub
-    | I64Mul
-    | I64DivS
-    | I64DivU
-    | I64RemS
-    | I64RemU
-    | I64And
-    | I64Or
-    | I64Xor
-    | I64Shl
-    | I64ShrS
-    | I64ShrU
-    | I64Rotl
-    | I64Rotr
-    | F32Abs
-    | F32Neg
-    | F32Ceil
-    | F32Floor
-    | F32Trunc
-    | F32Nearest
-    | F32Sqrt
-    | F32Add
-    | F32Sub
-    | F32Mul
-    | F32Div
-    | F32Min
-    | F32Max
-    | F32Copysign
-    | F64Abs
-    | F64Neg
-    | F64Ceil
-    | F64Floor
-    | F64Trunc
-    | F64Nearest
-    | F64Sqrt
-    | F64Add
-    | F64Sub
-    | F64Mul
-    | F64Div
-    | F64Min
-    | F64Max
-    | F64Copysign
+    | IUnOp BitSize IUnOp
+    | IBinOp BitSize IBinOp
     | I32Eqz
-    | I32Eq
-    | I32Ne
-    | I32LtS
-    | I32LtU
-    | I32GtS
-    | I32GtU
-    | I32LeS
-    | I32LeU
-    | I32GeS
-    | I32GeU
     | I64Eqz
-    | I64Eq
-    | I64Ne
-    | I64LtS
-    | I64LtU
-    | I64GtS
-    | I64GtU
-    | I64LeS
-    | I64LeU
-    | I64GeS
-    | I64GeU
-    | F32Eq
-    | F32Ne
-    | F32Lt
-    | F32Gt
-    | F32Le
-    | F32Ge
-    | F64Eq
-    | F64Ne
-    | F64Lt
-    | F64Gt
-    | F64Le
-    | F64Ge
+    | IRelOp BitSize IRelOp
+    | FUnOp BitSize FUnOp
+    | FBinOp BitSize FBinOp
+    | FRelOp BitSize FRelOp
     | I32WrapI64
-    | I32TruncSF32
-    | I32TruncUF32
-    | I32TruncSF64
-    | I32TruncUF64
+    | ITruncFU {- Int Size -} BitSize {- Float Size -} BitSize
+    | ITruncFS {- Int Size -} BitSize {- Float Size -} BitSize
     | I64ExtendSI32
     | I64ExtendUI32
-    | I64TruncSF32
-    | I64TruncUF32
-    | I64TruncSF64
-    | I64TruncUF64
-    | F32ConvertSI32
-    | F32ConvertUI32
-    | F32ConvertSI64
-    | F32ConvertUI64
+    | FConvertIU {- Float Size -} BitSize {- Int Size -} BitSize
+    | FConvertIS {- Float Size -} BitSize {- Int Size -} BitSize
     | F32DemoteF64
-    | F64ConvertSI32
-    | F64ConvertUI32
-    | F64ConvertSI64
-    | F64ConvertUI64
     | F64PromoteF32
-    | I32ReinterpretF32
-    | I64ReinterpretF64
-    | F32ReinterpretI32
-    | F64ReinterpretI64
+    | IReinterpretF BitSize
+    | FReinterpretI BitSize
     deriving (Show, Eq)
 
 data TypeDef = TypeDef (Maybe Ident) FuncType deriving (Show, Eq)
