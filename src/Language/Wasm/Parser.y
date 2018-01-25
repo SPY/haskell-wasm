@@ -656,6 +656,8 @@ locals_body1 :: { ([LocalType], [Instruction]) }
 
 -- FUNCTION END --
 
+-- GLOBAL --
+
 global :: { [ModuleField] }
     : 'global' opt(ident) global_type_export_import { $3 $2 }
 
@@ -676,6 +678,10 @@ global_mut_export_import :: { Maybe Ident -> [ModuleField] }
         \ident -> [MFImport $ Import $2 $3 $ ImportGlobal ident $5]
     }
 
+-- GLOBAL END --
+
+-- MEMORY --
+
 memory :: { [ModuleField] }
     : 'memory' opt(ident) memory_limits_export_import { $3 $2 }
 
@@ -690,9 +696,19 @@ memory_limits_export_import1 :: { Maybe Ident -> [ModuleField] }
     | 'import' name name ')' limits ')' {
         \ident -> [MFImport $ Import $2 $3 $ ImportMemory ident $5]
     }
+    | 'data' string ')' ')' {
+        \ident ->
+            let m = fromIntegral $ TL.length $2 in
+            [
+                MFMem $ Memory ident $ Limit m $ Just m,
+                MFData $ DataSegment (fromMaybe (Index 0) $ Named `fmap` ident) [PlainInstr $ I32Const 0] $2
+            ]
+    }
 
 memory_limits :: { Maybe Ident -> [ModuleField] }
     : limits ')' { \ident -> [MFMem $ Memory ident $1] }
+
+-- MEMOTY END --
 
 -- TABLE --
 limits :: { Limit }
