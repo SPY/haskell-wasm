@@ -4,7 +4,42 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 
 module Language.Wasm.Parser (
-    parseModule
+    parseModule,
+    Module(..),
+    ModuleField(..),
+    DataSegment(..),
+    ElemSegment(..),
+    StartFunction(..),
+    Export(..),
+    ExportDesc(..),
+    Table(..),
+    Memory(..),
+    Global(..),
+    Function(..),
+    LocalType(..),
+    Import(..),
+    ImportDesc(..),
+    Instruction(..),
+    MemArg(..),
+    TypeUse(..),
+    TypeDef(..),
+    PlainInstr(..),
+    IUnOp(..),
+    IBinOp(..),
+    IRelOp(..),
+    FUnOp(..),
+    FBinOp(..),
+    FRelOp(..),
+    BitSize(..),
+    Index(..),
+    TableType(..),
+    ElemType(..),
+    Limit(..),
+    GlobalType(..),
+    Ident(..),
+    ParamType(..),
+    FuncType(..),
+    ValueType(..)
 ) where
 
 import qualified Data.Text as T
