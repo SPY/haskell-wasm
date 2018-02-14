@@ -640,27 +640,32 @@ import :: { Import }
 
 -- FUNCTION --
 function :: { [ModuleField] }
-    : 'func' opt(ident) export_import_typeuse_locals_body { map (appendIdent $2) $3 }
+    : 'func' opt(ident) export_import_typeuse_locals_body { $3 $2 }
 
-export_import_typeuse_locals_body :: { [ModuleField] }
-    : ')' { [MFFunc $ Function Nothing (AnonimousTypeUse $ FuncType [] []) [] []] }
+export_import_typeuse_locals_body :: { Maybe Ident -> [ModuleField] }
+    : ')' { \ident -> [MFFunc $ Function ident (AnonimousTypeUse $ FuncType [] []) [] []] }
     | '(' export_import_typeuse_locals_body1 { $2 }
 
-export_import_typeuse_locals_body1 :: { [ModuleField] }
-    : 'export' name ')' export_import_typeuse_locals_body { (MFExport $ Export $2 $ ExportFunc Nothing) : $4 }
-    | import_typeuse_locals_body1 { [$1] }
-
-import_typeuse_locals_body1 :: { ModuleField }
-    : 'import' name name ')' typeuse ')' { MFImport $ Import $2 $3 $ ImportFunc Nothing $5 }
-    | typeuse_locals_body1 { MFFunc $1 }
-
-typeuse_locals_body1 :: { Function }
-    : 'type' typeidx ')' signature_locals_body {
-        let (AnonimousTypeUse signature) = funcType $4 in
-        let typeSign = if signature == emptyFuncType then Nothing else Just signature in
-        $4 { funcType = IndexedTypeUse $2 typeSign }
+export_import_typeuse_locals_body1 :: { Maybe Ident -> [ModuleField] }
+    : 'export' name ')' export_import_typeuse_locals_body {
+        \ident -> (MFExport $ Export $2 $ ExportFunc (Named `fmap` ident)) : ($4 ident)
     }
-    | signature_locals_body1 { $1 }
+    | import_typeuse_locals_body1 { \ident -> [$1 ident] }
+
+import_typeuse_locals_body1 :: { Maybe Ident -> ModuleField }
+    : 'import' name name ')' typeuse ')' {
+        \ident -> MFImport $ Import $2 $3 $ ImportFunc ident $5
+    }
+    | typeuse_locals_body1 { MFFunc . $1 }
+
+typeuse_locals_body1 :: { Maybe Ident -> Function }
+    : 'type' typeidx ')' signature_locals_body {
+        \i ->
+            let (AnonimousTypeUse signature) = funcType $4 in
+            let typeSign = if signature == emptyFuncType then Nothing else Just signature in
+            $4 { funcType = IndexedTypeUse $2 typeSign, ident = i }
+    }
+    | signature_locals_body1 { \i -> $1 { ident = i } }
 
 signature_locals_body :: { Function }
     : ')' { emptyFunction }
@@ -756,21 +761,26 @@ tabletype :: { TableType }
     : limits elemtype { TableType $1 $2 }
 
 table :: { [ModuleField] }
-    : 'table' opt(ident) limits_elemtype_elem { map (appendIdent $2) $3 }
+    : 'table' opt(ident) limits_elemtype_elem { $3 $2 }
 
-limits_elemtype_elem :: { [ModuleField] }
-    : tabletype ')' { [MFTable $ Table Nothing $1] }
+limits_elemtype_elem :: { Maybe Ident -> [ModuleField] }
+    : tabletype ')' { \ident -> [MFTable $ Table ident $1] }
     | elemtype '(' 'elem' list(funcidx) ')' ')' {
-        let funcsLen = fromIntegral $ length $4 in [
-            MFTable $ Table Nothing $ TableType (Limit funcsLen (Just funcsLen)) $1,
-            MFElem $ ElemSegment (Index 0) [PlainInstr $ I32Const 0] $4
-        ]
+        \ident ->
+            let funcsLen = fromIntegral $ length $4 in [
+                MFTable $ Table ident $ TableType (Limit funcsLen (Just funcsLen)) $1,
+                MFElem $ ElemSegment (fromMaybe (Index 0) $ Named `fmap` ident) [PlainInstr $ I32Const 0] $4
+            ]
     }
     | '(' import_export_table { $2 }
 
-import_export_table :: { [ModuleField] }
-    : 'import' name name ')' tabletype ')' { [MFImport $ Import $2 $3 $ ImportTable Nothing $5] }
-    | 'export' name ')' limits_elemtype_elem { (MFExport $ Export $2 $ ExportTable Nothing) : $4 }
+import_export_table :: { Maybe Ident -> [ModuleField] }
+    : 'import' name name ')' tabletype ')' {
+        \ident -> [MFImport $ Import $2 $3 $ ImportTable ident $5]
+    }
+    | 'export' name ')' limits_elemtype_elem {
+        \ident -> (MFExport $ Export $2 $ ExportTable $ Named `fmap` ident) : ($4 ident)
+    }
 
 -- TABLE END --
 
@@ -849,16 +859,6 @@ opt(p)
     | {- empty -} { Nothing }
 
 {
-
-appendIdent :: Maybe Ident -> ModuleField -> ModuleField
-appendIdent i (MFFunc fun) = MFFunc $ fun { ident = i }
-appendIdent i (MFImport (Import sm name (ImportFunc _ typeUse))) = MFImport $ Import sm name $ ImportFunc i typeUse
-appendIdent i (MFImport (Import sm name (ImportTable _ elemType))) = MFImport $ Import sm name $ ImportTable i elemType
-appendIdent i (MFExport (Export name (ExportFunc _))) = MFExport $ Export name $ ExportFunc $ Named <$> i
-appendIdent i (MFExport (Export name (ExportTable _))) = MFExport $ Export name $ ExportTable $ Named <$> i
-appendIdent i (MFTable (Table _ tableType)) = MFTable $ Table i tableType
-appendIdent (Just id) (MFElem segm) = MFElem $ segm { tableIndex = Named id }
-appendIdent _ mf = mf
 
 -- partial function by intention
 prependFuncParams :: [ParamType] -> Function -> Function
