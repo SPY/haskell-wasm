@@ -5,7 +5,6 @@
 
 module Language.Wasm.Parser (
     parseModule,
-    Module(..),
     ModuleField(..),
     DataSegment(..),
     ElemSegment(..),
@@ -20,27 +19,30 @@ module Language.Wasm.Parser (
     Import(..),
     ImportDesc(..),
     Instruction(..),
-    MemArg(..),
     TypeUse(..),
     TypeDef(..),
     PlainInstr(..),
-    IUnOp(..),
-    IBinOp(..),
-    IRelOp(..),
-    FUnOp(..),
-    FBinOp(..),
-    FRelOp(..),
-    BitSize(..),
     Index(..),
-    TableType(..),
-    ElemType(..),
-    Limit(..),
-    GlobalType(..),
     Ident(..),
     ParamType(..),
-    FuncType(..),
-    ValueType(..)
+    FuncType(..)
 ) where
+
+import Language.Wasm.Structure (
+        MemArg(..),
+        IUnOp(..),
+        IBinOp(..),
+        IRelOp(..),
+        FUnOp(..),
+        FBinOp(..),
+        FRelOp(..),
+        BitSize(..),
+        TableType(..),
+        ElemType(..),
+        Limit(..),
+        GlobalType(..),
+        ValueType(..)
+    )
 
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
@@ -73,7 +75,7 @@ import Debug.Trace as Debug
 
 }
 
-%name parseModule mod
+%name parseModule modAsFields
 %tokentype { Lexeme }
 
 %token
@@ -830,16 +832,9 @@ modulefield1 :: { [ModuleField] }
 modulefield :: { [ModuleField] }
     : '(' modulefield1 { $2 }
 
-modulefields :: { Module }
-    : modulefields modulefield { foldl' (flip appendModuleField) $1 $2 }
-    | {- empty -} { emptyModule }
-
-mod :: { Module }
-    : '(' mod1 { $2 }
-
-mod1 :: { Module }
-    : 'module' modulefields ')' EOF { reverseModuleFields $2 }
-    | modulefield1 modulefields EOF { reverseModuleFields $ foldl' (flip appendModuleField) $2 $1 }
+modAsFields :: { [ModuleField] }
+    : '(' 'module' list(modulefield) ')' EOF { concat $3 }
+    | '(' modulefield1 list(modulefield) EOF { $2 ++ concat $3}
 
 -- utils
 
@@ -915,17 +910,7 @@ asString = Just . TLEncoding.decodeUtf8
 eitherToMaybe :: Either left right -> Maybe right
 eitherToMaybe = either (const Nothing) Just
 
-data ValueType =
-    I32
-    | I64
-    | F32
-    | F64
-    deriving (Show, Eq)
-
-data FuncType = FuncType {
-        params :: [ParamType],
-        results :: [ValueType]
-    } deriving (Show, Eq)
+data FuncType = FuncType { params :: [ParamType], results :: [ValueType] } deriving (Show, Eq)
 
 emptyFuncType :: FuncType
 emptyFuncType = FuncType [] []
@@ -937,14 +922,6 @@ data ParamType = ParamType {
 
 newtype Ident = Ident T.Text deriving (Show, Eq)
 
-data GlobalType = Const ValueType | Mut ValueType deriving (Show, Eq)
-
-data Limit = Limit Natural (Maybe Natural) deriving (Show, Eq)
-
-data ElemType = AnyFunc deriving (Show, Eq)
-
-data TableType = TableType Limit ElemType deriving (Show, Eq)
-
 data Index = Named Ident | Index Natural deriving (Show, Eq)
 
 type LabelIndex = Index
@@ -954,36 +931,6 @@ type LocalIndex = Index
 type GlobalIndex = Index
 type TableIndex = Index
 type MemoryIndex = Index
-
-data BitSize = BS32 | BS64 deriving (Show, Eq)
-
-data IUnOp = IClz |ICtz | IPopcnt deriving (Show, Eq)
-
-data IBinOp =
-    IAdd
-    | ISub
-    | IMul
-    | IDivU
-    | IDivS
-    | IRemU
-    | IRemS
-    | IAnd
-    | IOr
-    | IXor
-    | IShl
-    | IShrU
-    | IShrS
-    | IRotl
-    | IRotr
-    deriving (Show, Eq)
-
-data IRelOp = IEq | INe | ILtU | ILtS | IGtU | IGtS | ILeU | ILeS | IGeU | IGeS deriving (Show, Eq)
-
-data FUnOp = FAbs | FNeg | FSqrt | FCeil | FFloor | FTrunc | FNearest deriving (Show, Eq)
-
-data FBinOp = FAdd | FSub | FMul | FDiv | FMin | FMax | FCopySign deriving (Show, Eq)
-
-data FRelOp = FEq | FNe | FLt | FGt | FLe | FGe deriving (Show, Eq)
 
 data PlainInstr =
     -- Control instructions
@@ -1062,8 +1009,6 @@ data TypeUse =
     IndexedTypeUse TypeIndex (Maybe FuncType)
     | AnonimousTypeUse FuncType
     deriving (Show, Eq)
-
-data MemArg = MemArg { offset :: Natural, align :: Natural } deriving (Show, Eq)
 
 data Instruction =
     PlainInstr PlainInstr
@@ -1172,64 +1117,6 @@ data ModuleField =
     | MFElem ElemSegment
     | MFData DataSegment
     deriving(Show, Eq)
-
-data Module = Module {
-        types     :: [TypeDef],
-        imports   :: [Import],
-        functions :: [Function],
-        tables    :: [Table],
-        memories  :: [Memory],
-        globals   :: [Global],
-        exports   :: [Export],
-        start     :: Maybe StartFunction,
-        elems     :: [ElemSegment],
-        datas     :: [DataSegment]
-    }
-    deriving (Show, Eq)
-
-emptyModule :: Module
-emptyModule =
-    Module {
-        types = [],
-        imports = [],
-        functions = [],
-        tables = [],
-        memories = [],
-        globals = [],
-        exports = [],
-        start = Nothing,
-        elems = [],
-        datas = []
-    }
-
-appendModuleField :: ModuleField -> Module -> Module
-appendModuleField field mod =
-    case field of
-        MFType typeDef -> mod { types = typeDef : types mod }
-        MFImport imp -> mod { imports = imp : imports mod }
-        MFFunc func -> mod { functions = func : functions mod }
-        MFTable table -> mod { tables = table : tables mod }
-        MFMem mem -> mod { memories = mem : memories mod }
-        MFGlobal global -> mod { globals = global : globals mod }
-        MFExport exp -> mod { exports = exp : exports mod }
-        MFStart startFunc -> mod { start = Just startFunc }
-        MFElem elem -> mod { elems = elem : elems mod }
-        MFData dataSeg -> mod { datas = dataSeg : datas mod }
-
-reverseModuleFields :: Module -> Module
-reverseModuleFields mod =
-    Module {
-        types = reverse $ types mod,
-        imports = reverse $ imports mod,
-        functions = reverse $ functions mod,
-        tables = reverse $ tables mod,
-        memories = reverse $ memories mod,
-        globals = reverse $ globals mod,
-        exports = reverse $ exports mod,
-        start = start mod,
-        elems = reverse $ elems mod,
-        datas = reverse $ datas mod
-    }
 
 happyError (Lexeme _ EOF : []) = error $ "Error occuried during parsing phase at the end of file"
 happyError (Lexeme (AlexPn abs line col) tok : tokens) = error $

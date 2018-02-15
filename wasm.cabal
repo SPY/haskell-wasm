@@ -35,6 +35,7 @@ library
   exposed-modules:
       Language.Wasm.Lexer
       Language.Wasm.Parser
+      Language.Wasm.Structure
       Language.Wasm
   other-modules:
       Paths_wasm
