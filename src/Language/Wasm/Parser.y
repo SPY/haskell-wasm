@@ -2,9 +2,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 module Language.Wasm.Parser (
     parseModule,
+    parseModuleFields,
+    desugarize,
     ModuleField(..),
     DataSegment(..),
     ElemSegment(..),
@@ -44,6 +47,8 @@ import Language.Wasm.Structure (
         ValueType(..)
     )
 
+import qualified Language.Wasm.Structure as S
+
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TLEncoding
@@ -75,7 +80,8 @@ import Debug.Trace as Debug
 
 }
 
-%name parseModule modAsFields
+%name parseModule mod
+%name parseModuleFields modAsFields
 %tokentype { Lexeme }
 
 %token
@@ -263,7 +269,7 @@ import Debug.Trace as Debug
 'loop'                { Lexeme _ (TKeyword "loop") }
 'if'                  { Lexeme _ (TKeyword "if") }
 'else'                { Lexeme _ (TKeyword "else") }
-'end'                 { Lexeme _ (TKeyword "end") }
+-- unused now 'end'                 { Lexeme _ (TKeyword "end") }
 'then'                { Lexeme _ (TKeyword "then") }
 'table'               { Lexeme _ (TKeyword "table") }
 'memory'              { Lexeme _ (TKeyword "memory") }
@@ -836,6 +842,9 @@ modAsFields :: { [ModuleField] }
     : '(' 'module' list(modulefield) ')' EOF { concat $3 }
     | '(' modulefield1 list(modulefield) EOF { $2 ++ concat $3}
 
+mod :: { S.Module }
+    : modAsFields { desugarize $1 }
+
 -- utils
 
 rev_list(p)
@@ -1126,4 +1135,55 @@ happyError (Lexeme (AlexPn abs line col) tok : tokens) = error $
     "Token " ++ show tok ++ ". " ++
     "Token lookahed: " ++ show (take 3 tokens)
 
+funcTypesEq :: FuncType -> FuncType -> Bool
+funcTypesEq l r =
+    let paramTypes = map paramType . params in
+    paramTypes l == paramTypes r && results l == results r
+
+desugarize :: [ModuleField] -> S.Module
+desugarize fields =
+    let typeDefs = extractTypeDefs fields in
+    S.emptyModule {
+        S.types = map synTypeDefToStruct typeDefs
+    }
+    where
+        synTypeDefToStruct :: TypeDef -> S.FuncType
+        synTypeDefToStruct (TypeDef _ FuncType { params, results }) =
+            S.FuncType (map paramType params) results
+
+        extractTypeDefs :: [ModuleField] -> [TypeDef]
+        extractTypeDefs = reverse . foldl' extractTypeDef []
+
+        extractTypeDef :: [TypeDef] -> ModuleField -> [TypeDef]
+        extractTypeDef defs (MFType def) = def : defs
+        extractTypeDef defs (MFImport Import { desc = ImportFunc _ typeUse }) =
+            matchTypeUse defs typeUse
+        extractTypeDef defs (MFFunc Function { funcType, body }) =
+            extractTypeDefFromInstructions (matchTypeUse defs funcType) body
+        extractTypeDef defs (MFFunc Function { funcType, body }) =
+            extractTypeDefFromInstructions (matchTypeUse defs funcType) body
+        extractTypeDef defs (MFGlobal Global { initializer }) =
+            extractTypeDefFromInstructions defs initializer
+        extractTypeDef defs _ = defs
+
+        extractTypeDefFromInstructions :: [TypeDef] -> [Instruction] -> [TypeDef]
+        extractTypeDefFromInstructions = foldl' extractTypeDefFromInstruction
+
+        extractTypeDefFromInstruction :: [TypeDef] -> Instruction -> [TypeDef]
+        extractTypeDefFromInstruction defs (PlainInstr (CallIndirect typeUse)) =
+            matchTypeUse defs typeUse
+        extractTypeDefFromInstruction defs (BlockInstr { body }) =
+            extractTypeDefFromInstructions defs body
+        extractTypeDefFromInstruction defs (LoopInstr { body }) =
+            extractTypeDefFromInstructions defs body
+        extractTypeDefFromInstruction defs (IfInstr { trueBranch, falseBranch }) =
+            extractTypeDefFromInstructions defs $ trueBranch ++ falseBranch
+        extractTypeDefFromInstruction defs _ = defs
+
+        matchTypeUse :: [TypeDef] -> TypeUse -> [TypeDef]
+        matchTypeUse defs (AnonimousTypeUse funcType) =
+            if any (\(TypeDef _ ft) -> funcTypesEq ft funcType) defs
+            then defs
+            else (TypeDef Nothing funcType) : defs
+        matchTypeUse defs _ = defs
 }

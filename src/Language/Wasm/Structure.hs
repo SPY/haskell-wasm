@@ -28,7 +28,8 @@ module Language.Wasm.Structure (
     Limit(..),
     GlobalType(..),
     FuncType(..),
-    ValueType(..)
+    ValueType(..),
+    emptyModule
 ) where
 
 import Numeric.Natural (Natural)
@@ -183,24 +184,21 @@ data Memory = Memory Limit deriving (Show, Eq)
 data GlobalType = Const ValueType | Mut ValueType deriving (Show, Eq)
 
 data Global = Global {
-        globalType :: GlobalType,
-        initializer :: Expression
-    }
-    deriving (Show, Eq)
+    globalType :: GlobalType,
+    initializer :: Expression
+} deriving (Show, Eq)
 
 data ElemSegment = ElemSegment {
-        tableIndex :: TableIndex,
-        offset :: [Instruction],
-        funcIndexes :: [FuncIndex]
-    }
-    deriving (Show, Eq)
+    tableIndex :: TableIndex,
+    offset :: [Instruction],
+    funcIndexes :: [FuncIndex]
+} deriving (Show, Eq)
 
 data DataSegment = DataSegment {
-        memIndex :: MemoryIndex,
-        offset :: Expression,
-        initializer :: LBS.ByteString
-    }
-    deriving (Show, Eq)
+    memIndex :: MemoryIndex,
+    offset :: Expression,
+    initializer :: LBS.ByteString
+} deriving (Show, Eq)
 
 data StartFunction = StartFunction FuncIndex deriving (Show, Eq)
 
@@ -212,10 +210,9 @@ data ExportDesc =
     deriving (Show, Eq)
 
 data Export = Export {
-        name :: TL.Text,
-        desc :: ExportDesc
-    }
-    deriving (Show, Eq)
+    name :: TL.Text,
+    desc :: ExportDesc
+} deriving (Show, Eq)
 
 data ImportDesc =
     ImportFunc TypeIndex
@@ -225,20 +222,34 @@ data ImportDesc =
     deriving (Show, Eq)
 
 data Import = Import {
-        sourceModule :: TL.Text,
-        name :: TL.Text,
-        desc :: ImportDesc
-    } deriving (Show, Eq)
+    sourceModule :: TL.Text,
+    name :: TL.Text,
+    desc :: ImportDesc
+} deriving (Show, Eq)
 
 data Module = Module {
-        types :: [FuncType],
-        functions :: [Function],
-        tables :: [Table],
-        mems :: [Memory],
-        globals :: [Global],
-        elems :: [ElemSegment],
-        datas :: [DataSegment],
-        start :: Maybe StartFunction,
-        imports :: [Import],
-        exports :: [Export]
-    } deriving (Show, Eq)
+    types :: [FuncType],
+    functions :: [Function],
+    tables :: [Table],
+    mems :: [Memory],
+    globals :: [Global],
+    elems :: [ElemSegment],
+    datas :: [DataSegment],
+    start :: Maybe StartFunction,
+    imports :: [Import],
+    exports :: [Export]
+} deriving (Show, Eq)
+
+emptyModule :: Module
+emptyModule = Module {
+    types = [],
+    functions = [],
+    tables = [],
+    mems = [],
+    globals = [],
+    elems = [],
+    datas = [],
+    start = Nothing,
+    imports = [],
+    exports = []
+}
