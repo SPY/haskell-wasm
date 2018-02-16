@@ -56,7 +56,8 @@ import qualified Data.Text.Lazy.Read as TLRead
 
 import qualified Data.ByteString.Lazy as LBS
 import Data.Maybe (fromMaybe)
-import Data.List (foldl')
+import Data.List (foldl', findIndex, find)
+import Control.Monad (guard)
 
 import Numeric.Natural (Natural)
 
@@ -1135,24 +1136,26 @@ happyError (Lexeme (AlexPn abs line col) tok : tokens) = error $
     "Token " ++ show tok ++ ". " ++
     "Token lookahed: " ++ show (take 3 tokens)
 
-funcTypesEq :: FuncType -> FuncType -> Bool
-funcTypesEq l r =
-    let paramTypes = map paramType . params in
-    paramTypes l == paramTypes r && results l == results r
-
 desugarize :: [ModuleField] -> S.Module
 desugarize fields =
-    let typeDefs = extractTypeDefs fields in
+    let typeDefs = extract extractTypeDef fields in
+    let imports = extract extractImport fields in
     S.emptyModule {
-        S.types = map synTypeDefToStruct typeDefs
+        S.types = map synTypeDefToStruct typeDefs,
+        S.imports = map (synImportToStruct typeDefs) imports
     }
     where
+        -- utils
+        extract :: ([a] -> ModuleField -> [a]) -> [ModuleField] -> [a]
+        extract extractor = reverse . foldl' extractor []
+
+        findWithIndex :: (a -> Bool) -> [a] -> Maybe (a, Int)
+        findWithIndex pred l = find (pred . fst) $ zip l [1..]
+
+        -- types
         synTypeDefToStruct :: TypeDef -> S.FuncType
         synTypeDefToStruct (TypeDef _ FuncType { params, results }) =
             S.FuncType (map paramType params) results
-
-        extractTypeDefs :: [ModuleField] -> [TypeDef]
-        extractTypeDefs = reverse . foldl' extractTypeDef []
 
         extractTypeDef :: [TypeDef] -> ModuleField -> [TypeDef]
         extractTypeDef defs (MFType def) = def : defs
@@ -1160,10 +1163,12 @@ desugarize fields =
             matchTypeUse defs typeUse
         extractTypeDef defs (MFFunc Function { funcType, body }) =
             extractTypeDefFromInstructions (matchTypeUse defs funcType) body
-        extractTypeDef defs (MFFunc Function { funcType, body }) =
-            extractTypeDefFromInstructions (matchTypeUse defs funcType) body
         extractTypeDef defs (MFGlobal Global { initializer }) =
             extractTypeDefFromInstructions defs initializer
+        extractTypeDef defs (MFElem ElemSegment { offset }) =
+            extractTypeDefFromInstructions defs offset
+        extractTypeDef defs (MFData DataSegment { offset }) =
+            extractTypeDefFromInstructions defs offset
         extractTypeDef defs _ = defs
 
         extractTypeDefFromInstructions :: [TypeDef] -> [Instruction] -> [TypeDef]
@@ -1180,10 +1185,69 @@ desugarize fields =
             extractTypeDefFromInstructions defs $ trueBranch ++ falseBranch
         extractTypeDefFromInstruction defs _ = defs
 
+        funcTypesEq :: FuncType -> FuncType -> Bool
+        funcTypesEq l r =
+            let paramTypes = map paramType . params in
+            paramTypes l == paramTypes r && results l == results r
+
+        matchTypeFunc :: FuncType -> TypeDef -> Bool
+        matchTypeFunc funcType (TypeDef _ ft) = funcTypesEq ft funcType
+
         matchTypeUse :: [TypeDef] -> TypeUse -> [TypeDef]
         matchTypeUse defs (AnonimousTypeUse funcType) =
-            if any (\(TypeDef _ ft) -> funcTypesEq ft funcType) defs
+            if any (matchTypeFunc funcType) defs
             then defs
             else (TypeDef Nothing funcType) : defs
         matchTypeUse defs _ = defs
+
+        getTypeIndex :: [TypeDef] -> TypeUse -> Maybe Natural
+        getTypeIndex defs (AnonimousTypeUse funcType) =
+            fromIntegral <$> findIndex (matchTypeFunc funcType) defs
+        getTypeIndex defs (IndexedTypeUse (Named ident) (Just funcType)) = do
+            (def, idx) <- findWithIndex (\(TypeDef i _) -> i == Just ident) defs
+            guard $ matchTypeFunc funcType def
+            return $ fromIntegral idx
+        getTypeIndex defs (IndexedTypeUse (Named ident) Nothing) =
+            fromIntegral <$> findIndex (\(TypeDef i _) -> i == Just ident) defs
+        getTypeIndex defs (IndexedTypeUse (Index n) (Just funcType)) = do
+            guard $ length defs > fromIntegral n
+            guard $ matchTypeFunc funcType $ defs !! fromIntegral n
+            return n
+        getTypeIndex defs (IndexedTypeUse (Index n) Nothing) = do
+            guard $ length defs > fromIntegral n
+            return n
+        
+        -- imports
+
+        synImportToStruct :: [TypeDef] -> Import -> S.Import
+        synImportToStruct defs (Import mod name (ImportFunc _ typeUse)) =
+            case getTypeIndex defs typeUse of
+                Just idx -> S.Import mod name $ S.ImportFunc idx
+                Nothing -> error $ "cannot find type index for function import: " ++ show typeUse
+        synImportToStruct _ (Import mod name (ImportTable _ tableType)) =
+            S.Import mod name $ S.ImportTable tableType
+        synImportToStruct _ (Import mod name (ImportMemory _ limit)) =
+            S.Import mod name $ S.ImportMemory limit
+        synImportToStruct _ (Import mod name (ImportGlobal _ globalType)) =
+            S.Import mod name $ S.ImportGlobal globalType
+
+        extractImport :: [Import] -> ModuleField -> [Import]
+        extractImport imports (MFImport imp) = imp : imports
+        extractImport imports _ = imports
+
+        -- functions
+        extractFunctions :: [ModuleField] -> [Function]
+        extractFunctions = extract extractFunction
+
+        extractFunction :: [Function] -> ModuleField -> [Function]
+        extractFunction funcs (MFFunc fun) = fun : funcs
+        extractFunction funcs _ = funcs
+
+        -- tables
+        extractTables :: [ModuleField] -> [Table]
+        extractTables = extract extractTable
+
+        extractTable :: [Table] -> ModuleField -> [Table]
+        extractTable tables (MFTable table) = table : tables
+        extractTable tables _ = tables
 }
