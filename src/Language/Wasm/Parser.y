@@ -1136,13 +1136,36 @@ happyError (Lexeme (AlexPn abs line col) tok : tokens) = error $
     "Token " ++ show tok ++ ". " ++
     "Token lookahed: " ++ show (take 3 tokens)
 
+data Module = Module {
+    types :: [TypeDef],
+    functions :: [Function],
+    tables :: [Table],
+    mems :: [Memory],
+    globals :: [Global],
+    elems :: [ElemSegment],
+    datas :: [DataSegment],
+    start :: Maybe StartFunction,
+    imports :: [Import],
+    exports :: [Export]
+} deriving (Show, Eq)
+
 desugarize :: [ModuleField] -> S.Module
 desugarize fields =
-    let typeDefs = extract extractTypeDef fields in
-    let imports = extract extractImport fields in
+    let mod = Module {
+        types = extract extractTypeDef fields,
+        functions = extract extractFunction fields,
+        tables = extract extractTable fields,
+        imports = extract extractImport fields,
+        mems = extract extractMemory fields,
+        globals = extract extractGlobal fields,
+        elems = extract extractElemSegment fields,
+        datas = extract extractDataSegment fields
+    } in
     S.emptyModule {
-        S.types = map synTypeDefToStruct typeDefs,
-        S.imports = map (synImportToStruct typeDefs) imports
+        S.types = map synTypeDefToStruct $ types mod,
+        S.imports = map (synImportToStruct $ types mod) $ imports mod,
+        S.tables = map synTableToStruct $ tables mod,
+        S.mems = map synMemoryToStruct $ mems mod
     }
     where
         -- utils
@@ -1218,7 +1241,6 @@ desugarize fields =
             return n
         
         -- imports
-
         synImportToStruct :: [TypeDef] -> Import -> S.Import
         synImportToStruct defs (Import mod name (ImportFunc _ typeUse)) =
             case getTypeIndex defs typeUse of
@@ -1236,18 +1258,97 @@ desugarize fields =
         extractImport imports _ = imports
 
         -- functions
-        extractFunctions :: [ModuleField] -> [Function]
-        extractFunctions = extract extractFunction
+        synInstrToStruct :: Module -> Instruction -> S.Instruction
+        synInstrToStruct mod (PlainInstr Unreachable) = S.Unreachable
 
         extractFunction :: [Function] -> ModuleField -> [Function]
         extractFunction funcs (MFFunc fun) = fun : funcs
         extractFunction funcs _ = funcs
 
+        getFuncIndex :: Module -> FuncIndex -> Maybe Natural
+        getFuncIndex Module { imports, functions } (Named id) =
+            let funImports = filter (\(Import { desc = ImportFunc _ _ }) -> True) imports in
+            case findIndex (\(Import { desc = ImportFunc ident _ }) -> ident == Just id) funImports of
+                Just idx -> return $ fromIntegral idx
+                Nothing ->
+                    let isIdent (Function { ident }) = ident == Just id in
+                    fromIntegral . (+ length funImports) <$> findIndex isIdent functions
+        getFuncIndex Module { imports, functions } (Index idx) =
+            let funImports = filter (\(Import { desc = ImportFunc _ _ }) -> True) imports in
+            if length funImports + length functions > fromIntegral idx
+            then Just idx
+            else Nothing
+
         -- tables
-        extractTables :: [ModuleField] -> [Table]
-        extractTables = extract extractTable
+        synTableToStruct :: Table -> S.Table
+        synTableToStruct (Table _ tableType) = S.Table tableType
 
         extractTable :: [Table] -> ModuleField -> [Table]
         extractTable tables (MFTable table) = table : tables
         extractTable tables _ = tables
+
+        getTableIndex :: Module -> TableIndex -> Maybe Natural
+        getTableIndex Module { imports, tables } (Named id) =
+            let tableImports = filter (\(Import { desc = ImportTable _ _ }) -> True) imports in
+            case findIndex (\(Import { desc = ImportTable ident _ }) -> ident == Just id) tableImports of
+                Just idx -> return $ fromIntegral idx
+                Nothing ->
+                    let isIdent (Table (Just id) _) = True in
+                    fromIntegral . (+ length tableImports) <$> findIndex isIdent tables
+        getTableIndex Module { imports, tables } (Index idx) =
+            let tableImports = filter (\(Import { desc = ImportTable _ _ }) -> True) imports in
+            if length tableImports + length tables > fromIntegral idx
+            then Just idx
+            else Nothing
+
+        -- memory
+        synMemoryToStruct :: Memory -> S.Memory
+        synMemoryToStruct (Memory _ limits) = S.Memory limits
+
+        extractMemory :: [Memory] -> ModuleField -> [Memory]
+        extractMemory mems (MFMem mem) = mem : mems
+        extractMemory mems _ = mems
+
+        getMemIndex :: Module -> MemoryIndex -> Maybe Natural
+        getMemIndex Module { imports, mems } (Named id) =
+            let memImports = filter (\(Import { desc = ImportMemory _ _ }) -> True) imports in
+            case findIndex (\(Import { desc = ImportMemory ident _ }) -> ident == Just id) memImports of
+                Just idx -> return $ fromIntegral idx
+                Nothing ->
+                    let isIdent (Memory (Just id) _) = True in
+                    fromIntegral . (+ length memImports) <$> findIndex isIdent mems
+        getMemIndex Module { imports, tables } (Index idx) =
+            let memImports = filter (\(Import { desc = ImportMemory _ _ }) -> True) imports in
+            if length memImports + length tables > fromIntegral idx
+            then Just idx
+            else Nothing
+
+        -- global
+        extractGlobal :: [Global] -> ModuleField -> [Global]
+        extractGlobal globals (MFGlobal global) = global : globals
+        extractGlobal globals _ = globals
+
+        getGlobalIndex :: Module -> GlobalIndex -> Maybe Natural
+        getGlobalIndex Module { imports, globals } (Named id) =
+            let globalImports = filter (\(Import { desc = ImportTable _ _ }) -> True) imports in
+            case findIndex (\(Import { desc = ImportGlobal ident _ }) -> ident == Just id) globalImports of
+                Just idx -> return $ fromIntegral idx
+                Nothing ->
+                    let isIdent (Global { ident }) = ident == Just id in
+                    fromIntegral . (+ length globalImports) <$> findIndex isIdent globals
+        getGlobalIndex Module { imports, tables } (Index idx) =
+            let globalImports = filter (\(Import { desc = ImportTable _ _ }) -> True) imports in
+            if length globalImports + length tables > fromIntegral idx
+            then Just idx
+            else Nothing
+
+        -- elem segment
+        extractElemSegment :: [ElemSegment] -> ModuleField -> [ElemSegment]
+        extractElemSegment elems (MFElem elem) = elem : elems
+        extractElemSegment elems _ = elems
+
+        -- data segment
+        extractDataSegment :: [DataSegment] -> ModuleField -> [DataSegment]
+        extractDataSegment datas (MFData dataSegment) = dataSegment : datas
+        extractDataSegment datas _ = datas
 }
