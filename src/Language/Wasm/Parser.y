@@ -1172,6 +1172,7 @@ desugarize fields =
     } in
     S.emptyModule {
         S.types = map synTypeDefToStruct $ types mod,
+        S.functions = map (synFunctionToStruct mod) $ functions mod,
         S.tables = map synTableToStruct $ tables mod,
         S.imports = map (synImportToStruct $ types mod) $ imports mod,
         S.mems = map synMemoryToStruct $ mems mod
@@ -1318,6 +1319,29 @@ desugarize fields =
         synInstrToStruct _ (PlainInstr (I64Store32 memArg)) = S.I64Store32 memArg
         synInstrToStruct _ (PlainInstr CurrentMemory) = S.CurrentMemory
         synInstrToStruct _ (PlainInstr GrowMemory) = S.GrowMemory
+        synInstrToStruct _ (PlainInstr (I32Const val)) = S.I32Const val
+        synInstrToStruct _ (PlainInstr (I64Const val)) = S.I64Const val
+        synInstrToStruct _ (PlainInstr (F32Const val)) = S.F32Const val
+        synInstrToStruct _ (PlainInstr (F64Const val)) = S.F64Const val
+        synInstrToStruct _ (PlainInstr (IUnOp sz op)) = S.IUnOp sz op
+        synInstrToStruct _ (PlainInstr (IBinOp sz op)) = S.IBinOp sz op
+        synInstrToStruct _ (PlainInstr I32Eqz) = S.I32Eqz
+        synInstrToStruct _ (PlainInstr I64Eqz) = S.I64Eqz
+        synInstrToStruct _ (PlainInstr (IRelOp sz op)) = S.IRelOp sz op
+        synInstrToStruct _ (PlainInstr (FUnOp sz op)) = S.FUnOp sz op
+        synInstrToStruct _ (PlainInstr (FBinOp sz op)) = S.FBinOp sz op
+        synInstrToStruct _ (PlainInstr (FRelOp sz op)) = S.FRelOp sz op
+        synInstrToStruct _ (PlainInstr I32WrapI64) = S.I32WrapI64
+        synInstrToStruct _ (PlainInstr (ITruncFU sz sz')) = S.ITruncFU sz sz'
+        synInstrToStruct _ (PlainInstr (ITruncFS sz sz')) = S.ITruncFS sz sz'
+        synInstrToStruct _ (PlainInstr I64ExtendSI32) = S.I64ExtendSI32
+        synInstrToStruct _ (PlainInstr I64ExtendUI32) = S.I64ExtendUI32
+        synInstrToStruct _ (PlainInstr (FConvertIU sz sz')) = S.FConvertIU sz sz'
+        synInstrToStruct _ (PlainInstr (FConvertIS sz sz')) = S.FConvertIS sz sz'
+        synInstrToStruct _ (PlainInstr F32DemoteF64) = S.F32DemoteF64
+        synInstrToStruct _ (PlainInstr F64PromoteF32) = S.F64PromoteF32
+        synInstrToStruct _ (PlainInstr (IReinterpretF sz)) = S.IReinterpretF sz
+        synInstrToStruct _ (PlainInstr (FReinterpretI sz)) = S.FReinterpretI sz
         synInstrToStruct ctx BlockInstr {label, resultType, body} =
             let ctx' = ctx { ctxLabels = label : ctxLabels ctx } in
             S.Block resultType $ map (synInstrToStruct ctx') body
@@ -1329,6 +1353,17 @@ desugarize fields =
             let trueBranch' = map (synInstrToStruct ctx') trueBranch in
             let falseBranch' = map (synInstrToStruct ctx') falseBranch in
             S.If resultType trueBranch' falseBranch'
+        
+        synFunctionToStruct :: Module -> Function -> S.Function
+        synFunctionToStruct mod Function { funcType, locals, body } =
+            let typeIdx = fromJust $ getTypeIndex (types mod) funcType in
+            let TypeDef _ FuncType { params } = types mod !! fromIntegral typeIdx in
+            let ctx = FunCtx mod [] locals params in
+            S.Function {
+                S.funcType = typeIdx,
+                S.locals = map localType locals,
+                S.body = map (synInstrToStruct ctx) body
+            }
 
         extractFunction :: [Function] -> ModuleField -> [Function]
         extractFunction funcs (MFFunc fun) = fun : funcs
