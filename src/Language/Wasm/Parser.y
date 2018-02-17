@@ -55,7 +55,7 @@ import qualified Data.Text.Lazy.Encoding as TLEncoding
 import qualified Data.Text.Lazy.Read as TLRead
 
 import qualified Data.ByteString.Lazy as LBS
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, fromJust)
 import Data.List (foldl', findIndex, find)
 import Control.Monad (guard)
 
@@ -1149,6 +1149,15 @@ data Module = Module {
     exports :: [Export]
 } deriving (Show, Eq)
 
+type Labels = [Maybe Ident]
+
+data FunCtx = FunCtx {
+    ctxMod :: Module,
+    ctxLabels :: Labels,
+    ctxLocals :: [LocalType],
+    ctxParams :: [ParamType]
+} deriving (Eq, Show)
+
 desugarize :: [ModuleField] -> S.Module
 desugarize fields =
     let mod = Module {
@@ -1163,8 +1172,8 @@ desugarize fields =
     } in
     S.emptyModule {
         S.types = map synTypeDefToStruct $ types mod,
-        S.imports = map (synImportToStruct $ types mod) $ imports mod,
         S.tables = map synTableToStruct $ tables mod,
+        S.imports = map (synImportToStruct $ types mod) $ imports mod,
         S.mems = map synMemoryToStruct $ mems mod
     }
     where
@@ -1258,12 +1267,90 @@ desugarize fields =
         extractImport imports _ = imports
 
         -- functions
-        synInstrToStruct :: Module -> Instruction -> S.Instruction
-        synInstrToStruct mod (PlainInstr Unreachable) = S.Unreachable
+        synInstrToStruct :: FunCtx -> Instruction -> S.Instruction
+        synInstrToStruct _ (PlainInstr Unreachable) = S.Unreachable
+        synInstrToStruct _ (PlainInstr Nop) = S.Nop
+        synInstrToStruct ctx (PlainInstr (Br labelIdx)) =
+            fromJust $ S.Br <$> getLabelIdx ctx labelIdx
+        synInstrToStruct ctx (PlainInstr (BrIf labelIdx)) =
+            fromJust $ S.BrIf <$> getLabelIdx ctx labelIdx
+        synInstrToStruct ctx (PlainInstr (BrTable lbls lbl)) =
+            S.BrTable (map (fromJust . getLabelIdx ctx) lbls) $ fromJust $ getLabelIdx ctx lbl
+        synInstrToStruct _ (PlainInstr Return) = S.Return
+        synInstrToStruct FunCtx { ctxMod } (PlainInstr (Call funIdx)) =
+            S.Call $ fromJust $ getFuncIndex ctxMod funIdx
+        synInstrToStruct FunCtx { ctxMod = Module { types } } (PlainInstr (CallIndirect typeUse)) =
+            fromJust $ S.CallIndirect <$> getTypeIndex types typeUse
+        synInstrToStruct _ (PlainInstr Drop) = S.Drop
+        synInstrToStruct _ (PlainInstr Select) = S.Select
+        synInstrToStruct ctx (PlainInstr (GetLocal localIdx)) =
+            S.GetLocal $ fromJust $ getLocalIndex ctx localIdx
+        synInstrToStruct ctx (PlainInstr (SetLocal localIdx)) =
+            S.SetLocal $ fromJust $ getLocalIndex ctx localIdx
+        synInstrToStruct ctx (PlainInstr (TeeLocal localIdx)) =
+            S.TeeLocal $ fromJust $ getLocalIndex ctx localIdx
+        synInstrToStruct FunCtx { ctxMod } (PlainInstr (GetGlobal globalIdx)) =
+            S.GetGlobal $ fromJust $ getGlobalIndex ctxMod globalIdx
+        synInstrToStruct FunCtx { ctxMod } (PlainInstr (SetGlobal globalIdx)) =
+            S.SetGlobal $ fromJust $ getGlobalIndex ctxMod globalIdx
+        synInstrToStruct _ (PlainInstr (I32Load memArg)) = S.I32Load memArg
+        synInstrToStruct _ (PlainInstr (I64Load memArg)) = S.I64Load memArg
+        synInstrToStruct _ (PlainInstr (F32Load memArg)) = S.F32Load memArg
+        synInstrToStruct _ (PlainInstr (F64Load memArg)) = S.F64Load memArg
+        synInstrToStruct _ (PlainInstr (I32Load8S memArg)) = S.I32Load8S memArg
+        synInstrToStruct _ (PlainInstr (I32Load8U memArg)) = S.I32Load8U memArg
+        synInstrToStruct _ (PlainInstr (I32Load16S memArg)) = S.I32Load16S memArg
+        synInstrToStruct _ (PlainInstr (I32Load16U memArg)) = S.I32Load16U memArg
+        synInstrToStruct _ (PlainInstr (I64Load8S memArg)) = S.I64Load8S memArg
+        synInstrToStruct _ (PlainInstr (I64Load8U memArg)) = S.I64Load8U memArg
+        synInstrToStruct _ (PlainInstr (I64Load16S memArg)) = S.I64Load16S memArg
+        synInstrToStruct _ (PlainInstr (I64Load16U memArg)) = S.I64Load16U memArg
+        synInstrToStruct _ (PlainInstr (I64Load32S memArg)) = S.I64Load32S memArg
+        synInstrToStruct _ (PlainInstr (I64Load32U memArg)) = S.I64Load32U memArg
+        synInstrToStruct _ (PlainInstr (I32Store memArg)) = S.I32Store memArg
+        synInstrToStruct _ (PlainInstr (I64Store memArg)) = S.I64Store memArg
+        synInstrToStruct _ (PlainInstr (F32Store memArg)) = S.F32Store memArg
+        synInstrToStruct _ (PlainInstr (F64Store memArg)) = S.F64Store memArg
+        synInstrToStruct _ (PlainInstr (I32Store8 memArg)) = S.I32Store8 memArg
+        synInstrToStruct _ (PlainInstr (I32Store16 memArg)) = S.I32Store16 memArg
+        synInstrToStruct _ (PlainInstr (I64Store8 memArg)) = S.I64Store8 memArg
+        synInstrToStruct _ (PlainInstr (I64Store16 memArg)) = S.I64Store16 memArg
+        synInstrToStruct _ (PlainInstr (I64Store32 memArg)) = S.I64Store32 memArg
+        synInstrToStruct _ (PlainInstr CurrentMemory) = S.CurrentMemory
+        synInstrToStruct _ (PlainInstr GrowMemory) = S.GrowMemory
+        synInstrToStruct ctx BlockInstr {label, resultType, body} =
+            let ctx' = ctx { ctxLabels = label : ctxLabels ctx } in
+            S.Block resultType $ map (synInstrToStruct ctx') body
+        synInstrToStruct ctx LoopInstr {label, resultType, body} =
+            let ctx' = ctx { ctxLabels = label : ctxLabels ctx } in
+            S.Loop resultType $ map (synInstrToStruct ctx') body
+        synInstrToStruct ctx IfInstr {label, resultType, trueBranch, falseBranch} =
+            let ctx' = ctx { ctxLabels = label : ctxLabels ctx } in
+            let trueBranch' = map (synInstrToStruct ctx') trueBranch in
+            let falseBranch' = map (synInstrToStruct ctx') falseBranch in
+            S.If resultType trueBranch' falseBranch'
 
         extractFunction :: [Function] -> ModuleField -> [Function]
         extractFunction funcs (MFFunc fun) = fun : funcs
         extractFunction funcs _ = funcs
+
+        getLabelIdx :: FunCtx -> LabelIndex -> Maybe Natural
+        getLabelIdx FunCtx { ctxLabels } (Named id) =
+            fromIntegral <$> findIndex (\ident -> ident == Just id) ctxLabels
+        getLabelIdx FunCtx { ctxLabels } (Index idx) =
+            Just idx
+        
+        getLocalIndex :: FunCtx -> LabelIndex -> Maybe Natural
+        getLocalIndex FunCtx {ctxParams, ctxLocals} (Named id) =
+            case findIndex (\(ParamType ident _) -> ident == Just id) ctxParams of
+                Just idx -> return $ fromIntegral idx
+                Nothing ->
+                    let isIdent (LocalType ident _) = ident == Just id in
+                    fromIntegral . (+ length ctxParams) <$> findIndex isIdent ctxLocals
+        getLocalIndex FunCtx {ctxParams, ctxLocals} (Index idx) =
+            if (length ctxParams + length ctxLocals > fromIntegral idx)
+            then Just idx
+            else Nothing
 
         getFuncIndex :: Module -> FuncIndex -> Maybe Natural
         getFuncIndex Module { imports, functions } (Named id) =
