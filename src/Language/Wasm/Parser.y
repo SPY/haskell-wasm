@@ -1169,7 +1169,8 @@ desugarize fields =
         globals = extract extractGlobal fields,
         elems = extract extractElemSegment fields,
         datas = extract extractDataSegment fields,
-        start = extractStart fields
+        start = extractStart fields,
+        exports = []
     } in
     S.emptyModule {
         S.types = map synTypeDefToStruct $ types mod,
@@ -1180,7 +1181,8 @@ desugarize fields =
         S.datas = map (synDataToStruct mod) $ datas mod,
         S.mems = map synMemoryToStruct $ mems mod,
         S.globals = map (synGlobalToStruct mod) $ globals mod,
-        S.start = fmap (synStartToStruct mod) $ start mod
+        S.start = fmap (synStartToStruct mod) $ start mod,
+        S.exports = synExportsToStruct mod fields
     }
     where
         -- utils
@@ -1362,7 +1364,16 @@ desugarize fields =
         synFunctionToStruct :: Module -> Function -> S.Function
         synFunctionToStruct mod Function { funcType, locals, body } =
             let typeIdx = fromJust $ getTypeIndex (types mod) funcType in
-            let TypeDef _ FuncType { params } = types mod !! fromIntegral typeIdx in
+            -- we have to use local func params declaration,
+            -- coz it can contain own names for them
+            let
+                params = case funcType of
+                    IndexedTypeUse _ (Just FuncType { params }) -> params
+                    AnonimousTypeUse FuncType { params } -> params
+                    _ ->
+                        let TypeDef _ FuncType { params } = types mod !! fromIntegral typeIdx in
+                        params
+            in
             let ctx = FunCtx mod [] locals params in
             S.Function {
                 S.funcType = typeIdx,
@@ -1391,17 +1402,21 @@ desugarize fields =
             if (length ctxParams + length ctxLocals > fromIntegral idx)
             then Just idx
             else Nothing
+        
+        isFuncImport :: Import -> Bool
+        isFuncImport Import { desc = ImportFunc _ _ } = True
+        isFuncImport _ = False
 
         getFuncIndex :: Module -> FuncIndex -> Maybe Natural
         getFuncIndex Module { imports, functions } (Named id) =
-            let funImports = filter (\(Import { desc = ImportFunc _ _ }) -> True) imports in
+            let funImports = filter isFuncImport imports in
             case findIndex (\(Import { desc = ImportFunc ident _ }) -> ident == Just id) funImports of
                 Just idx -> return $ fromIntegral idx
                 Nothing ->
                     let isIdent (Function { ident }) = ident == Just id in
                     fromIntegral . (+ length funImports) <$> findIndex isIdent functions
         getFuncIndex Module { imports, functions } (Index idx) =
-            let funImports = filter (\(Import { desc = ImportFunc _ _ }) -> True) imports in
+            let funImports = filter isFuncImport imports in
             if length funImports + length functions > fromIntegral idx
             then Just idx
             else Nothing
@@ -1414,16 +1429,20 @@ desugarize fields =
         extractTable tables (MFTable table) = table : tables
         extractTable tables _ = tables
 
+        isTableImport :: Import -> Bool
+        isTableImport Import { desc = ImportTable _ _ } = True
+        isTableImport _ = False
+
         getTableIndex :: Module -> TableIndex -> Maybe Natural
         getTableIndex Module { imports, tables } (Named id) =
-            let tableImports = filter (\(Import { desc = ImportTable _ _ }) -> True) imports in
+            let tableImports = filter isTableImport imports in
             case findIndex (\(Import { desc = ImportTable ident _ }) -> ident == Just id) tableImports of
                 Just idx -> return $ fromIntegral idx
                 Nothing ->
                     let isIdent (Table (Just id) _) = True in
                     fromIntegral . (+ length tableImports) <$> findIndex isIdent tables
         getTableIndex Module { imports, tables } (Index idx) =
-            let tableImports = filter (\(Import { desc = ImportTable _ _ }) -> True) imports in
+            let tableImports = filter isTableImport imports in
             if length tableImports + length tables > fromIntegral idx
             then Just idx
             else Nothing
@@ -1436,17 +1455,21 @@ desugarize fields =
         extractMemory mems (MFMem mem) = mem : mems
         extractMemory mems _ = mems
 
+        isMemImport :: Import -> Bool
+        isMemImport Import { desc = ImportMemory _ _ } = True
+        isMemImport _ = False
+
         getMemIndex :: Module -> MemoryIndex -> Maybe Natural
         getMemIndex Module { imports, mems } (Named id) =
-            let memImports = filter (\(Import { desc = ImportMemory _ _ }) -> True) imports in
+            let memImports = filter isMemImport imports in
             case findIndex (\(Import { desc = ImportMemory ident _ }) -> ident == Just id) memImports of
                 Just idx -> return $ fromIntegral idx
                 Nothing ->
                     let isIdent (Memory (Just id) _) = True in
                     fromIntegral . (+ length memImports) <$> findIndex isIdent mems
-        getMemIndex Module { imports, tables } (Index idx) =
-            let memImports = filter (\(Import { desc = ImportMemory _ _ }) -> True) imports in
-            if length memImports + length tables > fromIntegral idx
+        getMemIndex Module { imports, mems } (Index idx) =
+            let memImports = filter isMemImport imports in
+            if length memImports + length mems > fromIntegral idx
             then Just idx
             else Nothing
 
@@ -1460,17 +1483,21 @@ desugarize fields =
         extractGlobal globals (MFGlobal global) = global : globals
         extractGlobal globals _ = globals
 
+        isGlobalImport :: Import -> Bool
+        isGlobalImport Import { desc = ImportGlobal _ _ } = True
+        isGlobalImport _ = False
+
         getGlobalIndex :: Module -> GlobalIndex -> Maybe Natural
         getGlobalIndex Module { imports, globals } (Named id) =
-            let globalImports = filter (\(Import { desc = ImportTable _ _ }) -> True) imports in
+            let globalImports = filter isGlobalImport imports in
             case findIndex (\(Import { desc = ImportGlobal ident _ }) -> ident == Just id) globalImports of
                 Just idx -> return $ fromIntegral idx
                 Nothing ->
                     let isIdent (Global { ident }) = ident == Just id in
                     fromIntegral . (+ length globalImports) <$> findIndex isIdent globals
-        getGlobalIndex Module { imports, tables } (Index idx) =
-            let globalImports = filter (\(Import { desc = ImportTable _ _ }) -> True) imports in
-            if length globalImports + length tables > fromIntegral idx
+        getGlobalIndex Module { imports, globals } (Index idx) =
+            let globalImports = filter isGlobalImport imports in
+            if length globalImports + length globals > fromIntegral idx
             then Just idx
             else Nothing
 
@@ -1510,4 +1537,85 @@ desugarize fields =
         extractStart' :: Maybe StartFunction -> ModuleField -> Maybe StartFunction
         extractStart' _ (MFStart start) = Just start
         extractStart' start _ = start
+
+        -- exports
+        synExportsToStruct :: Module -> [ModuleField] -> [S.Export]
+        synExportsToStruct mod (MFExport Export { name, desc = ExportFunc Nothing } : rest) =
+            let
+                isFuncExport (MFExport Export { desc = ExportFunc Nothing }) = True
+                isFuncExport _ = False
+            in
+            let getName (MFExport Export { name }) = name in
+            let names = name : (map getName $ takeWhile isFuncExport rest) in
+            let funImports = filter isFuncImport $ imports mod in
+            let rest' =  dropWhile isFuncExport rest in
+            let 
+                idx = fromIntegral $ case head rest' of
+                    MFImport imp -> fromJust $ findIndex (== imp) funImports
+                    MFFunc fun -> length funImports + (fromJust $ findIndex (== fun) $ functions mod)
+                    _ -> error "export statement without index has to be followed with import or function"
+            in
+            map (\name -> S.Export name $ S.ExportFunc idx) names ++ synExportsToStruct mod rest'
+        synExportsToStruct mod (MFExport Export { name, desc = ExportFunc (Just idx) } : rest) =
+            let exp = S.Export name $ S.ExportFunc $ fromJust $ getFuncIndex mod idx in
+            exp : synExportsToStruct mod rest
+        synExportsToStruct mod (MFExport Export { name, desc = ExportTable Nothing } : rest) =
+            let
+                isTableExport (MFExport Export { desc = ExportTable Nothing }) = True
+                isTableExport _ = False
+            in
+            let getName (MFExport Export { name }) = name in
+            let names = name : (map getName $ takeWhile isTableExport rest) in
+            let tableImports = filter isTableImport $ imports mod in
+            let rest' =  dropWhile isTableExport rest in
+            let 
+                idx = fromIntegral $ case head rest' of
+                    MFImport imp -> fromJust $ findIndex (== imp) tableImports
+                    MFTable tab -> length tableImports + (fromJust $ findIndex (== tab) $ tables mod)
+                    _ -> error "export statement without index has to be followed with import or table"
+            in
+            map (\name -> S.Export name $ S.ExportTable idx) names ++ synExportsToStruct mod rest'
+        synExportsToStruct mod (MFExport Export { name, desc = ExportTable (Just idx) } : rest) =
+            let exp = S.Export name $ S.ExportTable $ fromJust $ getTableIndex mod idx in
+            exp : synExportsToStruct mod rest
+        synExportsToStruct mod (MFExport Export { name, desc = ExportMemory Nothing } : rest) =
+            let
+                isMemExport (MFExport Export { desc = ExportMemory Nothing }) = True
+                isMemExport _ = False
+            in
+            let getName (MFExport Export { name }) = name in
+            let names = name : (map getName $ takeWhile isMemExport rest) in
+            let memImports = filter isMemImport $ imports mod in
+            let rest' =  dropWhile isMemExport rest in
+            let 
+                idx = fromIntegral $ case head rest' of
+                    MFImport imp -> fromJust $ findIndex (== imp) memImports
+                    MFMem mem -> length memImports + (fromJust $ findIndex (== mem) $ mems mod)
+                    _ -> error "export statement without index has to be followed with import or memory"
+            in
+            map (\name -> S.Export name $ S.ExportMemory idx) names ++ synExportsToStruct mod rest'
+        synExportsToStruct mod (MFExport Export { name, desc = ExportMemory (Just idx) } : rest) =
+            let exp = S.Export name $ S.ExportMemory $ fromJust $ getMemIndex mod idx in
+            exp : synExportsToStruct mod rest
+        synExportsToStruct mod (MFExport Export { name, desc = ExportGlobal Nothing } : rest) =
+            let
+                isGlobalExport (MFExport Export { desc = ExportGlobal Nothing }) = True
+                isGlobalExport _ = False
+            in
+            let getName (MFExport Export { name }) = name in
+            let names = name : (map getName $ takeWhile isGlobalExport rest) in
+            let globalImports = filter isGlobalImport $ imports mod in
+            let rest' =  dropWhile isGlobalExport rest in
+            let 
+                idx = fromIntegral $ case head rest' of
+                    MFImport imp -> fromJust $ findIndex (== imp) globalImports
+                    MFGlobal global -> length globalImports + (fromJust $ findIndex (== global) $ globals mod)
+                    _ -> error "export statement without index has to be followed with import or memory"
+            in
+            map (\name -> S.Export name $ S.ExportGlobal idx) names ++ synExportsToStruct mod rest'
+        synExportsToStruct mod (MFExport Export { name, desc = ExportGlobal (Just idx) } : rest) =
+            let exp = S.Export name $ S.ExportGlobal $ fromJust $ getGlobalIndex mod idx in
+            exp : synExportsToStruct mod rest
+        synExportsToStruct mod (_ : rest) = synExportsToStruct mod rest
+        synExportsToStruct _ [] = []
 }

@@ -11,11 +11,14 @@ import qualified Data.ByteString.Lazy as LBS
 
 import qualified Language.Wasm.Lexer as Lexer
 import qualified Language.Wasm.Parser as Parser
+import qualified Language.Wasm.Structure as Structure
 
 import qualified Debug.Trace as Debug
 
-isRight :: (Show b) => Either a b -> Bool
-isRight (Right x) = show x `seq` True
+instance NFData Structure.Module
+
+isRight :: (NFData b, Show b) => Either a b -> Bool
+isRight (Right x) = x `seq` True
 isRight _         = False
 
 main :: IO ()
