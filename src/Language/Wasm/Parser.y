@@ -1179,6 +1179,7 @@ desugarize fields =
         S.elems = map (synElemToStruct mod) $ elems mod,
         S.datas = map (synDataToStruct mod) $ datas mod,
         S.mems = map synMemoryToStruct $ mems mod,
+        S.globals = map (synGlobalToStruct mod) $ globals mod,
         S.start = fmap (synStartToStruct mod) $ start mod
     }
     where
@@ -1450,6 +1451,11 @@ desugarize fields =
             else Nothing
 
         -- global
+        synGlobalToStruct :: Module -> Global -> S.Global
+        synGlobalToStruct mod Global { globalType, initializer } =
+            let ctx = FunCtx mod [] [] [] in
+            S.Global globalType $ map (synInstrToStruct ctx) initializer
+
         extractGlobal :: [Global] -> ModuleField -> [Global]
         extractGlobal globals (MFGlobal global) = global : globals
         extractGlobal globals _ = globals
