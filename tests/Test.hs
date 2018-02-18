@@ -15,9 +15,7 @@ import qualified Language.Wasm.Structure as Structure
 
 import qualified Debug.Trace as Debug
 
-instance NFData Structure.Module
-
-isRight :: (NFData b, Show b) => Either a b -> Bool
+isRight :: (Show b) => Either a b -> Bool
 isRight (Right x) = x `seq` True
 isRight _         = False
 
