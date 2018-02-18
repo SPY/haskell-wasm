@@ -1168,14 +1168,18 @@ desugarize fields =
         mems = extract extractMemory fields,
         globals = extract extractGlobal fields,
         elems = extract extractElemSegment fields,
-        datas = extract extractDataSegment fields
+        datas = extract extractDataSegment fields,
+        start = extractStart fields
     } in
     S.emptyModule {
         S.types = map synTypeDefToStruct $ types mod,
         S.functions = map (synFunctionToStruct mod) $ functions mod,
         S.tables = map synTableToStruct $ tables mod,
         S.imports = map (synImportToStruct $ types mod) $ imports mod,
-        S.mems = map synMemoryToStruct $ mems mod
+        S.elems = map (synElemToStruct mod) $ elems mod,
+        S.datas = map (synDataToStruct mod) $ datas mod,
+        S.mems = map synMemoryToStruct $ mems mod,
+        S.start = fmap (synStartToStruct mod) $ start mod
     }
     where
         -- utils
@@ -1465,12 +1469,39 @@ desugarize fields =
             else Nothing
 
         -- elem segment
+        synElemToStruct :: Module -> ElemSegment -> S.ElemSegment
+        synElemToStruct mod ElemSegment { tableIndex, offset, funcIndexes } =
+            let ctx = FunCtx mod [] [] [] in
+            let offsetInstrs = map (synInstrToStruct ctx) offset in
+            let idx = fromJust $ getTableIndex mod tableIndex in
+            let indexes = map (fromJust . getFuncIndex mod) funcIndexes in
+            S.ElemSegment idx offsetInstrs indexes
+
         extractElemSegment :: [ElemSegment] -> ModuleField -> [ElemSegment]
         extractElemSegment elems (MFElem elem) = elem : elems
         extractElemSegment elems _ = elems
 
         -- data segment
+        synDataToStruct :: Module -> DataSegment -> S.DataSegment
+        synDataToStruct mod DataSegment { memIndex, offset, datastring } =
+            let ctx = FunCtx mod [] [] [] in
+            let offsetInstrs = map (synInstrToStruct ctx) offset in
+            let idx = fromJust $ getMemIndex mod memIndex in
+            S.DataSegment idx offsetInstrs $ TLEncoding.encodeUtf8 datastring
+
         extractDataSegment :: [DataSegment] -> ModuleField -> [DataSegment]
         extractDataSegment datas (MFData dataSegment) = dataSegment : datas
         extractDataSegment datas _ = datas
+
+        -- start
+        synStartToStruct :: Module -> StartFunction -> S.StartFunction
+        synStartToStruct mod (StartFunction funIdx) =
+            S.StartFunction $ fromJust $ getFuncIndex mod funIdx
+        
+        extractStart :: [ModuleField] -> Maybe StartFunction
+        extractStart = foldl' extractStart' Nothing
+
+        extractStart' :: Maybe StartFunction -> ModuleField -> Maybe StartFunction
+        extractStart' _ (MFStart start) = Just start
+        extractStart' start _ = start
 }
