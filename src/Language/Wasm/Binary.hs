@@ -9,21 +9,14 @@ import Language.Wasm.Structure
 import Numeric.Natural (Natural)
 import Data.Bits
 import Data.Word (Word8)
+import Data.Int (Int8)
 import Data.Serialize
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TLEncoding
 
-putULEB128 :: Natural -> Put
-putULEB128 val =
-    if val < 128
-    then putWord8 $ fromIntegral val
-    else do
-        putWord8 $ 0x80 + (0x7F .&. fromIntegral val)
-        putULEB128 $ val `shiftR` 7
-
-getULEB128 :: Get Natural
+getULEB128 :: (Integral a, Bits a) => Get a
 getULEB128 = do
     val <- getWord8
     if val < 2 ^ 7
@@ -32,16 +25,54 @@ getULEB128 = do
         rest <- getULEB128
         return $ (fromIntegral $ 0x7F .&. val) + 128 * rest
 
+putULEB128 :: (Integral a, Bits a) => a -> Put
+putULEB128 val =
+    if val < 128
+    then putWord8 $ fromIntegral val
+    else do
+        putWord8 $ 0x80 + (0x7F .&. fromIntegral val)
+        putULEB128 $ val `shiftR` 7
+
+getSLEB128 :: (Integral a, Bits a) => Get a
+getSLEB128 = do
+    let toInt8 :: Word8 -> Int8
+        toInt8 = fromIntegral
+    a <- getWord8
+    if not (testBit a 7)
+    then return . fromIntegral . toInt8 $ (a .&. 0x7f) .|. ((a .&. 0x40) `shiftL` 1)
+    else do
+        b <- getSLEB128
+        return $ (b `shiftL` 7) .|. (fromIntegral (a .&. 0x7f))
+
+putSLEB128 :: (Integral a, Bits a) => a -> Put
+putSLEB128 a = go a
+    where
+        ext = if a >= 0 then 0 else complement 0
+        go x = do
+            let 
+                r = x `shiftR` 7
+                w = x .&. 0x7f
+            if r /= ext
+            then do
+                putWord8 (fromIntegral w .|. 0x80)
+                go r
+            else
+                if (testBit w 6 && a < 0) || (not (testBit w 6) && a >= 0)
+                then putWord8 (fromIntegral w)
+                else do
+                    putWord8 (fromIntegral w .|. 0x80)
+                    putWord8 (fromIntegral ext .&. 0x7F)
+
 putVec :: Serialize a => [a] -> Put
 putVec list = do
-    putULEB128 $ fromIntegral $ length list
+    putULEB128 $ length list
     mapM put list
     return ()
 
 getVec :: Serialize a => Get [a]
 getVec = do
     len <- getULEB128
-    sequence $ replicate (fromIntegral len) get
+    sequence $ replicate len get
 
 byteGuard :: Word8 -> Get ()
 byteGuard expected = do
@@ -54,19 +85,19 @@ putSection :: Serialize a => SectionType -> a -> Put
 putSection section content = do
     put section
     let payload = encode content
-    putULEB128 $ fromIntegral $ BS.length payload
+    putULEB128 $ BS.length payload
     putByteString payload
 
 putName :: TL.Text -> Put
 putName txt = do
     let bs = TLEncoding.encodeUtf8 txt
-    putULEB128 $ fromIntegral $ LBS.length bs
+    putULEB128 $ LBS.length bs
     putLazyByteString bs
 
 getName :: Get TL.Text
 getName = do
     len <- getULEB128
-    bytes <- getLazyByteString $ fromIntegral len
+    bytes <- getLazyByteString len
     return $ TLEncoding.decodeUtf8 bytes
 
 putResultType :: ResultType -> Put
@@ -222,24 +253,24 @@ instance Serialize Instruction where
     put (Block result body) = do
         putWord8 0x02
         putResultType result
-        mapM put body
+        mapM_ put body
         putWord8 0x0B -- END
     put (Loop result body) = do
         putWord8 0x03
         putResultType result
-        mapM put body
+        mapM_ put body
         putWord8 0x0B -- END
     put If {result, true, false = []} = do
         putWord8 0x04
         putResultType result
-        mapM put true
+        mapM_ put true
         putWord8 0x0B -- END
     put If {result, true, false} = do
         putWord8 0x04
         putResultType result
-        mapM put true
+        mapM_ put true
         putWord8 0x05 -- ELSE
-        mapM put false
+        mapM_ put false
         putWord8 0x0B -- END
     put (Br labelIdx) = putWord8 0x0C >> putULEB128 labelIdx
     put (BrIf labelIdx) = putWord8 0x0D >> putULEB128 labelIdx
@@ -283,8 +314,8 @@ instance Serialize Instruction where
     put CurrentMemory = putWord8 0x3F >> putWord8 0x00
     put GrowMemory = putWord8 0x40 >> putWord8 0x00
     -- Numeric instructions
-    put (I32Const val) = putWord8 0x41 -- TODO: PACK VALUE AS SIGNED LEB128
-    put (I64Const val) = putWord8 0x42 -- TODO: PACK VALUE AS SIGNED LEB128
+    put (I32Const val) = putWord8 0x41 >> putSLEB128 val
+    put (I64Const val) = putWord8 0x42 >> putSLEB128 val
     put (F32Const val) = putWord8 0x43 >> putFloat32le val
     put (F64Const val) = putWord8 0x44 >> putFloat64le val
     put I32Eqz = putWord8 0x45
