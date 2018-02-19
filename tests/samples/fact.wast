@@ -65,6 +65,28 @@
     (get_local $res)
   )
 
+  ;; Iterative factorial named
+  (func (export "fac-iter-named-32") (param $n i32) (result i32)
+    (local $i i32)
+    (local $res i32)
+    (set_local $i (get_local $n))
+    (set_local $res (i32.const 1))
+    (block $done
+      (loop $loop
+        (if
+          (i32.eq (get_local $i) (i32.const 0))
+          (then (br $done))
+          (else
+            (set_local $res (i32.mul (get_local $i) (get_local $res)))
+            (set_local $i (i32.sub (get_local $i) (i32.const 1)))
+          )
+        )
+        (br $loop)
+      )
+    )
+    (get_local $res)
+  )
+
   ;; Optimized factorial.
   (func (export "fac-opt") (param i64) (result i64)
     (local i64)

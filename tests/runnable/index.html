@@ -1,0 +1,11 @@
+<script>
+    fetch('fact.wast').then(response =>
+        response.arrayBuffer()
+    ).then(bytes =>
+        WebAssembly.instantiate(bytes, {})
+    ).then(results => {
+        console.log('result', results)
+        const fact = results.instance.exports['fac-iter-named-32']
+        console.log(fact, fact(5))
+    });
+</script>

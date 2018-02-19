@@ -1,7 +1,8 @@
 {-# LANGUAGE NamedFieldPuns #-}
 
 module Language.Wasm.Binary (
-    
+    dumpModule,
+    dumpModuleLazy
 ) where
 
 import Language.Wasm.Structure
@@ -542,7 +543,7 @@ instance Serialize Module where
 
         putSection TypeSection $ putVec $ types mod
         putSection ImportSection $ putVec $ imports mod
-        putSection FunctionSection $ putVec $ map funcType $ functions mod
+        putSection FunctionSection $ putVec $ map (Index . funcType) $ functions mod
         putSection TableSection $ putVec $ tables mod
         putSection MemorySection $ putVec $ mems mod
         putSection GlobalSection $ putVec $ globals mod
@@ -555,3 +556,9 @@ instance Serialize Module where
         putSection DataSection $ putVec $ datas mod
         
     get = undefined
+
+dumpModule :: Module -> BS.ByteString
+dumpModule = encode
+
+dumpModuleLazy :: Module -> LBS.ByteString
+dumpModuleLazy = encodeLazy
