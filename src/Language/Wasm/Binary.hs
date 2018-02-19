@@ -81,10 +81,10 @@ byteGuard expected = do
     then return ()
     else fail $ "Expected " ++ show expected ++ ", but encountered " ++ show byte
 
-putSection :: Serialize a => SectionType -> a -> Put
+putSection :: SectionType -> Put -> Put
 putSection section content = do
     put section
-    let payload = encode content
+    let payload = runPut content
     putULEB128 $ BS.length payload
     putByteString payload
 
@@ -237,7 +237,7 @@ instance Serialize Memory where
     put (Memory limit) = put limit
     get = Memory <$> get
 
-newtype Index = Index Natural deriving (Show, Eq)
+newtype Index = Index { unIndex :: Natural } deriving (Show, Eq)
 
 instance Serialize Index where
     put (Index idx) = putULEB128 idx
@@ -444,12 +444,54 @@ instance Serialize Instruction where
 
     get = undefined
 
+putExpression :: Expression -> Put
+putExpression expr = do
+    mapM_ put expr
+    putWord8 0x0B -- END
+
+getExpression :: Get Expression
+getExpression = go []
+    where
+        go :: [Instruction] -> Get Expression
+        go acc = do
+            nextByte <- lookAhead getWord8
+            if nextByte == 0x0B -- END OF EXPR
+            then getWord8 >> (return $ reverse acc)
+            else get >>= \instr -> go (instr : acc)
+
 instance Serialize Global where
     put (Global globalType expr) = do
         put globalType
-        mapM put expr
-        putWord8 0x0B -- END
-    get = undefined -- Global <$> get <*> get
+        putExpression expr
+    get = Global <$> get <*> getExpression
+
+instance Serialize ExportDesc where
+    put (ExportFunc idx) = putWord8 0x00 >> putULEB128 idx
+    put (ExportTable idx) = putWord8 0x01 >> putULEB128 idx
+    put (ExportMemory idx) = putWord8 0x02 >> putULEB128 idx
+    put (ExportGlobal idx) = putWord8 0x03 >> putULEB128 idx
+    get = do
+        op <- getWord8
+        idx <- getULEB128
+        case op of
+            0x00 -> return $ ExportFunc idx
+            0x01 -> return $ ExportTable idx
+            0x02 -> return $ ExportMemory idx
+            0x03 -> return $ ExportGlobal idx
+            _ -> fail "Unexpected byte value in position of Export Description opcode"
+
+instance Serialize Export where
+    put (Export name desc) = do
+        putName name
+        put desc
+    get = Export <$> getName <*> get
+
+instance Serialize ElemSegment where
+    put (ElemSegment tableIndex offset funcIndexes) = do
+        putULEB128 tableIndex
+        putExpression offset
+        putVec $ map Index funcIndexes
+    get = ElemSegment <$> getULEB128 <*> getExpression <*> (map unIndex <$> getVec)
 
 instance Serialize Module where
     put mod = do
@@ -464,10 +506,16 @@ instance Serialize Module where
         putWord8 0x00
         putWord8 0x00
 
-        putSection TypeSection $ types mod
-        putSection ImportSection $ imports mod
-        putSection FunctionSection $ map funcType $ functions mod
-        putSection TableSection $ tables mod
-        putSection MemorySection $ mems mod
-        putSection GlobalSection $ globals mod
+        putSection TypeSection $ putVec $ types mod
+        putSection ImportSection $ putVec $ imports mod
+        putSection FunctionSection $ putVec $ map funcType $ functions mod
+        putSection TableSection $ putVec $ tables mod
+        putSection MemorySection $ putVec $ mems mod
+        putSection GlobalSection $ putVec $ globals mod
+        putSection ExportSection $ putVec $ exports mod
+        case start mod of
+            Just (StartFunction idx) -> putSection StartSection $ putULEB128 idx
+            Nothing -> return ()
+        putSection ElementSection $ putVec $ elems mod
+        
     get = undefined

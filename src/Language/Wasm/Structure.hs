@@ -29,6 +29,7 @@ module Language.Wasm.Structure (
     FuncType(..),
     ValueType(..),
     ResultType,
+    Expression,
     emptyModule
 ) where
 
