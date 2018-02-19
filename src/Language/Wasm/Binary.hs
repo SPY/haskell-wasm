@@ -493,6 +493,40 @@ instance Serialize ElemSegment where
         putVec $ map Index funcIndexes
     get = ElemSegment <$> getULEB128 <*> getExpression <*> (map unIndex <$> getVec)
 
+data LocalTypeRange = LocalTypeRange Natural ValueType deriving (Show, Eq)
+
+instance Serialize LocalTypeRange where
+    put (LocalTypeRange len valType) = do
+        putULEB128 len
+        put valType
+    get = LocalTypeRange <$> getULEB128 <*> get
+
+instance Serialize Function where
+    put (Function _ locals body) = do
+        let bs = runPut $ do
+                putVec $ map (LocalTypeRange 1) locals
+                putExpression body
+        putULEB128 $ BS.length bs
+        putByteString bs
+    get = do
+        _size <- getULEB128 :: Get Natural
+        locals <- concat . map (\(LocalTypeRange n val) -> replicate (fromIntegral n) val) <$> getVec
+        body <- getExpression
+        return $ Function 0 locals body
+
+instance Serialize DataSegment where
+    put (DataSegment memIdx offset init) = do
+        putULEB128 memIdx
+        putExpression offset
+        putULEB128 $ LBS.length init
+        putLazyByteString init
+    get = do
+        memIdx <- getULEB128
+        offset <- getExpression
+        len <- getULEB128
+        init <- getLazyByteString len
+        return $ DataSegment memIdx offset init
+
 instance Serialize Module where
     put mod = do
         -- magic
@@ -517,5 +551,7 @@ instance Serialize Module where
             Just (StartFunction idx) -> putSection StartSection $ putULEB128 idx
             Nothing -> return ()
         putSection ElementSection $ putVec $ elems mod
+        putSection CodeSection $ putVec $ functions mod
+        putSection DataSection $ putVec $ datas mod
         
     get = undefined
