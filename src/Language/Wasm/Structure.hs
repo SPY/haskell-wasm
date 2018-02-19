@@ -28,6 +28,7 @@ module Language.Wasm.Structure (
     GlobalType(..),
     FuncType(..),
     ValueType(..),
+    ResultType,
     emptyModule
 ) where
 
@@ -59,13 +60,13 @@ data IBinOp =
 
 data IRelOp = IEq | INe | ILtU | ILtS | IGtU | IGtS | ILeU | ILeS | IGeU | IGeS deriving (Show, Eq)
 
-data FUnOp = FAbs | FNeg | FSqrt | FCeil | FFloor | FTrunc | FNearest deriving (Show, Eq)
+data FUnOp = FAbs | FNeg | FCeil | FFloor | FTrunc | FNearest | FSqrt deriving (Show, Eq)
 
 data FBinOp = FAdd | FSub | FMul | FDiv | FMin | FMax | FCopySign deriving (Show, Eq)
 
 data FRelOp = FEq | FNe | FLt | FGt | FLe | FGe deriving (Show, Eq)
 
-data MemArg = MemArg { offset :: Natural, align :: Natural } deriving (Show, Eq)
+data MemArg = MemArg { align :: Natural, offset :: Natural } deriving (Show, Eq)
 
 type LabelIndex = Natural
 type FuncIndex = Natural
