@@ -182,6 +182,18 @@ instance Serialize Import where
         desc <- get
         return $ Import sourceModule name desc
 
+instance Serialize Table where
+    put (Table tableType) = put tableType
+    get = Table <$> get
+
+instance Serialize Memory where
+    put (Memory limit) = put limit
+    get = Memory <$> get
+
+-- instance Serialize Global where
+--     put (Global globalType expr) = put globalType >> put expr
+--     get = Global <$> get <*> get
+
 instance Serialize Module where
     put mod = do
         -- magic
@@ -197,4 +209,8 @@ instance Serialize Module where
 
         putSection TypeSection $ types mod
         putSection ImportSection $ imports mod
+        putSection FunctionSection $ map funcType $ functions mod
+        putSection TableSection $ tables mod
+        putSection MemorySection $ mems mod
+        -- putSection GlobalSection $ globals mod
     get = undefined
