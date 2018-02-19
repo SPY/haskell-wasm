@@ -1172,7 +1172,7 @@ desugarize fields =
         start = extractStart fields,
         exports = []
     } in
-    S.emptyModule {
+    S.Module {
         S.types = map synTypeDefToStruct $ types mod,
         S.functions = map (synFunctionToStruct mod) $ functions mod,
         S.tables = map synTableToStruct $ tables mod,
