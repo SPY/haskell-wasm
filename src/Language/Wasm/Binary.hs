@@ -267,7 +267,7 @@ instance Serialize Index where
     get = Index <$> getULEB128
 
 instance Serialize MemArg where
-    put (MemArg offset align) = putULEB128 align >> putULEB128 offset
+    put (MemArg align offset) = putULEB128 align >> putULEB128 offset
     get = MemArg <$> getULEB128 <*> getULEB128
 
 instance Serialize Instruction where

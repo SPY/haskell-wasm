@@ -41,7 +41,7 @@ main = do
     let Right mod = Parser.parseModule <$> Lexer.scanner content
     let Right mod' = Binary.decodeModuleLazy $ Binary.dumpModuleLazy mod
     return $ testCase ("Dump module to binary and parse back: " ++ file) $
-      assertBool "Module matched" $ mod == mod'
+      assertEqual "Module matched" mod mod'
   defaultMain $ testGroup "tests" [
       testGroup "Syntax parsing" syntaxTestCases,
       testGroup "Binary format" binaryTestCases
