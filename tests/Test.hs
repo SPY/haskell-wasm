@@ -29,8 +29,7 @@ compile file = do
 
 main :: IO ()
 main = do
-  -- files <- Directory.listDirectory "tests/samples"
-  let files = ["fact.wast"]
+  files <- Directory.listDirectory "tests/samples"
   compile "fact.wast"
   syntaxTestCases <- (`mapM` files) $ \file -> do
     content <- LBS.readFile $ "tests/samples/" ++ file
@@ -40,9 +39,7 @@ main = do
   binaryTestCases <- (`mapM` files) $ \file -> do
     content <- LBS.readFile $ "tests/samples/" ++ file
     let Right mod = Parser.parseModule <$> Lexer.scanner content
-    let res = Binary.decodeModuleLazy $ Binary.dumpModuleLazy mod
-    print res
-    let Right mod' = res
+    let Right mod' = Binary.decodeModuleLazy $ Binary.dumpModuleLazy mod
     return $ testCase ("Dump module to binary and parse back: " ++ file) $
       assertBool "Module matched" $ mod == mod'
   defaultMain $ testGroup "tests" [

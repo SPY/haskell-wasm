@@ -105,7 +105,7 @@ getSection sectionType parser def = do
     where
         parseSection op
             | op == 0 = skipCustomSection >> getSection sectionType parser def
-            | op == fromEnum sectionType = (getULEB128 :: Get Natural) >> parser
+            | op == fromEnum sectionType = getWord8 >> (getULEB128 :: Get Natural) >> parser
             | op > fromEnum sectionType = return def
             | otherwise =
                 fail $ "Incorrect order of sections. Expected " ++ show sectionType
