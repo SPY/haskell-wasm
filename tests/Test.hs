@@ -29,11 +29,23 @@ compile file = do
 
 main :: IO ()
 main = do
-  files <- Directory.listDirectory "tests/samples"
+  -- files <- Directory.listDirectory "tests/samples"
+  let files = ["fact.wast"]
   compile "fact.wast"
-  testCases <- (`mapM` files) $ \file -> do
+  syntaxTestCases <- (`mapM` files) $ \file -> do
     content <- LBS.readFile $ "tests/samples/" ++ file
     let result = Parser.parseModule <$> Lexer.scanner content
     return $ testCase ("Parse module from core Test Suit: " ++ file) $
       assertBool "Module parsed" $ isRight result
-  defaultMain $ testGroup "Syntax parsing" testCases
+  binaryTestCases <- (`mapM` files) $ \file -> do
+    content <- LBS.readFile $ "tests/samples/" ++ file
+    let Right mod = Parser.parseModule <$> Lexer.scanner content
+    let res = Binary.decodeModuleLazy $ Binary.dumpModuleLazy mod
+    print res
+    let Right mod' = res
+    return $ testCase ("Dump module to binary and parse back: " ++ file) $
+      assertBool "Module matched" $ mod == mod'
+  defaultMain $ testGroup "tests" [
+      testGroup "Syntax parsing" syntaxTestCases,
+      testGroup "Binary format" binaryTestCases
+    ]

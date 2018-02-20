@@ -2,7 +2,9 @@
 
 module Language.Wasm.Binary (
     dumpModule,
-    dumpModuleLazy
+    dumpModuleLazy,
+    decodeModule,
+    decodeModuleLazy
 ) where
 
 import Language.Wasm.Structure
@@ -89,6 +91,26 @@ putSection section content = do
     putULEB128 $ BS.length payload
     putByteString payload
 
+skipCustomSection :: Get ()
+skipCustomSection = do
+    byteGuard 0x00
+    size <- getULEB128
+    getByteString size
+    return ()
+
+getSection :: SectionType -> Get a -> a -> Get a
+getSection sectionType parser def = do
+    nextByte <- lookAhead getWord8
+    parseSection $ fromIntegral nextByte
+    where
+        parseSection op
+            | op == 0 = skipCustomSection >> getSection sectionType parser def
+            | op == fromEnum sectionType = (getULEB128 :: Get Natural) >> parser
+            | op > fromEnum sectionType = return def
+            | otherwise =
+                fail $ "Incorrect order of sections. Expected " ++ show sectionType
+                    ++ ", but found " ++ show (toEnum op :: SectionType)
+
 putName :: TL.Text -> Put
 putName txt = do
     let bs = TLEncoding.encodeUtf8 txt
@@ -162,7 +184,7 @@ instance Serialize FuncType where
         putVec results
     get = do
         byteGuard 0x60
-        params <- getVec 
+        params <- getVec
         results <- getVec
         return $ FuncType { params, results }
 
@@ -254,25 +276,21 @@ instance Serialize Instruction where
     put (Block result body) = do
         putWord8 0x02
         putResultType result
-        mapM_ put body
-        putWord8 0x0B -- END
+        putExpression body
     put (Loop result body) = do
         putWord8 0x03
         putResultType result
-        mapM_ put body
-        putWord8 0x0B -- END
+        putExpression body
     put If {result, true, false = []} = do
         putWord8 0x04
         putResultType result
-        mapM_ put true
-        putWord8 0x0B -- END
+        putExpression true
     put If {result, true, false} = do
         putWord8 0x04
         putResultType result
         mapM_ put true
         putWord8 0x05 -- ELSE
-        mapM_ put false
-        putWord8 0x0B -- END
+        putExpression false
     put (Br labelIdx) = putWord8 0x0C >> putULEB128 labelIdx
     put (BrIf labelIdx) = putWord8 0x0D >> putULEB128 labelIdx
     put (BrTable labels label) = putWord8 0x0E >> putVec (map Index labels) >> putULEB128 label
@@ -431,7 +449,7 @@ instance Serialize Instruction where
     put (FConvertIS BS32 BS32) = putWord8 0xB2
     put (FConvertIU BS32 BS32) = putWord8 0xB3
     put (FConvertIS BS32 BS64) = putWord8 0xB4
-    put (FConvertIU BS32 BS64) = putWord8 0xB4
+    put (FConvertIU BS32 BS64) = putWord8 0xB5
     put F32DemoteF64 = putWord8 0xB6
     put (FConvertIS BS64 BS32) = putWord8 0xB7
     put (FConvertIU BS64 BS32) = putWord8 0xB8
@@ -443,7 +461,191 @@ instance Serialize Instruction where
     put (FReinterpretI BS32) = putWord8 0xBE
     put (FReinterpretI BS64) = putWord8 0xBF
 
-    get = undefined
+    get = do
+        op <- getWord8
+        case op of
+            0x00 -> return Unreachable
+            0x01 -> return Nop
+            0x02 -> Block <$> getResultType <*> getExpression
+            0x03 -> Loop <$> getResultType <*> getExpression
+            0x04 -> do
+                resultType <- getResultType
+                (true, hasElse) <- getTrueBranch
+                false <- if hasElse then getExpression else return []
+                return $ If resultType true false
+            0x0C -> Br <$> getULEB128
+            0x0D -> BrIf <$> getULEB128
+            0x0E -> BrTable <$> (map unIndex <$> getVec) <*> getULEB128
+            0x0F -> return $ Return
+            0x10 -> Call <$> getULEB128
+            0x11 -> do
+                typeIdx <- getULEB128
+                byteGuard 0x00
+                return $ CallIndirect typeIdx
+            -- Parametric instructions
+            0x1A -> return $ Drop
+            0x1B -> return $ Select
+            -- Variable instructions
+            0x20 -> GetLocal <$> getULEB128
+            0x21 -> SetLocal <$> getULEB128
+            0x22 -> TeeLocal <$> getULEB128
+            0x23 -> GetGlobal <$> getULEB128
+            0x24 -> SetGlobal <$> getULEB128
+            -- Memory instructions
+            0x28 -> I32Load <$> get
+            0x29 -> I64Load <$> get
+            0x2A -> F32Load <$> get
+            0x2B -> F64Load <$> get
+            0x2C -> I32Load8S <$> get
+            0x2D -> I32Load8U <$> get
+            0x2E -> I32Load16S <$> get
+            0x2F -> I32Load16U <$> get
+            0x30 -> I64Load8S <$> get
+            0x31 -> I64Load8U <$> get
+            0x32 -> I64Load16S <$> get
+            0x33 -> I64Load16U <$> get
+            0x34 -> I64Load32S <$> get
+            0x35 -> I64Load32U <$> get
+            0x36 -> I32Store <$> get
+            0x37 -> I64Store <$> get
+            0x38 -> F32Store <$> get
+            0x39 -> F64Store <$> get
+            0x3A -> I32Store8 <$> get
+            0x3B -> I32Store16 <$> get
+            0x3C -> I64Store8 <$> get
+            0x3D -> I64Store16 <$> get
+            0x3E -> I64Store32 <$> get
+            0x3F -> byteGuard 0x00 >> (return $ CurrentMemory)
+            0x40 -> byteGuard 0x00 >> (return $ GrowMemory)
+            -- Numeric instructions
+            0x41 -> I32Const <$> getSLEB128
+            0x42 -> I64Const <$> getSLEB128
+            0x43 -> F32Const <$> getFloat32le
+            0x44 -> F64Const <$> getFloat64le
+            0x45 -> return $ I32Eqz
+            0x46 -> return $ IRelOp BS32 IEq
+            0x47 -> return $ IRelOp BS32 INe
+            0x48 -> return $ IRelOp BS32 ILtS
+            0x49 -> return $ IRelOp BS32 ILtU
+            0x4A -> return $ IRelOp BS32 IGtS
+            0x4B -> return $ IRelOp BS32 IGtU
+            0x4C -> return $ IRelOp BS32 ILeS
+            0x4D -> return $ IRelOp BS32 ILeU
+            0x4E -> return $ IRelOp BS32 IGeS
+            0x4F -> return $ IRelOp BS32 IGeU
+            0x50 -> return $ I64Eqz
+            0x51 -> return $ IRelOp BS64 IEq
+            0x52 -> return $ IRelOp BS64 INe
+            0x53 -> return $ IRelOp BS64 ILtS
+            0x54 -> return $ IRelOp BS64 ILtU
+            0x55 -> return $ IRelOp BS64 IGtS
+            0x56 -> return $ IRelOp BS64 IGtU
+            0x57 -> return $ IRelOp BS64 ILeS
+            0x58 -> return $ IRelOp BS64 ILeU
+            0x59 -> return $ IRelOp BS64 IGeS
+            0x5A -> return $ IRelOp BS64 IGeU
+            0x5B -> return $ FRelOp BS32 FEq
+            0x5C -> return $ FRelOp BS32 FNe
+            0x5D -> return $ FRelOp BS32 FLt
+            0x5E -> return $ FRelOp BS32 FGt
+            0x5F -> return $ FRelOp BS32 FLe
+            0x60 -> return $ FRelOp BS32 FGe
+            0x61 -> return $ FRelOp BS64 FEq
+            0x62 -> return $ FRelOp BS64 FNe
+            0x63 -> return $ FRelOp BS64 FLt
+            0x64 -> return $ FRelOp BS64 FGt
+            0x65 -> return $ FRelOp BS64 FLe
+            0x66 -> return $ FRelOp BS64 FGe
+            0x67 -> return $ IUnOp BS32 IClz
+            0x68 -> return $ IUnOp BS32 ICtz
+            0x69 -> return $ IUnOp BS32 IPopcnt
+            0x6A -> return $ IBinOp BS32 IAdd
+            0x6B -> return $ IBinOp BS32 ISub
+            0x6C -> return $ IBinOp BS32 IMul
+            0x6D -> return $ IBinOp BS32 IDivS
+            0x6E -> return $ IBinOp BS32 IDivU
+            0x6F -> return $ IBinOp BS32 IRemS
+            0x70 -> return $ IBinOp BS32 IRemU
+            0x71 -> return $ IBinOp BS32 IAnd
+            0x72 -> return $ IBinOp BS32 IOr
+            0x73 -> return $ IBinOp BS32 IXor
+            0x74 -> return $ IBinOp BS32 IShl
+            0x75 -> return $ IBinOp BS32 IShrS
+            0x76 -> return $ IBinOp BS32 IShrU
+            0x77 -> return $ IBinOp BS32 IRotl
+            0x78 -> return $ IBinOp BS32 IRotr
+            0x79 -> return $ IUnOp BS64 IClz
+            0x7A -> return $ IUnOp BS64 ICtz
+            0x7B -> return $ IUnOp BS64 IPopcnt
+            0x7C -> return $ IBinOp BS64 IAdd
+            0x7D -> return $ IBinOp BS64 ISub
+            0x7E -> return $ IBinOp BS64 IMul
+            0x7F -> return $ IBinOp BS64 IDivS
+            0x80 -> return $ IBinOp BS64 IDivU
+            0x81 -> return $ IBinOp BS64 IRemS
+            0x82 -> return $ IBinOp BS64 IRemU
+            0x83 -> return $ IBinOp BS64 IAnd
+            0x84 -> return $ IBinOp BS64 IOr
+            0x85 -> return $ IBinOp BS64 IXor
+            0x86 -> return $ IBinOp BS64 IShl
+            0x87 -> return $ IBinOp BS64 IShrS
+            0x88 -> return $ IBinOp BS64 IShrU
+            0x89 -> return $ IBinOp BS64 IRotl
+            0x8A -> return $ IBinOp BS64 IRotr
+            0x8B -> return $ FUnOp BS32 FAbs
+            0x8C -> return $ FUnOp BS32 FNeg
+            0x8D -> return $ FUnOp BS32 FCeil
+            0x8E -> return $ FUnOp BS32 FFloor
+            0x8F -> return $ FUnOp BS32 FTrunc
+            0x90 -> return $ FUnOp BS32 FNearest
+            0x91 -> return $ FUnOp BS32 FSqrt
+            0x92 -> return $ FBinOp BS32 FAdd
+            0x93 -> return $ FBinOp BS32 FSub
+            0x94 -> return $ FBinOp BS32 FMul
+            0x95 -> return $ FBinOp BS32 FDiv
+            0x96 -> return $ FBinOp BS32 FMin
+            0x97 -> return $ FBinOp BS32 FMax
+            0x98 -> return $ FBinOp BS32 FCopySign
+            0x99 -> return $ FUnOp BS64 FAbs
+            0x9A -> return $ FUnOp BS64 FNeg
+            0x9B -> return $ FUnOp BS64 FCeil
+            0x9C -> return $ FUnOp BS64 FFloor
+            0x9D -> return $ FUnOp BS64 FTrunc
+            0x9E -> return $ FUnOp BS64 FNearest
+            0x9F -> return $ FUnOp BS64 FSqrt
+            0xA0 -> return $ FBinOp BS64 FAdd
+            0xA1 -> return $ FBinOp BS64 FSub
+            0xA2 -> return $ FBinOp BS64 FMul
+            0xA3 -> return $ FBinOp BS64 FDiv
+            0xA4 -> return $ FBinOp BS64 FMin
+            0xA5 -> return $ FBinOp BS64 FMax
+            0xA6 -> return $ FBinOp BS64 FCopySign
+            0xA7 -> return $ I32WrapI64
+            0xA8 -> return $ ITruncFS BS32 BS32
+            0xA9 -> return $ ITruncFU BS32 BS32
+            0xAA -> return $ ITruncFS BS32 BS64
+            0xAB -> return $ ITruncFU BS32 BS64
+            0xAC -> return $ I64ExtendSI32
+            0xAD -> return $ I64ExtendUI32
+            0xAE -> return $ ITruncFS BS64 BS32
+            0xAF -> return $ ITruncFU BS64 BS32
+            0xB0 -> return $ ITruncFS BS64 BS64
+            0xB1 -> return $ ITruncFU BS64 BS64
+            0xB2 -> return $ FConvertIS BS32 BS32
+            0xB3 -> return $ FConvertIU BS32 BS32
+            0xB4 -> return $ FConvertIS BS32 BS64
+            0xB5 -> return $ FConvertIU BS32 BS64
+            0xB6 -> return $ F32DemoteF64
+            0xB7 -> return $ FConvertIS BS64 BS32
+            0xB8 -> return $ FConvertIU BS64 BS32
+            0xB9 -> return $ FConvertIS BS64 BS64
+            0xBA -> return $ FConvertIU BS64 BS64
+            0xBB -> return $ F64PromoteF32
+            0xBC -> return $ IReinterpretF BS32
+            0xBD -> return $ IReinterpretF BS64
+            0xBE -> return $ FReinterpretI BS32
+            0xBF -> return $ FReinterpretI BS64
+            _ -> fail "Unknown byte value in place of instruction opcode"
 
 putExpression :: Expression -> Put
 putExpression expr = do
@@ -459,6 +661,19 @@ getExpression = go []
             if nextByte == 0x0B -- END OF EXPR
             then getWord8 >> (return $ reverse acc)
             else get >>= \instr -> go (instr : acc)
+
+getTrueBranch :: Get (Expression, Bool)
+getTrueBranch = go []
+    where
+        go :: [Instruction] -> Get (Expression, Bool)
+        go acc = do
+            nextByte <- lookAhead getWord8
+            case nextByte of
+                -- END OF EXPR
+                0x0B -> getWord8 >> (return $ (reverse acc, False))
+                -- ELSE 
+                0x05 -> getWord8 >> (return $ (reverse acc, True))
+                _ -> get >>= \instr -> go (instr : acc)
 
 instance Serialize Global where
     put (Global globalType expr) = do
@@ -531,15 +746,9 @@ instance Serialize DataSegment where
 instance Serialize Module where
     put mod = do
         -- magic
-        putWord8 0x00
-        putWord8 0x61
-        putWord8 0x73
-        putWord8 0x6D
+        mapM_ putWord8 [0x00, 0x61, 0x73, 0x6D]
         -- version
-        putWord8 0x01
-        putWord8 0x00
-        putWord8 0x00
-        putWord8 0x00
+        mapM_ putWord8 [0x01, 0x00, 0x00, 0x00]
 
         putSection TypeSection $ putVec $ types mod
         putSection ImportSection $ putVec $ imports mod
@@ -555,10 +764,44 @@ instance Serialize Module where
         putSection CodeSection $ putVec $ functions mod
         putSection DataSection $ putVec $ datas mod
         
-    get = undefined
+    get = do
+        -- magic
+        mapM_ byteGuard [0x00, 0x61, 0x73, 0x6D]
+        -- version
+        mapM_ byteGuard [0x01, 0x00, 0x00, 0x00]
+        types <- getSection TypeSection getVec []
+        imports <- getSection ImportSection getVec []
+        funcTypes <- getSection FunctionSection getVec []
+        tables <- getSection TableSection getVec []
+        mems <- getSection MemorySection getVec []
+        globals <- getSection GlobalSection getVec []
+        exports <- getSection ExportSection getVec []
+        start <- getSection StartSection (Just . StartFunction <$> getULEB128) Nothing
+        elems <- getSection ElementSection getVec []
+        functions <- getSection CodeSection getVec []
+        datas <- getSection DataSection getVec []
+        return $ emptyModule {
+            types,
+            imports,
+            tables,
+            mems,
+            globals,
+            exports,
+            start,
+            elems,
+            functions = zipWith (\(Index funcType) fun -> fun { funcType }) funcTypes functions,
+            datas
+        }
+
 
 dumpModule :: Module -> BS.ByteString
 dumpModule = encode
 
 dumpModuleLazy :: Module -> LBS.ByteString
 dumpModuleLazy = encodeLazy
+
+decodeModule :: BS.ByteString -> Either String Module
+decodeModule = decode
+
+decodeModuleLazy :: LBS.ByteString -> Either String Module
+decodeModuleLazy = decodeLazy
