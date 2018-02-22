@@ -43,11 +43,15 @@ main = do
     let Right mod' = Binary.decodeModuleLazy $ Binary.dumpModuleLazy mod
     return $ testCase ("Dump module to binary and parse back: " ++ file) $
       assertEqual "Module matched" mod mod'
-  validationTestCases <- (`mapM` (filter (/= "import.wast") files)) $ \file -> do
+  validationTestCases <- (`mapM` files) $ \file -> do
     content <- LBS.readFile $ "tests/samples/" ++ file
     let Right mod = Parser.parseModule <$> Lexer.scanner content
     return $ testCase ("Validate module: " ++ file) $
-      assertBool "Module matched" $ Validate.isValid $ Validate.validate mod
+      case file of
+        "import.wast" ->
+          assertEqual "Too many tables" Validate.MoreThanOneTable $ Validate.validate mod
+        _ ->
+          assertBool "Module matched" $ Validate.isValid $ Validate.validate mod
   defaultMain $ testGroup "tests" [
       testGroup "Syntax parsing" syntaxTestCases,
       testGroup "Binary format" binaryTestCases,

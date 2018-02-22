@@ -2,6 +2,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 
 module Language.Wasm.Validate (
+    ValidationResult(..),
     validate,
     isValid
 ) where
@@ -10,13 +11,22 @@ import Language.Wasm.Structure
 import qualified Data.Set as Set
 import Data.List (foldl')
 import qualified Data.Text.Lazy as TL
+import Data.Maybe (fromMaybe)
+import Data.Monoid ((<>))
 
 data ValidationResult =
     DuplicatedExportNames [String]
+    | InvalidTableType
     | MoreThanOneMemory
     | MoreThanOneTable
     | Valid
     deriving (Show, Eq)
+
+instance Monoid ValidationResult where
+    mempty = Valid
+    mappend Valid vr = vr
+    mappend vr Valid = vr
+    mappend vr _ = vr
 
 isValid :: ValidationResult -> Bool
 isValid Valid = True
@@ -24,13 +34,18 @@ isValid _ = False
 
 type Validator = Module -> ValidationResult
 
-shouldBeAtMostOneTable :: Validator
-shouldBeAtMostOneTable Module { imports, tables } =
-    let memImports = filter isTableImport imports in
-    if length memImports + length tables <= 1
-    then Valid
-    else MoreThanOneTable
+tablesShouldBeValid :: Validator
+tablesShouldBeValid Module { imports, tables } =
+    let tableImports = filter isTableImport imports in
+    let res = foldMap (\Import { desc = ImportTable t } -> isValidTableType t) tableImports in
+    let res' = foldl' (\r (Table t) -> r <> isValidTableType t) res tables in
+    if length tableImports + length tables <= 1
+        then res'
+        else MoreThanOneTable
     where
+        isValidTableType :: TableType -> ValidationResult
+        isValidTableType (TableType (Limit min max) _) = if min <= fromMaybe min max then Valid else InvalidTableType
+
         isTableImport Import { desc = ImportTable _ } = True
         isTableImport _ = False
 
@@ -57,15 +72,11 @@ exportNamesShouldBeDifferent Module { exports } =
             else (Set.insert name set, dup)
 
 validate :: Validator
-validate mod = foldl' go Valid validators
+validate mod = foldMap ($ mod) validators
     where
-        go :: ValidationResult -> Validator -> ValidationResult
-        go Valid validator = validator mod
-        go res _ = res
-
         validators :: [Validator]
         validators = [
-                shouldBeAtMostOneTable,
+                tablesShouldBeValid,
                 shouldBeAtMostOneMemory,
                 exportNamesShouldBeDifferent
             ]
