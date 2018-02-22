@@ -13,6 +13,7 @@ import qualified Language.Wasm.Lexer as Lexer
 import qualified Language.Wasm.Parser as Parser
 import qualified Language.Wasm.Structure as Structure
 import qualified Language.Wasm.Binary as Binary
+import qualified Language.Wasm.Validate as Validate
 
 import qualified Debug.Trace as Debug
 
@@ -42,7 +43,13 @@ main = do
     let Right mod' = Binary.decodeModuleLazy $ Binary.dumpModuleLazy mod
     return $ testCase ("Dump module to binary and parse back: " ++ file) $
       assertEqual "Module matched" mod mod'
+  validationTestCases <- (`mapM` (filter (/= "import.wast") files)) $ \file -> do
+    content <- LBS.readFile $ "tests/samples/" ++ file
+    let Right mod = Parser.parseModule <$> Lexer.scanner content
+    return $ testCase ("Validate module: " ++ file) $
+      assertBool "Module matched" $ Validate.isValid $ Validate.validate mod
   defaultMain $ testGroup "tests" [
       testGroup "Syntax parsing" syntaxTestCases,
-      testGroup "Binary format" binaryTestCases
+      testGroup "Binary format" binaryTestCases,
+      testGroup "Validation" validationTestCases
     ]
