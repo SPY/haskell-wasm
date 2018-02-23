@@ -637,7 +637,7 @@ foldedinstr :: { [Instruction] }
     : '(' foldedinstr1 { $2 }
 
 foldedinstr1 :: { [Instruction] }
-    : plaininstr list(instruction) ')' { concat $2 ++ [PlainInstr $1] }
+    : plaininstr list(foldedinstr) ')' { concat $2 ++ [PlainInstr $1] }
     | 'call_indirect' folded_call_indirect { $2 }
     | 'block' opt(ident) folded_block { [$3 $2] }
     | 'loop' opt(ident) folded_loop { [$3 $2] }
@@ -648,16 +648,16 @@ folded_block :: { Maybe Ident -> Instruction }
     | '(' folded_block1 { $2 }
 
 folded_block1 :: { Maybe Ident -> Instruction }
-    : 'result' valtype ')' list(instruction) ')' { \ident -> BlockInstr ident [$2] (concat $4) }
-    | foldedinstr1 list(instruction) ')' { \ident -> BlockInstr ident [] ($1 ++ concat $2) }
+    : 'result' valtype ')' list(foldedinstr) ')' { \ident -> BlockInstr ident [$2] (concat $4) }
+    | foldedinstr1 list(foldedinstr) ')' { \ident -> BlockInstr ident [] ($1 ++ concat $2) }
 
 folded_loop :: { Maybe Ident -> Instruction }
     : ')' { \ident -> LoopInstr ident [] [] }
     | '(' folded_loop1 { $2 }
 
 folded_loop1 :: { Maybe Ident -> Instruction }
-    : 'result' valtype ')' list(instruction) ')' { \ident -> LoopInstr ident [$2] (concat $4) }
-    | foldedinstr1 list(instruction) ')' { \ident -> LoopInstr ident [] ($1 ++ concat $2) }
+    : 'result' valtype ')' list(foldedinstr) ')' { \ident -> LoopInstr ident [$2] (concat $4) }
+    | foldedinstr1 list(foldedinstr) ')' { \ident -> LoopInstr ident [] ($1 ++ concat $2) }
 
 folded_if_result :: { Maybe Ident -> [Instruction] }
     : 'result' valtype ')' '(' folded_then_else {
@@ -673,11 +673,11 @@ folded_if :: { Maybe Ident -> [Instruction] }
     | foldedinstr1 '(' folded_then_else { \ident -> $1 ++ [IfInstr ident [] (fst $3) (snd $3)] }
 
 folded_then_else :: { ([Instruction], [Instruction]) }
-    : 'then' list(instruction) ')' folded_else { (concat $2, $4)}
+    : 'then' list(foldedinstr) ')' folded_else { (concat $2, $4)}
 
 folded_else :: { [Instruction] }
     : ')' { [] }
-    | '(' 'else' list(instruction) ')' ')' { concat $3 }
+    | '(' 'else' list(foldedinstr) ')' ')' { concat $3 }
 
 folded_call_indirect :: { [Instruction] }
     : ')' { [PlainInstr $ CallIndirect $ AnonimousTypeUse $ FuncType [] []] }
@@ -699,7 +699,7 @@ folded_call_indirect_functype1 :: { (Maybe FuncType, [Instruction]) }
     : paramsresulttypeuse folded_call_indirect_functype {
         (Just $ mergeFuncType $1 $ fromMaybe emptyFuncType $ fst $2, snd $2)
     }
-    | foldedinstr1 list(instruction) ')' { (Nothing, $1 ++ concat $2) }
+    | foldedinstr1 list(foldedinstr) ')' { (Nothing, $1 ++ concat $2) }
 
 importdesc :: { ImportDesc }
     : 'func' opt(ident) typeuse ')' { ImportFunc $2 $3 }
