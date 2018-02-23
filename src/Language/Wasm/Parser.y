@@ -270,7 +270,7 @@ import Debug.Trace as Debug
 'loop'                { Lexeme _ (TKeyword "loop") }
 'if'                  { Lexeme _ (TKeyword "if") }
 'else'                { Lexeme _ (TKeyword "else") }
--- unused now 'end'                 { Lexeme _ (TKeyword "end") }
+'end'                 { Lexeme _ (TKeyword "end") }
 'then'                { Lexeme _ (TKeyword "then") }
 'table'               { Lexeme _ (TKeyword "table") }
 'memory'              { Lexeme _ (TKeyword "memory") }
@@ -574,11 +574,70 @@ memarg4 :: { MemArg }
 memarg8 :: { MemArg }
     : opt(offset) opt(align) { MemArg (fromMaybe 0 $1) (fromMaybe 8 $2) }
 
+instruction :: { [Instruction] }
+    : raw_instr { $1 }
+    | foldedinstr { $1 }
+
+-- TODO: handle call_direct call properly, now it tries to consume ')'
+raw_instr :: { [Instruction] }
+    : plaininstr { [PlainInstr $1] }
+    | 'call_indirect' folded_call_indirect { $2 }
+    | 'block' opt(ident) raw_block { [$3 $2] }
+    | 'loop' opt(ident) raw_loop { [$3 $2] }
+    | 'if' opt(ident) raw_if_result { $3 $2 }
+
+raw_block :: { Maybe Ident -> Instruction }
+    : 'end' opt(ident) { \ident -> BlockInstr ident [] [] }
+    | raw_instr list(instruction) 'end' opt(ident) { \ident -> BlockInstr ident [] ($1 ++ concat $2) }
+    | '(' raw_block1 { $2 }
+
+raw_block1 :: { Maybe Ident -> Instruction }
+    : 'result' valtype ')' list(instruction) 'end' opt(ident) {
+        \ident -> BlockInstr ident [$2] (concat $4)
+    }
+    | foldedinstr1 list(instruction) 'end' opt(ident) {
+        \ident -> BlockInstr ident [] ($1 ++ concat $2)
+    }
+
+raw_loop :: { Maybe Ident -> Instruction }
+    : 'end' opt(ident) { \ident -> LoopInstr ident [] [] }
+    | raw_instr list(instruction) 'end' opt(ident) {
+        \ident -> LoopInstr ident [] ($1 ++ concat $2)
+    }
+    | '(' raw_loop1 { $2 }
+
+raw_loop1 :: { Maybe Ident -> Instruction }
+    : 'result' valtype ')' list(instruction) 'end' opt(ident) {
+        \ident -> LoopInstr ident [$2] (concat $4)
+    }
+    | foldedinstr1 list(instruction) 'end' opt(ident) {
+        \ident -> LoopInstr ident [] ($1 ++ concat $2)
+    }
+
+raw_if_result :: { Maybe Ident -> [Instruction] }
+    : raw_else { \ident ->  [IfInstr ident [] [] $1] }
+    | raw_instr list(instruction) raw_else {
+        \ident ->  [IfInstr ident [] ($1 ++ concat $2) $3]
+    }
+    | '(' raw_if_result1 { $2 }
+
+raw_if_result1 :: { Maybe Ident -> [Instruction] }
+    : 'result' valtype ')' list(instruction) raw_else {
+        \ident -> [IfInstr ident [$2] (concat $4) $5]
+    }
+    | foldedinstr1 list(instruction) raw_else {
+        \ident -> [IfInstr ident [] ($1 ++ concat $2) $3]
+    }
+
+raw_else :: { [Instruction] }
+    : 'end' opt(ident) { [] }
+    | 'else' opt(ident) list(instruction) 'end' opt(ident) { concat $3 }
+
 foldedinstr :: { [Instruction] }
     : '(' foldedinstr1 { $2 }
 
 foldedinstr1 :: { [Instruction] }
-    : plaininstr list(foldedinstr) ')' { concat $2 ++ [PlainInstr $1] }
+    : plaininstr list(instruction) ')' { concat $2 ++ [PlainInstr $1] }
     | 'call_indirect' folded_call_indirect { $2 }
     | 'block' opt(ident) folded_block { [$3 $2] }
     | 'loop' opt(ident) folded_loop { [$3 $2] }
@@ -589,20 +648,24 @@ folded_block :: { Maybe Ident -> Instruction }
     | '(' folded_block1 { $2 }
 
 folded_block1 :: { Maybe Ident -> Instruction }
-    : 'result' valtype ')' list(foldedinstr) ')' { \ident -> BlockInstr ident [$2] (concat $4) }
-    | foldedinstr1 list(foldedinstr) ')' { \ident -> BlockInstr ident [] ($1 ++ concat $2) }
+    : 'result' valtype ')' list(instruction) ')' { \ident -> BlockInstr ident [$2] (concat $4) }
+    | foldedinstr1 list(instruction) ')' { \ident -> BlockInstr ident [] ($1 ++ concat $2) }
 
 folded_loop :: { Maybe Ident -> Instruction }
     : ')' { \ident -> LoopInstr ident [] [] }
     | '(' folded_loop1 { $2 }
 
 folded_loop1 :: { Maybe Ident -> Instruction }
-    : 'result' valtype ')' list(foldedinstr) ')' { \ident -> LoopInstr ident [$2] (concat $4) }
-    | foldedinstr1 list(foldedinstr) ')' { \ident -> LoopInstr ident [] ($1 ++ concat $2) }
+    : 'result' valtype ')' list(instruction) ')' { \ident -> LoopInstr ident [$2] (concat $4) }
+    | foldedinstr1 list(instruction) ')' { \ident -> LoopInstr ident [] ($1 ++ concat $2) }
 
 folded_if_result :: { Maybe Ident -> [Instruction] }
-    : 'result' valtype ')' '(' folded_then_else { \ident -> [IfInstr ident [$2] (fst $5) (snd $5)] }
-    | 'result' valtype ')' '(' foldedinstr1 '(' folded_then_else { \ident -> $5 ++ [IfInstr ident [$2] (fst $7) (snd $7)] }
+    : 'result' valtype ')' '(' folded_then_else {
+        \ident -> [IfInstr ident [$2] (fst $5) (snd $5)]
+    }
+    | 'result' valtype ')' '(' foldedinstr1 '(' folded_then_else {
+        \ident -> $5 ++ [IfInstr ident [$2] (fst $7) (snd $7)]
+    }
     | folded_if { $1 }
 
 folded_if :: { Maybe Ident -> [Instruction] }
@@ -610,11 +673,11 @@ folded_if :: { Maybe Ident -> [Instruction] }
     | foldedinstr1 '(' folded_then_else { \ident -> $1 ++ [IfInstr ident [] (fst $3) (snd $3)] }
 
 folded_then_else :: { ([Instruction], [Instruction]) }
-    : 'then' list(foldedinstr) ')' folded_else { (concat $2, $4)}
+    : 'then' list(instruction) ')' folded_else { (concat $2, $4)}
 
 folded_else :: { [Instruction] }
     : ')' { [] }
-    | '(' 'else' list(foldedinstr) ')' ')' { concat $3 }
+    | '(' 'else' list(instruction) ')' ')' { concat $3 }
 
 folded_call_indirect :: { [Instruction] }
     : ')' { [PlainInstr $ CallIndirect $ AnonimousTypeUse $ FuncType [] []] }
@@ -636,7 +699,7 @@ folded_call_indirect_functype1 :: { (Maybe FuncType, [Instruction]) }
     : paramsresulttypeuse folded_call_indirect_functype {
         (Just $ mergeFuncType $1 $ fromMaybe emptyFuncType $ fst $2, snd $2)
     }
-    | foldedinstr1 list(foldedinstr) ')' { (Nothing, $1 ++ concat $2) }
+    | foldedinstr1 list(instruction) ')' { (Nothing, $1 ++ concat $2) }
 
 importdesc :: { ImportDesc }
     : 'func' opt(ident) typeuse ')' { ImportFunc $2 $3 }
@@ -652,7 +715,10 @@ function :: { [ModuleField] }
     : 'func' opt(ident) export_import_typeuse_locals_body { $3 $2 }
 
 export_import_typeuse_locals_body :: { Maybe Ident -> [ModuleField] }
-    : ')' { \ident -> [MFFunc $ Function ident (AnonimousTypeUse $ FuncType [] []) [] []] }
+    : ')' { \i -> [MFFunc $ emptyFunction { ident = i }] }
+    | raw_instr list(instruction) ')' {
+        \i -> [MFFunc $ emptyFunction { ident = i, body = $1 ++ concat $2 }]
+    }
     | '(' export_import_typeuse_locals_body1 { $2 }
 
 export_import_typeuse_locals_body1 :: { Maybe Ident -> [ModuleField] }
@@ -696,12 +762,13 @@ signature_locals_body1 :: { Function }
 
 locals_body :: { ([LocalType], [Instruction]) }
     : ')' { ([], []) }
+    | raw_instr list(instruction) ')' { ([], $1 ++ concat $2)}
     | '(' locals_body1 { $2 }
 
 locals_body1 :: { ([LocalType], [Instruction]) }
     : 'local' list(valtype) ')' locals_body { (map (LocalType Nothing) $2 ++ fst $4, snd $4) }
     | 'local' ident valtype ')' locals_body { (LocalType (Just $2) $3 : fst $5, snd $5) }
-    | foldedinstr1 list(foldedinstr) ')' { ([], $1 ++ concat $2) }
+    | foldedinstr1 list(instruction) ')' { ([], $1 ++ concat $2) }
 
 -- FUNCTION END --
 
@@ -715,11 +782,11 @@ globaltype :: { GlobalType }
     | '(' 'mut' valtype ')' { Mut $3 }
 
 global_type_export_import :: { Maybe Ident -> [ModuleField] }
-    : valtype list(foldedinstr) ')' { \ident -> [MFGlobal $ Global ident (Const $1) $ concat $2] }
+    : valtype list(instruction) ')' { \ident -> [MFGlobal $ Global ident (Const $1) $ concat $2] }
     | '(' global_mut_export_import { $2 }
 
 global_mut_export_import :: { Maybe Ident -> [ModuleField] }
-    : 'mut' valtype ')' list(foldedinstr) ')' { \ident -> [MFGlobal $ Global ident (Mut $2) $ concat $4] }
+    : 'mut' valtype ')' list(instruction) ')' { \ident -> [MFGlobal $ Global ident (Mut $2) $ concat $4] }
     | 'export' name ')' global_type_export_import {
         \ident -> (MFExport $ Export $2 $ ExportGlobal $ Named `fmap` ident) : ($4 ident)
     }
