@@ -578,7 +578,6 @@ instruction :: { [Instruction] }
     : raw_instr { $1 }
     | foldedinstr { $1 }
 
--- TODO: handle call_direct call properly, now it tries to consume ')'
 raw_instr :: { [Instruction] }
     : plaininstr { [PlainInstr $1] }
     | 'call_indirect' raw_call_indirect { $2 }
@@ -653,7 +652,7 @@ raw_call_indirect_functype1 :: { (Maybe FuncType, [Instruction]) }
     : paramsresulttypeuse raw_call_indirect_functype {
         (Just $ mergeFuncType $1 $ fromMaybe emptyFuncType $ fst $2, snd $2)
     }
-    | foldedinstr1 list(instruction) { (Nothing, $1 ++ concat $2) }
+    | foldedinstr1 { (Nothing, $1) }
 
 foldedinstr :: { [Instruction] }
     : '(' foldedinstr1 { $2 }
