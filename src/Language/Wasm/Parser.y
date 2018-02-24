@@ -581,7 +581,7 @@ instruction :: { [Instruction] }
 -- TODO: handle call_direct call properly, now it tries to consume ')'
 raw_instr :: { [Instruction] }
     : plaininstr { [PlainInstr $1] }
-    | 'call_indirect' folded_call_indirect { $2 }
+    | 'call_indirect' raw_call_indirect { $2 }
     | 'block' opt(ident) raw_block { [$3 $2] }
     | 'loop' opt(ident) raw_loop { [$3 $2] }
     | 'if' opt(ident) raw_if_result { $3 $2 }
@@ -632,6 +632,28 @@ raw_if_result1 :: { Maybe Ident -> [Instruction] }
 raw_else :: { [Instruction] }
     : 'end' opt(ident) { [] }
     | 'else' opt(ident) list(instruction) 'end' opt(ident) { concat $3 }
+
+raw_call_indirect :: { [Instruction] }
+    : '(' raw_call_indirect_typeuse { (PlainInstr $ CallIndirect $ fst $2) : snd $2 }
+    | {- empty -} { [PlainInstr $ CallIndirect $ AnonimousTypeUse $ FuncType [] []] }
+
+raw_call_indirect_typeuse :: { (TypeUse, [Instruction]) }
+    : 'type' typeidx ')' raw_call_indirect_functype {
+        (IndexedTypeUse $2 $ fst $4, snd $4)
+    }
+    | raw_call_indirect_functype1 {
+        (AnonimousTypeUse $ fromMaybe (FuncType [] []) $ fst $1, snd $1)
+    }
+
+raw_call_indirect_functype :: { (Maybe FuncType, [Instruction]) }
+    : '(' raw_call_indirect_functype1 { $2 }
+    | {- empty -} { (Nothing, []) }
+
+raw_call_indirect_functype1 :: { (Maybe FuncType, [Instruction]) }
+    : paramsresulttypeuse raw_call_indirect_functype {
+        (Just $ mergeFuncType $1 $ fromMaybe emptyFuncType $ fst $2, snd $2)
+    }
+    | foldedinstr1 list(instruction) { (Nothing, $1 ++ concat $2) }
 
 foldedinstr :: { [Instruction] }
     : '(' foldedinstr1 { $2 }

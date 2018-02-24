@@ -1,4 +1,5 @@
 (module
+  (type $t (func (param i32) (result i32)))
   (func (export "fac-expr") (param $n i64) (result i64)
     (local $i i64)
     (local $res i64)
