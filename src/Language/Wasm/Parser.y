@@ -649,8 +649,24 @@ raw_call_indirect_functype :: { (Maybe FuncType, [Instruction]) }
     | {- empty -} { (Nothing, []) }
 
 raw_call_indirect_functype1 :: { (Maybe FuncType, [Instruction]) }
-    : paramsresulttypeuse raw_call_indirect_functype {
-        (Just $ mergeFuncType $1 $ fromMaybe emptyFuncType $ fst $2, snd $2)
+    : 'param' list(valtype) ')' raw_call_indirect_functype {
+        let ft = fromMaybe emptyFuncType $ fst $4 in
+        (Just $ ft { params = map (ParamType Nothing) $2 ++ params ft }, snd $4)
+    }
+    | 'param' ident valtype ')' raw_call_indirect_functype {
+        let ft = fromMaybe emptyFuncType $ fst $5 in
+        (Just $ ft { params = (ParamType (Just $2) $3) : params ft }, snd $5)
+    }
+    | raw_call_indirect_return_functype1 { $1 }
+
+raw_call_indirect_return_functype :: { (Maybe FuncType, [Instruction]) }
+    : '(' raw_call_indirect_return_functype1 { $2 }
+    | {- empty -} { (Nothing, []) }
+
+raw_call_indirect_return_functype1 :: { (Maybe FuncType, [Instruction]) }
+    : 'result' list(valtype) ')' raw_call_indirect_return_functype {
+        let ft = fromMaybe emptyFuncType $ fst $4 in
+        (Just $ ft { results = $2 ++ results ft }, snd $4)
     }
     | foldedinstr1 { (Nothing, $1) }
 
