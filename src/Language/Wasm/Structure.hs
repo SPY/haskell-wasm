@@ -30,6 +30,9 @@ module Language.Wasm.Structure (
     ValueType(..),
     ResultType,
     Expression,
+    LabelIndex,
+    LocalIndex,
+    GlobalIndex,
     emptyModule
 ) where
 
