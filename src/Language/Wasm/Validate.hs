@@ -389,7 +389,7 @@ isFunctionValid Function {funcType, locals, body} mod@Module {types} =
     let ctx = ctxFromModule (params ++ locals) [r] r mod in
     case runChecker ctx $ getExpressionType body of
         Left err -> err
-        Right arr -> if arr == (empty ==> results) then Valid else TypeMismatch
+        Right arr -> if arr == (empty ==> results) || arr == (Any ==> Any) then Valid else TypeMismatch
 
 functionsShouldBeValid :: Validator
 functionsShouldBeValid mod@Module {functions} =

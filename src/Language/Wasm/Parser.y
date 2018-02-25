@@ -296,13 +296,6 @@ EOF                   { Lexeme _ EOF }
 
 %%
 
-functype :: { FuncType }
-    : '(' 'func' params_results { $3 }
-
-params_results :: { FuncType }
-    : ')' { FuncType [] [] }
-    | '(' paramsresultstypeuse ')' { $2 }
-
 name :: { TL.Text }
     : string { $1 }
 
@@ -538,9 +531,6 @@ plaininstr :: { PlainInstr }
     | 'f32.reinterpret/i32'          { FReinterpretI BS32 }
     | 'f64.reinterpret/i64'          { FReinterpretI BS64 }
 
-typedef :: { TypeDef }
-    : 'type' opt(ident) functype ')' { TypeDef $2 $3 }
-
 typeuse :: { TypeUse }
     : '(' typeuse1 { $2 }
     | {- empty -} { AnonimousTypeUse $ FuncType [] [] }
@@ -552,6 +542,28 @@ typeuse1 :: { TypeUse }
 typedtypeuse :: { Maybe FuncType }
     : '(' paramsresultstypeuse { Just $2 }
     | {- empty -} { Nothing }
+
+typedef :: { TypeDef }
+    : 'type' opt(ident) functype ')' { TypeDef $2 $3 }
+
+functype :: { FuncType }
+    : '(' 'func' params_results { $3 }
+
+params_results :: { FuncType }
+    : ')' { emptyFuncType }
+    | '(' params_results1 { $2 }
+
+params_results1 :: { FuncType }
+    : 'param' list(valtype) ')' params_results { mergeFuncType (FuncType (map (ParamType Nothing) $2) []) $4 }
+    | 'param' ident valtype ')' params_results { mergeFuncType (FuncType [ParamType (Just $2) $3] []) $5 }
+    | results1 { $1 }
+
+results :: { FuncType }
+    : ')' { emptyFuncType }
+    | '(' results1 { $2 }
+
+results1 :: { FuncType }
+    : 'result' list(valtype) ')' results { mergeFuncType (FuncType [] $2) $4 }
 
 paramsresultstypeuse :: { FuncType }
     : paramsresultstypeuse '(' paramsresulttypeuse { mergeFuncType $1 $3 }

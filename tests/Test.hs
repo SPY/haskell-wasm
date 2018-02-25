@@ -31,7 +31,7 @@ compile file = do
 main :: IO ()
 main = do
   files <- Directory.listDirectory "tests/samples"
-  -- let files = ["endianess.wast"]
+  -- let files = ["func.wast"]
   -- compile "fact.wast"
   syntaxTestCases <- (`mapM` files) $ \file -> do
     content <- LBS.readFile $ "tests/samples/" ++ file
