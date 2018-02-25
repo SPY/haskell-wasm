@@ -6,6 +6,8 @@
     ).then(results => {
         console.log('result', results)
         const fact = results.instance.exports['fac-iter-named-32']
+        const factRec = results.instance.exports['fac-rec-named-32']
         console.log(fact, fact(5))
+        console.log(factRec, factRec(5))
     });
 </script>

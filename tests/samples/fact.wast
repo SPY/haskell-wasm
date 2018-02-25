@@ -22,6 +22,19 @@
     )
   )
 
+  ;; Recursive factorial named
+  (func $fac-rec-named-32 (export "fac-rec-named-32") (param $n i32) (result i32)
+    (if (result i32) (i32.eq (get_local $n) (i32.const 0))
+      (then (i32.const 1))
+      (else
+        (i32.mul
+          (get_local $n)
+          (call $fac-rec-named-32 (i32.sub (get_local $n) (i32.const 1)))
+        )
+      )
+    )
+  )
+
   ;; Iterative factorial
   (func (export "fac-iter") (param i64) (result i64)
     (local i64 i64)
