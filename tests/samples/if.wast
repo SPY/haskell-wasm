@@ -24,7 +24,7 @@
       (else (call $dummy) (call $dummy) (i32.const 9))
     )
   )
-(;
+
   (func (export "nested") (param i32 i32) (result i32)
     (if (result i32) (get_local 0)
       (then
@@ -128,5 +128,4 @@
     )
     (get_local 1)
   )
-  ;)
 )

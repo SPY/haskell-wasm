@@ -332,7 +332,7 @@ unify :: Arrow -> Arrow -> Checker Arrow
 unify (f `Arrow` []) (f' `Arrow` t') =
     return $ (reverse f' ++ f) `Arrow` t'
 unify (f `Arrow` t) ([] `Arrow` t') =
-    return $ f `Arrow` (t' ++ t)
+    return $ f `Arrow` (reverse t ++ t')
 unify (f `Arrow` (Val v':t)) ((Val v:f') `Arrow` t') =
     if v == v'
     then unify (f `Arrow` t) (f' `Arrow` t')
@@ -352,7 +352,7 @@ unify (f `Arrow` _) ((Any:_) `Arrow` t') =
     return $ f `Arrow` t'
 
 unify' :: Arrow -> Arrow -> Checker Arrow
-unify' (f `Arrow` t) (f' `Arrow` t') = unify (reverse f `Arrow` reverse t) (reverse f' `Arrow` reverse t')
+unify' (f `Arrow` t) (f' `Arrow` t') = unify (f `Arrow` reverse t) (reverse f' `Arrow` t')
 
 getExpressionType :: [Instruction] -> Checker Arrow
 getExpressionType instrs =
