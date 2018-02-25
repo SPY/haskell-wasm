@@ -1313,7 +1313,7 @@ desugarize fields =
         extract extractor = reverse . foldl' extractor []
 
         findWithIndex :: (a -> Bool) -> [a] -> Maybe (a, Int)
-        findWithIndex pred l = find (pred . fst) $ zip l [1..]
+        findWithIndex pred l = find (pred . fst) $ zip l [0..]
 
         -- types
         synTypeDefToStruct :: TypeDef -> S.FuncType
