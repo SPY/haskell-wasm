@@ -10,7 +10,7 @@ module Language.Wasm.Validate (
 
 import Language.Wasm.Structure
 import qualified Data.Set as Set
-import Data.List (foldl')
+import Data.List (foldl', isPrefixOf)
 import qualified Data.Text.Lazy as TL
 import Data.Maybe (fromMaybe, maybeToList)
 import Data.Monoid ((<>))
@@ -81,6 +81,24 @@ data Arrow = Arrow End End deriving (Show, Eq)
 asArrow :: FuncType -> Arrow
 asArrow (FuncType params results) = Arrow (map Val params) (map Val results)
 
+isArrowMatch :: Arrow -> Arrow -> Bool
+isArrowMatch (f `Arrow` t) ( f' `Arrow` t') = isEndMatch f f' && isEndMatch t t'
+    where
+        isEndMatch :: End -> End -> Bool
+        isEndMatch (Any:l) (Any:r) =
+            let leftTail = takeWhile (/= Any) $ reverse l in
+            let rightTail = takeWhile (/= Any) $ reverse r in
+            leftTail `isPrefixOf` rightTail || rightTail `isPrefixOf` leftTail
+        isEndMatch (Any:l) r =
+            let leftTail = takeWhile (/= Any) $ reverse l in
+            let rightTail = takeWhile (/= Any) $ reverse r in
+            leftTail `isPrefixOf` rightTail || rightTail `isPrefixOf` leftTail
+        isEndMatch l (Any:r) =
+            let leftTail = takeWhile (/= Any) $ reverse l in
+            let rightTail = takeWhile (/= Any) $ reverse r in
+            leftTail `isPrefixOf` rightTail || rightTail `isPrefixOf` leftTail
+        isEndMatch l r = l == r
+
 data Ctx = Ctx {
     types :: [FuncType],
     funcs :: [FuncType],
@@ -136,20 +154,20 @@ getInstrType Nop = return $ empty ==> empty
 getInstrType Block { result, body } = do
     let blockType = empty ==> result
     t <- withLabel result $ getExpressionType body
-    if t == blockType
+    if isArrowMatch t blockType
     then return $ empty ==> result
-    else throwError TypeMismatch
+    else Debug.trace ("block err " ++ show  t ++ " - " ++ show blockType) $throwError TypeMismatch
 getInstrType Loop { result, body } = do
     let blockType = empty ==> result
     t <- withLabel result $ getExpressionType body
-    if t == blockType
+    if isArrowMatch t blockType
     then return $ empty ==> result
     else throwError TypeMismatch
 getInstrType If { result, true, false } = do
     let blockType = empty ==> result
     l <- withLabel result $ getExpressionType true
     r <- withLabel result $ getExpressionType false
-    if l == blockType && r == blockType
+    if isArrowMatch l blockType && isArrowMatch r blockType
     then return $ I32 ==> result
     else throwError TypeMismatch
 getInstrType (Br lbl) = do
@@ -329,30 +347,30 @@ replace _ _ [] = []
 replace x y (v:r) = (if x == v then y else v) : replace x y r
 
 unify :: Arrow -> Arrow -> Checker Arrow
-unify (f `Arrow` []) (f' `Arrow` t') =
-    return $ (reverse f' ++ f) `Arrow` t'
-unify (f `Arrow` t) ([] `Arrow` t') =
-    return $ f `Arrow` (reverse t ++ t')
-unify (f `Arrow` (Val v':t)) ((Val v:f') `Arrow` t') =
-    if v == v'
-    then unify (f `Arrow` t) (f' `Arrow` t')
-    else Debug.trace ("type err " ++ show  v' ++ " - " ++ show v) $ throwError TypeMismatch
-unify (f `Arrow` (Var r:t)) ((Val v:f') `Arrow` t') =
-    let subst = replace (Var r) (Val v) in
-    unify (subst f `Arrow` subst t) (f' `Arrow` t')
-unify (f `Arrow` (Val v:t)) ((Var r:f') `Arrow` t') =
-    let subst = replace (Var r) (Val v) in
-    unify (f `Arrow` t) (subst f' `Arrow` subst t')
-unify (f `Arrow` (Var r:t)) ((Var r':f') `Arrow` t') =
-    let subst = replace (Var r') (Var r) in
-    unify (f `Arrow` t) (subst f' `Arrow` subst t')
-unify (f `Arrow` (Any:_)) (_ `Arrow` t') =
-    return $ f `Arrow` t'
-unify (f `Arrow` _) ((Any:_) `Arrow` t') =
-    return $ f `Arrow` t'
-
-unify' :: Arrow -> Arrow -> Checker Arrow
-unify' (f `Arrow` t) (f' `Arrow` t') = unify (f `Arrow` reverse t) (reverse f' `Arrow` t')
+unify (f `Arrow` t) (f' `Arrow` t') = unify' (f `Arrow` reverse t) (reverse f' `Arrow` t')
+    where
+        unify' :: Arrow -> Arrow -> Checker Arrow
+        unify' (f `Arrow` []) (f' `Arrow` t') =
+            return $ (reverse f' ++ f) `Arrow` t'
+        unify' (f `Arrow` t) ([] `Arrow` t') =
+            return $ f `Arrow` (reverse t ++ t')
+        unify' (f `Arrow` (Val v':t)) ((Val v:f') `Arrow` t') =
+            if v == v'
+            then unify' (f `Arrow` t) (f' `Arrow` t')
+            else Debug.trace ("type err " ++ show  v' ++ " - " ++ show v) $ throwError TypeMismatch
+        unify' (f `Arrow` (Var r:t)) ((Val v:f') `Arrow` t') =
+            let subst = replace (Var r) (Val v) in
+            unify' (subst f `Arrow` subst t) (f' `Arrow` t')
+        unify' (f `Arrow` (Val v:t)) ((Var r:f') `Arrow` t') =
+            let subst = replace (Var r) (Val v) in
+            unify' (f `Arrow` t) (subst f' `Arrow` subst t')
+        unify' (f `Arrow` (Var r:t)) ((Var r':f') `Arrow` t') =
+            let subst = replace (Var r') (Var r) in
+            unify' (f `Arrow` t) (subst f' `Arrow` subst t')
+        unify' (f `Arrow` (Any:_)) (_ `Arrow` t') =
+            return $ f `Arrow` t'
+        unify' (f `Arrow` _) ((Any:_) `Arrow` t') =
+            return $ f `Arrow` t'
 
 getExpressionType :: [Instruction] -> Checker Arrow
 getExpressionType instrs =
@@ -366,7 +384,7 @@ getExpressionType instrs =
         go arr [] = return arr
         go arr (i:rest) = do
             a <- getInstrType i
-            arr' <- unify' a arr
+            arr' <- unify a arr
             go arr' rest
 
 ctxFromModule :: [ValueType] -> [Maybe ValueType] -> Maybe ValueType -> Module -> Ctx
@@ -389,7 +407,10 @@ isFunctionValid Function {funcType, locals, body} mod@Module {types} =
     let ctx = ctxFromModule (params ++ locals) [r] r mod in
     case runChecker ctx $ getExpressionType body of
         Left err -> err
-        Right arr -> if arr == (empty ==> results) || arr == (Any ==> Any) then Valid else TypeMismatch
+        Right arr ->
+            if isArrowMatch arr (empty ==> results)
+            then Valid
+            else Debug.trace ("fun err " ++ show  arr ++ " - " ++ show (empty ==> results)) $ TypeMismatch
 
 functionsShouldBeValid :: Validator
 functionsShouldBeValid mod@Module {functions} =
