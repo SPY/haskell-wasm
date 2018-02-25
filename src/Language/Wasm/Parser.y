@@ -790,12 +790,19 @@ signature_locals_body1 :: { Function }
     | 'param' ident valtype ')' signature_locals_body {
         prependFuncParams [ParamType (Just $2) $3] $5
     }
-    | 'result' list(valtype) ')' locals_body {
-        prependFuncResults $2 $ emptyFunction { locals = fst $4, body = snd $4 }
+    | result_locals_body1 { $1 }
+
+result_locals_body :: { Function }
+    : ')' { emptyFunction }
+    | '(' result_locals_body1 { $2 }
+
+result_locals_body1 :: { Function }
+    : 'result' list(valtype) ')' result_locals_body {
+        prependFuncResults $2 $4
     }
     | locals_body1 {
         emptyFunction { locals = fst $1, body = snd $1 }
-    } 
+    }
 
 locals_body :: { ([LocalType], [Instruction]) }
     : ')' { ([], []) }

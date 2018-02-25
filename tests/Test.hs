@@ -31,7 +31,8 @@ compile file = do
 main :: IO ()
 main = do
   files <- Directory.listDirectory "tests/samples"
-  compile "fact.wast"
+  -- let files = ["endianess.wast"]
+  -- compile "fact.wast"
   syntaxTestCases <- (`mapM` files) $ \file -> do
     content <- LBS.readFile $ "tests/samples/" ++ file
     let result = Parser.parseModule <$> Lexer.scanner content

@@ -20,6 +20,8 @@ import Control.Monad.State.Lazy (StateT, evalStateT, get, put)
 import Control.Monad.Reader (ReaderT, runReaderT, withReaderT, ask)
 import Control.Monad.Except (Except, runExcept, throwError)
 
+import Debug.Trace as Debug
+
 data ValidationResult =
     DuplicatedExportNames [String]
     | InvalidTableType
@@ -328,13 +330,13 @@ replace x y (v:r) = (if x == v then y else v) : replace x y r
 
 unify :: Arrow -> Arrow -> Checker Arrow
 unify (f `Arrow` []) (f' `Arrow` t') =
-    return $ (f ++ f') `Arrow` t'
+    return $ (reverse f' ++ f) `Arrow` t'
 unify (f `Arrow` t) ([] `Arrow` t') =
     return $ f `Arrow` (t' ++ t)
 unify (f `Arrow` (Val v':t)) ((Val v:f') `Arrow` t') =
     if v == v'
     then unify (f `Arrow` t) (f' `Arrow` t')
-    else throwError TypeMismatch
+    else Debug.trace ("type err " ++ show  v' ++ " - " ++ show v) $ throwError TypeMismatch
 unify (f `Arrow` (Var r:t)) ((Val v:f') `Arrow` t') =
     let subst = replace (Var r) (Val v) in
     unify (subst f `Arrow` subst t) (f' `Arrow` t')
@@ -344,11 +346,12 @@ unify (f `Arrow` (Val v:t)) ((Var r:f') `Arrow` t') =
 unify (f `Arrow` (Var r:t)) ((Var r':f') `Arrow` t') =
     let subst = replace (Var r') (Var r) in
     unify (f `Arrow` t) (subst f' `Arrow` subst t')
-unify (f `Arrow` (Any:t)) (f' `Arrow` t') =
+unify (f `Arrow` (Any:_)) (_ `Arrow` t') =
     return $ f `Arrow` t'
-unify (f `Arrow` t) ((Any:f') `Arrow` t') =
+unify (f `Arrow` _) ((Any:_) `Arrow` t') =
     return $ f `Arrow` t'
 
+unify' :: Arrow -> Arrow -> Checker Arrow
 unify' (f `Arrow` t) (f' `Arrow` t') = unify (reverse f `Arrow` reverse t) (reverse f' `Arrow` reverse t')
 
 getExpressionType :: [Instruction] -> Checker Arrow
@@ -381,12 +384,12 @@ ctxFromModule locals labels returns Module {types, functions, tables, mems, glob
 
 isFunctionValid :: Function -> Validator
 isFunctionValid Function {funcType, locals, body} mod@Module {types} =
-    let ft@(FuncType params results) = types !! fromIntegral funcType in
+    let FuncType params results = types !! fromIntegral funcType in
     let r = safeHead results in
     let ctx = ctxFromModule (params ++ locals) [r] r mod in
     case runChecker ctx $ getExpressionType body of
         Left err -> err
-        Right arr -> if arr == asArrow ft then Valid else TypeMismatch
+        Right arr -> if arr == (empty ==> results) then Valid else TypeMismatch
 
 functionsShouldBeValid :: Validator
 functionsShouldBeValid mod@Module {functions} =
