@@ -12,7 +12,7 @@ import Language.Wasm.Structure
 import qualified Data.Set as Set
 import Data.List (foldl')
 import qualified Data.Text.Lazy as TL
-import Data.Maybe (fromMaybe, maybeToList, catMaybes)
+import Data.Maybe (fromMaybe, maybeToList, catMaybes, isNothing)
 import Data.Monoid ((<>))
 import Numeric.Natural (Natural)
 
@@ -43,7 +43,7 @@ instance Monoid ValidationResult where
 
 isValid :: ValidationResult -> Bool
 isValid Valid = True
-isValid _ = False
+isValid reason = Debug.trace ("Module mismatched with reason " ++ show reason) $ False
 
 type Validator = Module -> ValidationResult
 
@@ -161,7 +161,7 @@ getInstrType Block { result, body } = do
     t <- withLabel result $ getExpressionType body
     if isArrowMatch t blockType
     then return $ empty ==> result
-    else Debug.trace ("block err " ++ show  t ++ " - " ++ show blockType) $throwError TypeMismatch
+    else throwError TypeMismatch
 getInstrType Loop { result, body } = do
     let blockType = empty ==> result
     t <- withLabel result $ getExpressionType body
@@ -184,7 +184,9 @@ getInstrType (BrIf lbl) = do
 getInstrType (BrTable lbls lbl) = do
     r <- getLabel lbl
     rs <- mapM getLabel lbls
-    if all (== r) rs
+    -- this check for equality doesn't match the spec,
+    -- but a reference compiler does the same
+    if all (\r' -> r' == r || isNothing r' || isNothing r) rs
     then return $ ([Any] ++ (map Val $ maybeToList r) ++ [Val I32]) ==> Any
     else throwError ResultTypeDoesntMatch
 getInstrType Return = do
@@ -375,7 +377,7 @@ unify (f `Arrow` t) (f' `Arrow` t') = unify' (f `Arrow` reverse t) (reverse f' `
         unify' (f `Arrow` (Any:_)) (_ `Arrow` t') =
             return $ f `Arrow` (Any : t')
         unify' (f `Arrow` _) (f'@(Any:_) `Arrow` t') =
-            return $ (f ++ (reverse f')) `Arrow` t'
+            return $ (f' ++ f) `Arrow` t'
 
 getExpressionType :: [Instruction] -> Checker Arrow
 getExpressionType instrs =
