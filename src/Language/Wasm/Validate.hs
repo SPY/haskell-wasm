@@ -364,7 +364,7 @@ unify (f `Arrow` t) (f' `Arrow` t') = unify' (f `Arrow` reverse t) (reverse f' `
         unify' (f `Arrow` (Val v':t)) ((Val v:f') `Arrow` t') =
             if v == v'
             then unify' (f `Arrow` t) (f' `Arrow` t')
-            else Debug.trace ("type err " ++ show  v' ++ " - " ++ show v) $ throwError TypeMismatch
+            else throwError TypeMismatch
         unify' (f `Arrow` (Var r:t)) ((Val v:f') `Arrow` t') =
             let subst = replace (Var r) (Val v) in
             unify' (subst f `Arrow` subst t) (f' `Arrow` t')
@@ -433,7 +433,7 @@ isFunctionValid Function {funcType, locals, body} mod@Module {types} =
         Right arr ->
             if isArrowMatch arr (empty ==> results)
             then Valid
-            else Debug.trace ("fun err " ++ show  arr ++ " - " ++ show (empty ==> results)) $ TypeMismatch
+            else TypeMismatch
 
 functionsShouldBeValid :: Validator
 functionsShouldBeValid mod@Module {functions} =

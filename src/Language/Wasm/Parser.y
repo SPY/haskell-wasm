@@ -730,7 +730,7 @@ folded_else :: { [Instruction] }
 
 folded_call_indirect :: { [Instruction] }
     : ')' { [PlainInstr $ CallIndirect $ AnonimousTypeUse $ FuncType [] []] }
-    | '(' folded_call_indirect_typeuse { (PlainInstr $ CallIndirect $ fst $2) : snd $2 }
+    | '(' folded_call_indirect_typeuse { snd $2 ++ [PlainInstr $ CallIndirect $ fst $2] }
 
 folded_call_indirect_typeuse :: { (TypeUse, [Instruction]) }
     : 'type' typeidx ')' folded_call_indirect_functype {
