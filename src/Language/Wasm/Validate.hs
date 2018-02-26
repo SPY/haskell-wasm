@@ -25,6 +25,7 @@ import Debug.Trace as Debug
 data ValidationResult =
     DuplicatedExportNames [String]
     | InvalidTableType
+    | InvalidMemoryLimit
     | MoreThanOneMemory
     | MoreThanOneTable
     | IndexOutOfRange
@@ -32,6 +33,8 @@ data ValidationResult =
     | NoTableInModule
     | NoMemoryInModule
     | TypeMismatch
+    | InvalidConstantExpr
+    | InvalidStartFunctionType
     | Valid
     deriving (Show, Eq)
 
@@ -354,7 +357,8 @@ replace _ _ [] = []
 replace x y (v:r) = (if x == v then y else v) : replace x y r
 
 unify :: Arrow -> Arrow -> Checker Arrow
-unify (f `Arrow` t) (f' `Arrow` t') = unify' (f `Arrow` reverse t) (reverse f' `Arrow` t')
+unify (from `Arrow` to) (from' `Arrow` to') =
+    unify' (from `Arrow` reverse to) (reverse from' `Arrow` to')
     where
         unify' :: Arrow -> Arrow -> Checker Arrow
         unify' (f `Arrow` []) (f' `Arrow` t') =
@@ -394,15 +398,35 @@ getExpressionType instrs =
             arr' <- unify a arr
             go arr' rest
 
-ctxFromModule :: [ValueType] -> [Maybe ValueType] -> Maybe ValueType -> Module -> Ctx
-ctxFromModule locals labels returns Module {types, functions, tables, mems, globals, imports} =
+isConstExpression :: [Instruction] -> Checker ()
+isConstExpression [] = return ()
+isConstExpression ((I32Const _):rest) = isConstExpression rest
+isConstExpression ((I64Const _):rest) = isConstExpression rest
+isConstExpression ((F32Const _):rest) = isConstExpression rest
+isConstExpression ((F64Const _):rest) = isConstExpression rest
+isConstExpression ((GetGlobal idx):rest) = do
+    Ctx {globals} <- ask
+    case globals !! fromIntegral idx of
+        Const _ -> isConstExpression rest
+        Mut _ -> throwError InvalidConstantExpr
+isConstExpression _ = throwError InvalidConstantExpr
+
+getFuncTypes :: Module -> [FuncType]
+getFuncTypes Module {types, functions, imports} =
     let funImports = catMaybes $ map getFuncType imports in
+    funImports ++ map ((types !!) . fromIntegral . funcType) functions
+    where
+        getFuncType (Import _ _ (ImportFunc typeIdx)) = Just $ types !! (fromIntegral typeIdx)
+        getFuncType _ = Nothing
+
+ctxFromModule :: [ValueType] -> [Maybe ValueType] -> Maybe ValueType -> Module -> Ctx
+ctxFromModule locals labels returns m@Module {types, functions, tables, mems, globals, imports} =
     let tableImports = catMaybes $ map getTableType imports in
     let memsImports = catMaybes $ map getMemType imports in
     let globalImports = catMaybes $ map getGlobalType imports in
     Ctx {
         types,
-        funcs = funImports ++ map ((types !!) . fromIntegral . funcType) functions,
+        funcs = getFuncTypes m,
         tables = tableImports ++ map (\(Table t) -> t) tables,
         mems = memsImports ++ map (\(Memory l) -> l) mems,
         globals = globalImports ++ map (\(Global g _) -> g) globals,
@@ -411,9 +435,6 @@ ctxFromModule locals labels returns Module {types, functions, tables, mems, glob
         returns
     }
     where
-        getFuncType (Import _ _ (ImportFunc typeIdx)) = Just $ types !! (fromIntegral typeIdx)
-        getFuncType _ = Nothing
-
         getTableType (Import _ _ (ImportTable tableType)) = Just tableType
         getTableType _ = Nothing
 
@@ -449,20 +470,106 @@ tablesShouldBeValid Module { imports, tables } =
         else MoreThanOneTable
     where
         isValidTableType :: TableType -> ValidationResult
-        isValidTableType (TableType (Limit min max) _) = if min <= fromMaybe min max then Valid else InvalidTableType
+        isValidTableType (TableType (Limit min max) _) =
+            if min <= fromMaybe min max
+            then Valid
+            else InvalidTableType
 
-        isTableImport Import { desc = ImportTable _ } = True
-        isTableImport _ = False
+isTableImport :: Import -> Bool
+isTableImport Import { desc = ImportTable _ } = True
+isTableImport _ = False
 
-shouldBeAtMostOneMemory :: Validator
-shouldBeAtMostOneMemory Module { imports, mems } =
+memoryShouldBeValid :: Validator
+memoryShouldBeValid Module { imports, mems } =
     let memImports = filter isMemImport imports in
+    let res = foldMap (\Import { desc = ImportMemory l } -> isValidLimit l) memImports in
+    let res' = foldl' (\r (Memory l) -> r <> isValidLimit l) res mems in
     if length memImports + length mems <= 1
-    then Valid
-    else MoreThanOneMemory
+        then res'
+        else MoreThanOneMemory
     where
-        isMemImport Import { desc = ImportMemory _ } = True
-        isMemImport _ = False
+        isValidLimit :: Limit -> ValidationResult
+        isValidLimit (Limit min max) = if min <= fromMaybe min max then Valid else InvalidMemoryLimit
+
+isMemImport :: Import -> Bool
+isMemImport Import { desc = ImportMemory _ } = True
+isMemImport _ = False
+
+globalsShouldBeValid :: Validator
+globalsShouldBeValid m@Module { imports, globals } =
+    let ctx = ctxFromModule [] [] Nothing m in
+    foldMap (isGlobalValid ctx) globals
+    where
+        getGlobalType :: GlobalType -> ValueType
+        getGlobalType (Const vt) = vt
+        getGlobalType (Mut vt) = vt
+
+        isGlobalValid :: Ctx -> Global -> ValidationResult
+        isGlobalValid ctx (Global gt init) =
+            let check = runChecker ctx $ do
+                    isConstExpression init
+                    t <- getExpressionType init
+                    return $ isArrowMatch (empty ==> getGlobalType gt) t
+            in
+            case check of
+                Left err -> err
+                Right eq -> if eq then Valid else TypeMismatch
+
+elemsShouldBeValid :: Validator
+elemsShouldBeValid m@Module { elems, functions, tables, imports } =
+    let ctx = ctxFromModule [] [] Nothing m in
+    foldMap (isElemValid ctx) elems
+    where
+        isElemValid :: Ctx -> ElemSegment -> ValidationResult
+        isElemValid ctx (ElemSegment tableIdx offset funs) =
+            let check = runChecker ctx $ do
+                    isConstExpression offset
+                    t <- getExpressionType offset
+                    return $ isArrowMatch (empty ==> I32) t
+            in
+            let isIniterValid = case check of
+                    Left err -> err
+                    Right eq -> if eq then Valid else TypeMismatch
+            in
+            let tableImports = filter isTableImport imports in
+            let isTableIndexValid =
+                    if tableIdx < (fromIntegral $ length tableImports + length tables)
+                    then Valid
+                    else IndexOutOfRange
+            in
+            let funsLength = fromIntegral $ length functions in
+            let isFunsValid = foldMap (\i -> if i < funsLength then Valid else IndexOutOfRange) funs in
+            isIniterValid <> isFunsValid <> isTableIndexValid
+
+datasShouldBeValid :: Validator
+datasShouldBeValid m@Module { datas, mems, imports } =
+    let ctx = ctxFromModule [] [] Nothing m in
+    foldMap (isDataValid ctx) datas
+    where
+        isDataValid :: Ctx -> DataSegment -> ValidationResult
+        isDataValid ctx (DataSegment memIdx offset _) =
+            let check = runChecker ctx $ do
+                    isConstExpression offset
+                    t <- getExpressionType offset
+                    return $ isArrowMatch (empty ==> I32) t
+            in
+            let isOffsetValid = case check of
+                    Left err -> err
+                    Right eq -> if eq then Valid else TypeMismatch
+            in
+            let memImports = filter isMemImport imports in
+            if memIdx < (fromIntegral $ length memImports + length mems)
+            then isOffsetValid
+            else IndexOutOfRange
+
+startShouldBeValid :: Validator
+startShouldBeValid Module { start = Nothing } = Valid
+startShouldBeValid m@Module { start = Just (StartFunction idx) } =
+    let types = getFuncTypes m in
+    let i = fromIntegral idx in
+    if length types > i
+    then if FuncType [] [] == types !! i then Valid else InvalidStartFunctionType
+    else IndexOutOfRange
 
 exportNamesShouldBeDifferent :: Validator
 exportNamesShouldBeDifferent Module { exports } =
@@ -481,8 +588,12 @@ validate mod = foldMap ($ mod) validators
     where
         validators :: [Validator]
         validators = [
+                functionsShouldBeValid,
                 tablesShouldBeValid,
-                shouldBeAtMostOneMemory,
-                exportNamesShouldBeDifferent,
-                functionsShouldBeValid
+                memoryShouldBeValid,
+                globalsShouldBeValid,
+                elemsShouldBeValid,
+                datasShouldBeValid,
+                startShouldBeValid,
+                exportNamesShouldBeDifferent
             ]
