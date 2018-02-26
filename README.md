@@ -10,9 +10,9 @@
   * [x] Parser: parses all examples from WebAssembly Core TestsSuit (including folded instructions parsing)
   * [x] Renaming Phase: substitute identifiers with correct indexes, expand all implicit type declarations)
   * [x] Binary format parser/serializer
+  * [x] Verification Phase: execute a verification procedure from the Spec
 
 ## Todo
   * [ ] Improve error messages for text representation parsing
-  * [ ] Verification Phase: execute a verification procedure from the Spec
   * [ ] Text Representation pretty-printer
   * [ ] Execution Phase: implement a simple interpreter for running WebAssembly Core TestsSuit assertions
