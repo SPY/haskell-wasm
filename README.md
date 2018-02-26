@@ -1,18 +1,18 @@
 # Haskell WebAssembly Toolkit
 
 ## Goals
-  * Provide tool WebAssembly code generation for Haskell
-  * Create infrastructure for Cmm to WebAssembly code generator
+  * Provide a WebAssembly code generation tool for Haskell
+  * Create an infrastructure for Cmm to WebAssembly code generator
   * Have Fun :)
 
 ## Status
-  * Lexer: supports nested block comments and all lexemes from Spec
-  * Parser: parses all examples from WebAssembly Core TestsSuit(including folded instructions parsing)
-  * Renaming Phase: substitute identifiers with correct indexes, expand all implicit type declarations)
-  * Binary format parser/serializer
+  * [x] Lexer: supports nested block comments and all lexemes from the WebAssembly Spec
+  * [x] Parser: parses all examples from WebAssembly Core TestsSuit (including folded instructions parsing)
+  * [x] Renaming Phase: substitute identifiers with correct indexes, expand all implicit type declarations)
+  * [x] Binary format parser/serializer
 
-## ToDo
-  * Improve error messages for text representation parsing
-  * Verification Phase: execute verification procedure from Spec
-  * Text Representation pretty-printer
-  * Execution Phase: implement simple interpreter for running WebAssembly Core TestsSuit assertions
+## Todo
+  * [ ] Improve error messages for text representation parsing
+  * [ ] Verification Phase: execute a verification procedure from the Spec
+  * [ ] Text Representation pretty-printer
+  * [ ] Execution Phase: implement a simple interpreter for running WebAssembly Core TestsSuit assertions
