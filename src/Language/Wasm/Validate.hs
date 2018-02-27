@@ -35,6 +35,7 @@ data ValidationResult =
     | TypeMismatch
     | InvalidConstantExpr
     | InvalidStartFunctionType
+    | ImportedGlobalIsNotConst
     | Valid
     deriving (Show, Eq)
 
@@ -141,6 +142,9 @@ safeHead [] = Nothing
 maybeToEither :: ValidationResult -> Maybe a -> Checker a
 maybeToEither _ (Just a) = return a
 maybeToEither l Nothing = throwError l
+
+isIndexValid :: (Integral idx, Integral len) => idx -> len -> ValidationResult
+isIndexValid idx len = if fromIntegral idx < fromIntegral len then Valid else IndexOutOfRange
 
 asType :: GlobalType -> VType
 asType (Const v) = Val v
@@ -571,17 +575,53 @@ startShouldBeValid m@Module { start = Just (StartFunction idx) } =
     then if FuncType [] [] == types !! i then Valid else InvalidStartFunctionType
     else IndexOutOfRange
 
-exportNamesShouldBeDifferent :: Validator
-exportNamesShouldBeDifferent Module { exports } =
-    case foldl' go (Set.empty, []) exports of
-        (_, []) -> Valid
-        (_, dup) -> DuplicatedExportNames dup
+exportsShouldBeValid :: Validator
+exportsShouldBeValid Module { exports, imports, functions, mems, tables, globals } =
+    areExportNamesUnique <> foldMap isExportValid exports
     where
-        go :: (Set.Set TL.Text, [String]) -> Export -> (Set.Set TL.Text, [String])
-        go (set, dup) (Export name _) =
-            if Set.member name set
-            then (set, show name : dup)
-            else (Set.insert name set, dup)
+        funcImports = filter isFuncImport imports
+        tableImports = filter isTableImport imports
+        memImports = filter isMemImport imports
+        globalImports = filter isGlobalImport imports
+
+        isFuncImport (Import _ _ (ImportFunc _)) = True
+        isFuncImport _ = False
+
+        isGlobalImport (Import _ _ (ImportGlobal _)) = True
+        isGlobalImport _ = False
+
+        isExportValid :: Export -> ValidationResult
+        isExportValid (Export _ (ExportFunc funIdx)) =
+            isIndexValid funIdx $ length funcImports + length functions
+        isExportValid (Export _ (ExportTable tableIdx)) =
+            isIndexValid tableIdx $ length tableImports + length tables
+        isExportValid (Export _ (ExportMemory memIdx)) =
+            isIndexValid memIdx $ length memImports + length mems
+        isExportValid (Export _ (ExportGlobal globalIdx)) =
+            isIndexValid globalIdx $ length globalImports + length globals
+
+        areExportNamesUnique :: ValidationResult
+        areExportNamesUnique =
+            case foldl' go (Set.empty, []) exports of
+                (_, []) -> Valid
+                (_, dup) -> DuplicatedExportNames dup
+            where
+                go :: (Set.Set TL.Text, [String]) -> Export -> (Set.Set TL.Text, [String])
+                go (set, dup) (Export name _) =
+                    if Set.member name set
+                    then (set, show name : dup)
+                    else (Set.insert name set, dup)
+
+importsShouldBeValid :: Validator
+importsShouldBeValid Module { imports, types } =
+    foldMap isImportValid imports
+    where
+        isImportValid :: Import -> ValidationResult
+        isImportValid (Import _ _ (ImportFunc typeIdx)) = isIndexValid typeIdx $ length types
+        isImportValid (Import _ _ (ImportTable _)) = Valid -- checked in tables section
+        isImportValid (Import _ _ (ImportMemory _)) = Valid -- checked in mems section
+        isImportValid (Import _ _ (ImportGlobal (Const _))) = Valid
+        isImportValid (Import _ _ (ImportGlobal (Mut _))) = ImportedGlobalIsNotConst
 
 validate :: Validator
 validate mod = foldMap ($ mod) validators
@@ -595,5 +635,6 @@ validate mod = foldMap ($ mod) validators
                 elemsShouldBeValid,
                 datasShouldBeValid,
                 startShouldBeValid,
-                exportNamesShouldBeDifferent
+                exportsShouldBeValid,
+                importsShouldBeValid
             ]
