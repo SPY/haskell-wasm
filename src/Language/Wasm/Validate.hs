@@ -116,7 +116,8 @@ data Ctx = Ctx {
     globals :: [GlobalType],
     locals :: [ValueType],
     labels :: [Maybe ValueType],
-    returns :: Maybe ValueType
+    returns :: Maybe ValueType,
+    importedGlobals :: Natural
 } deriving (Show, Eq)
 
 type Checker = ReaderT Ctx (StateT Int (Except ValidationResult))
@@ -409,7 +410,10 @@ isConstExpression ((I64Const _):rest) = isConstExpression rest
 isConstExpression ((F32Const _):rest) = isConstExpression rest
 isConstExpression ((F64Const _):rest) = isConstExpression rest
 isConstExpression ((GetGlobal idx):rest) = do
-    Ctx {globals} <- ask
+    Ctx {globals, importedGlobals} <- ask
+    if importedGlobals <= idx
+        then throwError InvalidConstantExpr
+        else return ()
     case globals !! fromIntegral idx of
         Const _ -> isConstExpression rest
         Mut _ -> throwError InvalidConstantExpr
@@ -436,7 +440,8 @@ ctxFromModule locals labels returns m@Module {types, functions, tables, mems, gl
         globals = globalImports ++ map (\(Global g _) -> g) globals,
         locals,
         labels,
-        returns
+        returns,
+        importedGlobals = fromIntegral $ length globalImports
     }
     where
         getTableType (Import _ _ (ImportTable tableType)) = Just tableType
