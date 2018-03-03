@@ -60,6 +60,8 @@ import Data.List (foldl', findIndex, find)
 import Control.Monad (guard)
 
 import Numeric.Natural (Natural)
+import Data.Word (Word32, Word64)
+import Data.Bits ((.|.))
 
 import Language.Wasm.Lexer (
         Token (
@@ -1043,6 +1045,18 @@ asString = Just . TLEncoding.decodeUtf8
 eitherToMaybe :: Either left right -> Maybe right
 eitherToMaybe = either (const Nothing) Just
 
+integerToWord32 :: Integer -> Word32
+integerToWord32 i
+    | i >= 0 && i <= 2 ^ 32 = fromIntegral i
+    | i < 0 && i >= -(2 ^ 31) = 0x80000000 .|. (fromIntegral (abs i))
+    | otherwise = error "I32 is out of bounds."
+
+integerToWord64 :: Integer -> Word64
+integerToWord64 i
+    | i >= 0 && i <= 2 ^ 64 = fromIntegral i
+    | i < 0 && i >= -(2 ^ 63) = 0x8000000000000000 .|. (fromIntegral (abs i))
+    | otherwise = error "I64 is out of bounds."
+
 data FuncType = FuncType { params :: [ParamType], results :: [ValueType] } deriving (Show, Eq)
 
 emptyFuncType :: FuncType
@@ -1449,8 +1463,8 @@ desugarize fields =
         synInstrToStruct _ (PlainInstr (I64Store32 memArg)) = S.I64Store32 memArg
         synInstrToStruct _ (PlainInstr CurrentMemory) = S.CurrentMemory
         synInstrToStruct _ (PlainInstr GrowMemory) = S.GrowMemory
-        synInstrToStruct _ (PlainInstr (I32Const val)) = S.I32Const val
-        synInstrToStruct _ (PlainInstr (I64Const val)) = S.I64Const val
+        synInstrToStruct _ (PlainInstr (I32Const val)) = S.I32Const $ integerToWord32 val
+        synInstrToStruct _ (PlainInstr (I64Const val)) = S.I64Const $ integerToWord64 val
         synInstrToStruct _ (PlainInstr (F32Const val)) = S.F32Const val
         synInstrToStruct _ (PlainInstr (F64Const val)) = S.F64Const val
         synInstrToStruct _ (PlainInstr (IUnOp sz op)) = S.IUnOp sz op

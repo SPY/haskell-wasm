@@ -37,6 +37,7 @@ module Language.Wasm.Structure (
 ) where
 
 import Numeric.Natural (Natural)
+import Data.Word (Word32, Word64)
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Text.Lazy as TL
 
@@ -142,8 +143,8 @@ data Instruction =
     | CurrentMemory
     | GrowMemory
     -- Numeric instructions
-    | I32Const Integer
-    | I64Const Integer
+    | I32Const Word32
+    | I64Const Word64
     | F32Const Float
     | F64Const Double
     | IUnOp BitSize IUnOp
