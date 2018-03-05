@@ -6,12 +6,14 @@ module Language.Wasm.Interpreter (
 
 import qualified Data.Map as Map
 import qualified Data.Text.Lazy as TL
+import qualified Data.ByteString.Lazy as LBS
 
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
 import Data.IORef (IORef)
 import Data.Array.IO (IOArray, newArray, readArray, writeArray)
 import Data.Word (Word32, Word64)
+import Numeric.Natural (Natural)
 
 import Language.Wasm.Structure
 
@@ -20,6 +22,19 @@ data Value =
     | VI62 Word64
     | VF32 Float
     | VF64 Double
+    deriving (Eq, Show)
+
+data AdminInstr =
+    I Instruction
+    | Trap
+    | Invoke Address
+    | InitElem Address Word32 [Natural]
+    | InitData Address Word32 LBS.ByteString
+    | Label [AdminInstr] [AdminInstr]
+    | IFrame Frame [AdminInstr]
+    deriving (Show, Eq)
+
+data Frame = Frame { locals :: Vector Value, mod :: ModuleInstance } deriving (Eq, Show)
 
 type Address = Int
 
@@ -31,14 +46,27 @@ type MemoryInstance = IOArray Int Word32
 
 data GlobalInstance = GConst Value | GMut (IORef Value)
 
-data ModuleInstance = ModuleInstance {
-    types :: Vector FuncType,
-    functions :: Vector (Ref Function),
-    tables :: Vector (Ref TableInstance),
-    mems :: Vector (Ref MemoryInstance),
-    globals :: Vector (Ref Global),
-    exports :: Map.Map TL.Text ExportDesc
+data FunctionInstance = FunctionInstance {
+    funcType :: FuncType,
+    moduleInstance :: ModuleInstance,
+    code :: Function
+} deriving (Show, Eq)
+
+data Store = Store {
+    functions :: Vector FunctionInstance,
+    tables :: Vector TableInstance,
+    mems :: Vector MemoryInstance,
+    globals :: Vector Global
 }
 
-instantiate :: Module -> ModuleInstance
+data ModuleInstance = ModuleInstance {
+    types :: Vector FuncType,
+    functions :: Vector Address,
+    tables :: Vector Address,
+    mems :: Vector Address,
+    globals :: Vector Address,
+    exports :: Map.Map TL.Text ExportDesc
+} deriving (Eq, Show)
+
+instantiate :: Store -> Module -> (ModuleInstance, Store)
 instantiate mod = undefined
