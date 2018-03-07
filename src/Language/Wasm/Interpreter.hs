@@ -1,4 +1,5 @@
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 module Language.Wasm.Interpreter (
     instantiate
@@ -15,7 +16,7 @@ import Data.Array.IO (IOArray, newArray, readArray, writeArray)
 import Data.Word (Word32, Word64)
 import Numeric.Natural (Natural)
 
-import Language.Wasm.Structure
+import Language.Wasm.Structure as Struct
 
 data Value =
     VI32 Word32
@@ -38,25 +39,52 @@ data Frame = Frame { locals :: Vector Value, mod :: ModuleInstance } deriving (E
 
 type Address = Int
 
-data Ref a = Imported TL.Text TL.Text | Local a
+data TableInstance = TableInstance {
+    elements :: Vector (Maybe Address),
+    maxLen :: Int
+}
 
-type TableInstance = Vector (Maybe Address)
+data MemoryInstance = MemoryInstance {
+    memory :: IOArray Int Word32,
+    maxLen :: Int -- in page size (64Ki)
+}
 
-type MemoryInstance = IOArray Int Word32
+data GlobalInstance = GIConst Value | GIMut (IORef Value)
 
-data GlobalInstance = GConst Value | GMut (IORef Value)
+data ExportInstance = ExportInstance TL.Text ExternalVal deriving (Eq, Show)
 
-data FunctionInstance = FunctionInstance {
-    funcType :: FuncType,
-    moduleInstance :: ModuleInstance,
-    code :: Function
-} deriving (Show, Eq)
+data ExternalVal =
+    ExternFunction Address
+    | ExternTable Address
+    | ExternMemory Address
+    | ExternGlobal Address
+    deriving (Eq, Show)
+
+data FunctionInstance =
+    FunctionInstance {
+        funcType :: FuncType,
+        moduleInstance :: ModuleInstance,
+        code :: Function
+    }
+    | HostInstance {
+        funcType :: FuncType,
+        tag :: TL.Text
+    }
+    deriving (Show, Eq)
 
 data Store = Store {
     functions :: Vector FunctionInstance,
     tables :: Vector TableInstance,
     mems :: Vector MemoryInstance,
-    globals :: Vector Global
+    globals :: Vector GlobalInstance
+}
+
+initialStore :: Store
+initialStore = Store {
+    functions = Vector.empty,
+    tables = Vector.empty,
+    mems = Vector.empty,
+    globals = Vector.empty
 }
 
 data ModuleInstance = ModuleInstance {
@@ -65,8 +93,14 @@ data ModuleInstance = ModuleInstance {
     tables :: Vector Address,
     mems :: Vector Address,
     globals :: Vector Address,
-    exports :: Map.Map TL.Text ExportDesc
+    exports :: Vector ExportInstance
 } deriving (Eq, Show)
 
-instantiate :: Store -> Module -> (ModuleInstance, Store)
-instantiate mod = undefined
+instantiate :: Store -> Module -> IO (ModuleInstance, Store)
+instantiate st mod = do
+    return $ (
+            ModuleInstance {
+                types = Vector.fromList $ Struct.types mod
+            },
+            st
+        )
