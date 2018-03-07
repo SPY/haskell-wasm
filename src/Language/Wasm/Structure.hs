@@ -33,7 +33,11 @@ module Language.Wasm.Structure (
     LabelIndex,
     LocalIndex,
     GlobalIndex,
-    emptyModule
+    emptyModule,
+    isFuncImport,
+    isTableImport,
+    isMemImport,
+    isGlobalImport
 ) where
 
 import Numeric.Natural (Natural)
@@ -231,6 +235,22 @@ data Import = Import {
     name :: TL.Text,
     desc :: ImportDesc
 } deriving (Show, Eq)
+
+isFuncImport :: Import -> Bool
+isFuncImport (Import _ _ (ImportFunc _)) = True
+isFuncImport _ = False
+
+isTableImport :: Import -> Bool
+isTableImport (Import _ _ (ImportTable _)) = True
+isTableImport _ = False
+
+isMemImport :: Import -> Bool
+isMemImport (Import _ _ (ImportMemory _)) = True
+isMemImport _ = False
+
+isGlobalImport :: Import -> Bool
+isGlobalImport (Import _ _ (ImportGlobal _)) = True
+isGlobalImport _ = False
 
 data Module = Module {
     types :: [FuncType],

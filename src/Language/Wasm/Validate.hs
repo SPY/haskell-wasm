@@ -484,10 +484,6 @@ tablesShouldBeValid Module { imports, tables } =
             then Valid
             else InvalidTableType
 
-isTableImport :: Import -> Bool
-isTableImport Import { desc = ImportTable _ } = True
-isTableImport _ = False
-
 memoryShouldBeValid :: Validator
 memoryShouldBeValid Module { imports, mems } =
     let memImports = filter isMemImport imports in
@@ -499,10 +495,6 @@ memoryShouldBeValid Module { imports, mems } =
     where
         isValidLimit :: Limit -> ValidationResult
         isValidLimit (Limit min max) = if min <= fromMaybe min max then Valid else InvalidMemoryLimit
-
-isMemImport :: Import -> Bool
-isMemImport Import { desc = ImportMemory _ } = True
-isMemImport _ = False
 
 globalsShouldBeValid :: Validator
 globalsShouldBeValid m@Module { imports, globals } =
