@@ -10,9 +10,8 @@ import qualified Data.Text.Lazy as TL
 import qualified Data.ByteString.Lazy as LBS
 
 import Data.Vector (Vector, (!))
-import Data.Maybe (fromJust)
 import qualified Data.Vector as Vector
-import Data.IORef (IORef)
+import Data.IORef (IORef, newIORef, readIORef)
 import Data.Array.IO (IOArray, newArray, readArray, writeArray)
 import Data.Word (Word32, Word64)
 import Numeric.Natural (Natural)
@@ -21,7 +20,7 @@ import Language.Wasm.Structure as Struct
 
 data Value =
     VI32 Word32
-    | VI62 Word64
+    | VI64 Word64
     | VF32 Float
     | VF64 Double
     deriving (Eq, Show)
@@ -74,26 +73,26 @@ data FunctionInstance =
     deriving (Show, Eq)
 
 data Store = Store {
-    functions :: Vector FunctionInstance,
-    tables :: Vector TableInstance,
-    mems :: Vector MemoryInstance,
-    globals :: Vector GlobalInstance
+    funcInstances :: Vector FunctionInstance,
+    tableInstances :: Vector TableInstance,
+    memInstances :: Vector MemoryInstance,
+    globalInstances :: Vector GlobalInstance
 }
 
 emptyStore :: Store
 emptyStore = Store {
-    functions = Vector.empty,
-    tables = Vector.empty,
-    mems = Vector.empty,
-    globals = Vector.empty
+    funcInstances = Vector.empty,
+    tableInstances = Vector.empty,
+    memInstances = Vector.empty,
+    globalInstances = Vector.empty
 }
 
 data ModuleInstance = ModuleInstance {
     types :: Vector FuncType,
-    functions :: Vector Address,
-    tables :: Vector Address,
-    mems :: Vector Address,
-    globals :: Vector Address,
+    funcaddrs :: Vector Address,
+    tableaddrs :: Vector Address,
+    memaddrs :: Vector Address,
+    globaladdrs :: Vector Address,
     exports :: Vector ExportInstance
 } deriving (Eq, Show)
 
@@ -103,7 +102,11 @@ calcInstance (Store fs ts ms gs) imps Module {functions, types, tables, mems, gl
     let tableLen = length ts in
     let memLen = length ms in
     let globalLen = length gs in
-    let getImpIdx (Import m n _) = fromJust $ Map.lookup (m, n) imps in
+    let getImpIdx (Import m n _) =
+            case Map.lookup (m, n) imps of
+                Just idx -> idx
+                Nothing -> error $ "Cannot find import from module " ++ show m ++ " with name " ++ show n
+    in
     let funImps = map getImpIdx $ filter isFuncImport imports in
     let tableImps = map getImpIdx $ filter isTableImport imports in
     let memImps = map getImpIdx $ filter isMemImport imports in
@@ -124,15 +127,57 @@ calcInstance (Store fs ts ms gs) imps Module {functions, types, tables, mems, gl
     in
     ModuleInstance {
         types = Vector.fromList types,
-        functions = funs,
-        tables = tbls,
-        mems = memories,
-        globals = globs,
+        funcaddrs = funs,
+        tableaddrs = tbls,
+        memaddrs = memories,
+        globaladdrs = globs,
         exports = Vector.fromList $ map refExport exports
     }
 
 type Imports = Map.Map (TL.Text, TL.Text) ExternalValue
 
+allocFunctions :: ModuleInstance -> [Function] -> Vector FunctionInstance
+allocFunctions inst@ModuleInstance {types} funs =
+    let mkFuncInst f@Function {funcType} = FunctionInstance (types ! (fromIntegral funcType)) inst f in
+    Vector.fromList $ map mkFuncInst funs
+
+getGlobalValue :: ModuleInstance -> Store -> Natural -> IO Value
+getGlobalValue inst store idx =
+    let addr = globaladdrs inst ! fromIntegral idx in
+    case globalInstances store ! addr of
+        GIConst v -> return v
+        GIMut ref -> readIORef ref
+
+allocGlobals :: ModuleInstance -> Store -> [Global] -> IO (Vector GlobalInstance)
+allocGlobals inst store globs =
+    let
+        -- due the validation there can be only these instructions
+        runIniter [I32Const v] = return $ VI32 v
+        runIniter [I64Const v] = return $ VI64 v
+        runIniter [F32Const v] = return $ VF32 v
+        runIniter [F64Const v] = return $ VF64 v
+        -- the spec says get global can ref only imported globals
+        -- it is implied by execution phase, but not validated in validation phase
+        runIniter [GetGlobal i] = getGlobalValue inst store i
+        runIniter instrs = error $ "Global initializer contains unsupported instructions: " ++ show instrs
+    in
+    let
+        allocGlob (Global (Const _) initer) = GIConst <$> runIniter initer
+        allocGlob (Global (Mut _) initer) = do
+            val <- runIniter initer
+            GIMut <$> newIORef val
+    in
+    Vector.fromList <$> mapM allocGlob globs
+
+
+
 instantiate :: Store -> Imports -> Module -> IO (ModuleInstance, Store)
 instantiate st imps m = do
-    return $ (calcInstance st imps m, st)
+    let inst = calcInstance st imps m
+    let funs = funcInstances st Vector.++ (allocFunctions inst $ Struct.functions m)
+    globs <- (globalInstances st Vector.++) <$> (allocGlobals inst st $ Struct.globals m)
+    let st' = st {
+        funcInstances = funs,
+        globalInstances = globs
+    }
+    return $ (inst, st')

@@ -428,7 +428,7 @@ getFuncTypes Module {types, functions, imports} =
         getFuncType _ = Nothing
 
 ctxFromModule :: [ValueType] -> [Maybe ValueType] -> Maybe ValueType -> Module -> Ctx
-ctxFromModule locals labels returns m@Module {types, functions, tables, mems, globals, imports} =
+ctxFromModule locals labels returns m@Module {types, tables, mems, globals, imports} =
     let tableImports = catMaybes $ map getTableType imports in
     let memsImports = catMaybes $ map getMemType imports in
     let globalImports = catMaybes $ map getGlobalType imports in
