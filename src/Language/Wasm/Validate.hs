@@ -581,12 +581,6 @@ exportsShouldBeValid Module { exports, imports, functions, mems, tables, globals
         memImports = filter isMemImport imports
         globalImports = filter isGlobalImport imports
 
-        isFuncImport (Import _ _ (ImportFunc _)) = True
-        isFuncImport _ = False
-
-        isGlobalImport (Import _ _ (ImportGlobal _)) = True
-        isGlobalImport _ = False
-
         isExportValid :: Export -> ValidationResult
         isExportValid (Export _ (ExportFunc funIdx)) =
             isIndexValid funIdx $ length funcImports + length functions

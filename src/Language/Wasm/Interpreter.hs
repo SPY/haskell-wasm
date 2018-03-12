@@ -9,7 +9,7 @@ import qualified Data.Map as Map
 import qualified Data.Text.Lazy as TL
 import qualified Data.ByteString.Lazy as LBS
 
-import Data.Vector (Vector, (!))
+import Data.Vector (Vector, (!), (!?))
 import qualified Data.Vector as Vector
 import Data.IORef (IORef, newIORef, readIORef)
 import Data.Array.IO (IOArray, newArray, readArray, writeArray)
@@ -41,12 +41,12 @@ type Address = Int
 
 data TableInstance = TableInstance {
     elements :: Vector (Maybe Address),
-    maxLen :: Int
+    maxLen :: Maybe Int
 }
 
 data MemoryInstance = MemoryInstance {
     memory :: IOArray Int Word32,
-    maxLen :: Int -- in page size (64Ki)
+    maxLen :: Maybe Int -- in page size (64Ki)
 }
 
 data GlobalInstance = GIConst Value | GIMut (IORef Value)
@@ -143,41 +143,65 @@ allocFunctions inst@ModuleInstance {types} funs =
 
 getGlobalValue :: ModuleInstance -> Store -> Natural -> IO Value
 getGlobalValue inst store idx =
-    let addr = globaladdrs inst ! fromIntegral idx in
+    let addr = case globaladdrs inst !? fromIntegral idx of
+            Just a -> a
+            Nothing -> error "Global index is out of range. It can happen if initializer refs non-import global."
+    in
     case globalInstances store ! addr of
         GIConst v -> return v
         GIMut ref -> readIORef ref
 
 allocGlobals :: ModuleInstance -> Store -> [Global] -> IO (Vector GlobalInstance)
-allocGlobals inst store globs =
-    let
+allocGlobals inst store globs = Vector.fromList <$> mapM allocGlob globs
+    where
+        runIniter :: [Instruction] -> IO Value
         -- due the validation there can be only these instructions
         runIniter [I32Const v] = return $ VI32 v
         runIniter [I64Const v] = return $ VI64 v
         runIniter [F32Const v] = return $ VF32 v
         runIniter [F64Const v] = return $ VF64 v
         -- the spec says get global can ref only imported globals
-        -- it is implied by execution phase, but not validated in validation phase
         runIniter [GetGlobal i] = getGlobalValue inst store i
         runIniter instrs = error $ "Global initializer contains unsupported instructions: " ++ show instrs
-    in
-    let
+
+        allocGlob :: Global -> IO GlobalInstance
         allocGlob (Global (Const _) initer) = GIConst <$> runIniter initer
         allocGlob (Global (Mut _) initer) = do
             val <- runIniter initer
             GIMut <$> newIORef val
-    in
-    Vector.fromList <$> mapM allocGlob globs
 
+allocTables :: [Table] -> Vector TableInstance
+allocTables tables = Vector.fromList $ map allocTable tables
+    where
+        allocTable :: Table -> TableInstance
+        allocTable (Table (TableType (Limit from to) _)) =
+            TableInstance {
+                elements = Vector.fromList $ replicate (fromIntegral from) Nothing,
+                maxLen = fromIntegral <$> to
+            }
 
+allocMems :: [Memory] -> IO (Vector MemoryInstance)
+allocMems mems = Vector.fromList <$> mapM allocMem mems
+    where
+        allocMem :: Memory -> IO MemoryInstance
+        allocMem (Memory (Limit from to)) = do
+            memory <- newArray (0, fromIntegral from * (16 * 1024{- 64 * 1024 bytes in Word32 -})) 0
+            return $ MemoryInstance {
+                memory,
+                maxLen = fromIntegral <$> to
+            }
 
 instantiate :: Store -> Imports -> Module -> IO (ModuleInstance, Store)
 instantiate st imps m = do
     let inst = calcInstance st imps m
-    let funs = funcInstances st Vector.++ (allocFunctions inst $ Struct.functions m)
-    globs <- (globalInstances st Vector.++) <$> (allocGlobals inst st $ Struct.globals m)
+    let functions = funcInstances st Vector.++ (allocFunctions inst $ Struct.functions m)
+    globals <- (globalInstances st Vector.++) <$> (allocGlobals inst st $ Struct.globals m)
+    let tables = tableInstances st Vector.++ (allocTables $ Struct.tables m)
+    mems <- (memInstances st Vector.++) <$> (allocMems $ Struct.mems m)
     let st' = st {
-        funcInstances = funs,
-        globalInstances = globs
+        funcInstances = functions,
+        tableInstances = tables,
+        memInstances = mems,
+        globalInstances = globals
     }
     return $ (inst, st')
