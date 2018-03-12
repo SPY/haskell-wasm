@@ -2,19 +2,25 @@
 {-# LANGUAGE NamedFieldPuns #-}
 
 module Language.Wasm.Interpreter (
-    instantiate
+    instantiate,
+    invoke
 ) where
 
 import qualified Data.Map as Map
 import qualified Data.Text.Lazy as TL
 import qualified Data.ByteString.Lazy as LBS
 
-import Data.Vector (Vector, (!), (!?))
+import Data.Vector (Vector, (!), (!?), (//))
+import Data.Vector.Storable.Mutable (IOVector)
 import qualified Data.Vector as Vector
+import qualified Data.Vector.Storable.Mutable as IOVector
 import Data.IORef (IORef, newIORef, readIORef)
-import Data.Array.IO (IOArray, newArray, readArray, writeArray)
-import Data.Word (Word32, Word64)
+import Data.Word (Word8, Word32, Word64)
 import Numeric.Natural (Natural)
+import qualified Control.Monad as Monad
+import Data.Monoid ((<>))
+import qualified Data.List as List
+import Data.Bits ((.|.), shiftL)
 
 import Language.Wasm.Structure as Struct
 
@@ -45,7 +51,7 @@ data TableInstance = TableInstance {
 }
 
 data MemoryInstance = MemoryInstance {
-    memory :: IOArray Int Word32,
+    memory :: IOVector Word32,
     maxLen :: Maybe Int -- in page size (64Ki)
 }
 
@@ -151,18 +157,22 @@ getGlobalValue inst store idx =
         GIConst v -> return v
         GIMut ref -> readIORef ref
 
-allocGlobals :: ModuleInstance -> Store -> [Global] -> IO (Vector GlobalInstance)
-allocGlobals inst store globs = Vector.fromList <$> mapM allocGlob globs
+-- due the validation there can be only these instructions
+evalConstExpr :: ModuleInstance -> Store -> [Instruction] -> IO Value
+evalConstExpr _ _ [I32Const v] = return $ VI32 v
+evalConstExpr _ _ [I64Const v] = return $ VI64 v
+evalConstExpr _ _ [F32Const v] = return $ VF32 v
+evalConstExpr _ _ [F64Const v] = return $ VF64 v
+evalConstExpr inst store [GetGlobal i] = getGlobalValue inst store i
+evalConstExpr _ _ instrs = error $ "Global initializer contains unsupported instructions: " ++ show instrs
+
+allocAndInitGlobals :: ModuleInstance -> Store -> [Global] -> IO (Vector GlobalInstance)
+allocAndInitGlobals inst store globs = Vector.fromList <$> mapM allocGlob globs
     where
         runIniter :: [Instruction] -> IO Value
-        -- due the validation there can be only these instructions
-        runIniter [I32Const v] = return $ VI32 v
-        runIniter [I64Const v] = return $ VI64 v
-        runIniter [F32Const v] = return $ VF32 v
-        runIniter [F64Const v] = return $ VF64 v
         -- the spec says get global can ref only imported globals
-        runIniter [GetGlobal i] = getGlobalValue inst store i
-        runIniter instrs = error $ "Global initializer contains unsupported instructions: " ++ show instrs
+        -- only they are in store for this moment
+        runIniter = evalConstExpr inst store
 
         allocGlob :: Global -> IO GlobalInstance
         allocGlob (Global (Const _) initer) = GIConst <$> runIniter initer
@@ -180,28 +190,95 @@ allocTables tables = Vector.fromList $ map allocTable tables
                 maxLen = fromIntegral <$> to
             }
 
+pageSizeInWord32 :: Int
+pageSizeInWord32 = 16 * 1024
+
 allocMems :: [Memory] -> IO (Vector MemoryInstance)
 allocMems mems = Vector.fromList <$> mapM allocMem mems
     where
         allocMem :: Memory -> IO MemoryInstance
         allocMem (Memory (Limit from to)) = do
-            memory <- newArray (0, fromIntegral from * (16 * 1024{- 64 * 1024 bytes in Word32 -})) 0
+            memory <- IOVector.replicate (fromIntegral from * pageSizeInWord32) 0
             return $ MemoryInstance {
                 memory,
                 maxLen = fromIntegral <$> to
             }
 
-instantiate :: Store -> Imports -> Module -> IO (ModuleInstance, Store)
+initialize :: ModuleInstance -> Module -> Store -> IO Store
+initialize inst Module {elems, datas} store = do
+    store' <- Monad.foldM initElem store elems
+    Monad.foldM initData store' datas
+    where
+        fitOrGrowTable :: Address -> Store -> Int -> TableInstance
+        fitOrGrowTable idx st last =
+            let t@(TableInstance elems maxLen) = tableInstances st ! idx in
+            let len = Vector.length elems in
+            let increased = TableInstance (elems Vector.++ (Vector.fromList $ replicate (last - len + 1) Nothing)) maxLen in
+            if last < len
+                then t
+                else case maxLen of
+                    Nothing -> increased
+                    Just max -> if max <= last then error "Max table length reached" else increased
+
+        initElem :: Store -> ElemSegment -> IO Store
+        initElem st ElemSegment {tableIndex, offset, funcIndexes} = do
+            VI32 val <- evalConstExpr inst store offset
+            let from = fromIntegral val
+            let funcs = map ((funcaddrs inst !) . fromIntegral) funcIndexes
+            let idx = tableaddrs inst ! fromIntegral tableIndex
+            let TableInstance elems maxLen = fitOrGrowTable idx st (from + length funcs)
+            let table = TableInstance (elems Vector.// zip [from..] (map Just funcs)) maxLen
+            return $ st { tableInstances = tableInstances st Vector.// [(idx, table)] }
+        
+        fitOrGrowMemory :: Address -> Store -> Int -> IO MemoryInstance
+        fitOrGrowMemory idx st last = do
+            let m@(MemoryInstance mem maxLen) = memInstances st ! idx
+            let len = IOVector.length mem
+            let increased = do
+                    let pages = (last - len) `div` pageSizeInWord32 + (if (last - len) `rem` len == 0 then 0 else 1)
+                    mem' <- IOVector.grow mem $ pages * pageSizeInWord32
+                    return $ MemoryInstance mem' maxLen
+            if last < len
+                then return m
+                else case maxLen of
+                    Nothing -> increased
+                    Just max -> if max * pageSizeInWord32 <= last then error "Max memory length reached" else increased
+
+        initData :: Store -> DataSegment -> IO Store
+        initData st DataSegment {memIndex, offset, chunk} = do
+            VI32 val <- evalConstExpr inst store offset
+            let from = fromIntegral val
+            let idx = memaddrs inst ! fromIntegral memIndex
+            let last = from + (fromIntegral $ LBS.length chunk) `div` 4 + if LBS.length chunk `rem` 4 == 0 then 0 else 1
+            MemoryInstance mem maxLen <- fitOrGrowMemory idx st last
+            setBytes mem from $ LBS.unpack chunk
+            return $ st { memInstances = memInstances st // [(idx, MemoryInstance mem maxLen)] }
+        
+        setBytes :: IOVector Word32 -> Int -> [Word8] -> IO ()
+        setBytes _ _ [] = return ()
+        setBytes v off bytes = do
+            let parts = zip [3, 2, 1, 0] $ take 4 bytes ++ [0, 0, 0] -- to fill if len < 4, zip cuts unneeded
+            let word = List.foldl' (\w (sh, b) -> w .|. (fromIntegral b `shiftL` (8 * sh)) ) 0 parts
+            IOVector.write v off word
+            setBytes v (off + 1) $ drop 4 bytes
+
+data EvalContext = EvalContext ModuleInstance (IORef Store)
+
+instantiate :: Store -> Imports -> Module -> IO EvalContext
 instantiate st imps m = do
     let inst = calcInstance st imps m
-    let functions = funcInstances st Vector.++ (allocFunctions inst $ Struct.functions m)
-    globals <- (globalInstances st Vector.++) <$> (allocGlobals inst st $ Struct.globals m)
-    let tables = tableInstances st Vector.++ (allocTables $ Struct.tables m)
-    mems <- (memInstances st Vector.++) <$> (allocMems $ Struct.mems m)
-    let st' = st {
+    let functions = funcInstances st <> (allocFunctions inst $ Struct.functions m)
+    globals <- (globalInstances st <>) <$> (allocAndInitGlobals inst st $ Struct.globals m)
+    let tables = tableInstances st <> (allocTables $ Struct.tables m)
+    mems <- (memInstances st <>) <$> (allocMems $ Struct.mems m)
+    st' <- initialize inst m $ st {
         funcInstances = functions,
         tableInstances = tables,
         memInstances = mems,
         globalInstances = globals
     }
-    return $ (inst, st')
+    ref <- newIORef st'
+    return $ EvalContext inst ref
+
+invoke :: EvalContext -> TL.Text -> [Value] -> IO [Value]
+invoke = undefined

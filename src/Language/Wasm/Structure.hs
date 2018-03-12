@@ -206,7 +206,7 @@ data ElemSegment = ElemSegment {
 data DataSegment = DataSegment {
     memIndex :: MemoryIndex,
     offset :: Expression,
-    initializer :: LBS.ByteString
+    chunk :: LBS.ByteString
 } deriving (Show, Eq)
 
 data StartFunction = StartFunction FuncIndex deriving (Show, Eq)
