@@ -19,8 +19,6 @@ import Data.Word (Word8, Word32, Word64)
 import Numeric.Natural (Natural)
 import qualified Control.Monad as Monad
 import Data.Monoid ((<>))
-import qualified Data.List as List
-import Data.Bits ((.|.), shiftL)
 
 import Language.Wasm.Structure as Struct
 
@@ -51,7 +49,7 @@ data TableInstance = TableInstance {
 }
 
 data MemoryInstance = MemoryInstance {
-    memory :: IOVector Word32,
+    memory :: IOVector Word8,
     maxLen :: Maybe Int -- in page size (64Ki)
 }
 
@@ -190,15 +188,15 @@ allocTables tables = Vector.fromList $ map allocTable tables
                 maxLen = fromIntegral <$> to
             }
 
-pageSizeInWord32 :: Int
-pageSizeInWord32 = 16 * 1024
+pageSize :: Int
+pageSize = 64 * 1024
 
 allocMems :: [Memory] -> IO (Vector MemoryInstance)
 allocMems mems = Vector.fromList <$> mapM allocMem mems
     where
         allocMem :: Memory -> IO MemoryInstance
         allocMem (Memory (Limit from to)) = do
-            memory <- IOVector.replicate (fromIntegral from * pageSizeInWord32) 0
+            memory <- IOVector.replicate (fromIntegral from * pageSize) 0
             return $ MemoryInstance {
                 memory,
                 maxLen = fromIntegral <$> to
@@ -209,58 +207,33 @@ initialize inst Module {elems, datas} store = do
     store' <- Monad.foldM initElem store elems
     Monad.foldM initData store' datas
     where
-        fitOrGrowTable :: Address -> Store -> Int -> TableInstance
-        fitOrGrowTable idx st last =
-            let t@(TableInstance elems maxLen) = tableInstances st ! idx in
-            let len = Vector.length elems in
-            let increased = TableInstance (elems Vector.++ (Vector.fromList $ replicate (last - len + 1) Nothing)) maxLen in
-            if last < len
-                then t
-                else case maxLen of
-                    Nothing -> increased
-                    Just max -> if max <= last then error "Max table length reached" else increased
-
         initElem :: Store -> ElemSegment -> IO Store
         initElem st ElemSegment {tableIndex, offset, funcIndexes} = do
             VI32 val <- evalConstExpr inst store offset
             let from = fromIntegral val
             let funcs = map ((funcaddrs inst !) . fromIntegral) funcIndexes
             let idx = tableaddrs inst ! fromIntegral tableIndex
-            let TableInstance elems maxLen = fitOrGrowTable idx st (from + length funcs)
-            let table = TableInstance (elems Vector.// zip [from..] (map Just funcs)) maxLen
-            return $ st { tableInstances = tableInstances st Vector.// [(idx, table)] }
-        
-        fitOrGrowMemory :: Address -> Store -> Int -> IO MemoryInstance
-        fitOrGrowMemory idx st last = do
-            let m@(MemoryInstance mem maxLen) = memInstances st ! idx
-            let len = IOVector.length mem
-            let increased = do
-                    let pages = (last - len) `div` pageSizeInWord32 + (if (last - len) `rem` len == 0 then 0 else 1)
-                    mem' <- IOVector.grow mem $ pages * pageSizeInWord32
-                    return $ MemoryInstance mem' maxLen
-            if last < len
-                then return m
-                else case maxLen of
-                    Nothing -> increased
-                    Just max -> if max * pageSizeInWord32 <= last then error "Max memory length reached" else increased
+            let TableInstance elems maxLen = tableInstances st ! idx
+            let len = Vector.length elems
+            if from + length funcs >= len
+            then error "Element indexes are out of the table bounds"
+            else do
+                let table = TableInstance (elems // zip [from..] (map Just funcs)) maxLen
+                return $ st { tableInstances = tableInstances st Vector.// [(idx, table)] }
 
         initData :: Store -> DataSegment -> IO Store
         initData st DataSegment {memIndex, offset, chunk} = do
             VI32 val <- evalConstExpr inst store offset
             let from = fromIntegral val
             let idx = memaddrs inst ! fromIntegral memIndex
-            let last = from + (fromIntegral $ LBS.length chunk) `div` 4 + if LBS.length chunk `rem` 4 == 0 then 0 else 1
-            MemoryInstance mem maxLen <- fitOrGrowMemory idx st last
-            setBytes mem from $ LBS.unpack chunk
-            return $ st { memInstances = memInstances st // [(idx, MemoryInstance mem maxLen)] }
-        
-        setBytes :: IOVector Word32 -> Int -> [Word8] -> IO ()
-        setBytes _ _ [] = return ()
-        setBytes v off bytes = do
-            let parts = zip [3, 2, 1, 0] $ take 4 bytes ++ [0, 0, 0] -- to fill if len < 4, zip cuts unneeded
-            let word = List.foldl' (\w (sh, b) -> w .|. (fromIntegral b `shiftL` (8 * sh)) ) 0 parts
-            IOVector.write v off word
-            setBytes v (off + 1) $ drop 4 bytes
+            let last = from + (fromIntegral $ LBS.length chunk)
+            let MemoryInstance mem maxLen = memInstances st ! idx
+            let len = IOVector.length mem
+            if last >= len
+            then error "Data chunk is out of the memory bounds"
+            else do
+                mapM_ (\(i,b) -> IOVector.write mem i b) $ zip [from..] $ LBS.unpack chunk
+                return $ st { memInstances = memInstances st // [(idx, MemoryInstance mem maxLen)] }
 
 data EvalContext = EvalContext ModuleInstance (IORef Store)
 
