@@ -14,7 +14,7 @@ import Data.Vector (Vector, (!), (!?), (//))
 import Data.Vector.Storable.Mutable (IOVector)
 import qualified Data.Vector as Vector
 import qualified Data.Vector.Storable.Mutable as IOVector
-import Data.IORef (IORef, newIORef, readIORef)
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.Word (Word8, Word32, Word64)
 import Numeric.Natural (Natural)
 import qualified Control.Monad as Monad
@@ -29,17 +29,7 @@ data Value =
     | VF64 Double
     deriving (Eq, Show)
 
-data AdminInstr =
-    I Instruction
-    | Trap
-    | Invoke Address
-    | InitElem Address Word32 [Natural]
-    | InitData Address Word32 LBS.ByteString
-    | Label [AdminInstr] [AdminInstr]
-    | IFrame Frame [AdminInstr]
-    deriving (Show, Eq)
-
-data Frame = Frame { locals :: Vector Value, mod :: ModuleInstance } deriving (Eq, Show)
+data Label = Label
 
 type Address = Int
 
@@ -203,9 +193,15 @@ allocMems mems = Vector.fromList <$> mapM allocMem mems
             }
 
 initialize :: ModuleInstance -> Module -> Store -> IO Store
-initialize inst Module {elems, datas} store = do
-    store' <- Monad.foldM initElem store elems
-    Monad.foldM initData store' datas
+initialize inst Module {elems, datas, start} store = do
+    storeWithTables <- Monad.foldM initElem store elems
+    storeWithMems <- Monad.foldM initData storeWithTables datas
+    case start of
+        Just (StartFunction idx) -> do
+            let funInst = funcInstances store ! (funcaddrs inst ! fromIntegral idx)
+            [] <- eval storeWithMems funInst []
+            return storeWithMems
+        Nothing -> return storeWithMems
     where
         initElem :: Store -> ElemSegment -> IO Store
         initElem st ElemSegment {tableIndex, offset, funcIndexes} = do
@@ -235,9 +231,7 @@ initialize inst Module {elems, datas} store = do
                 mapM_ (\(i,b) -> IOVector.write mem i b) $ zip [from..] $ LBS.unpack chunk
                 return $ st { memInstances = memInstances st // [(idx, MemoryInstance mem maxLen)] }
 
-data EvalContext = EvalContext ModuleInstance (IORef Store)
-
-instantiate :: Store -> Imports -> Module -> IO EvalContext
+instantiate :: Store -> Imports -> Module -> IO (ModuleInstance, Store)
 instantiate st imps m = do
     let inst = calcInstance st imps m
     let functions = funcInstances st <> (allocFunctions inst $ Struct.functions m)
@@ -250,8 +244,70 @@ instantiate st imps m = do
         memInstances = mems,
         globalInstances = globals
     }
-    ref <- newIORef st'
-    return $ EvalContext inst ref
+    return (inst, st')
 
-invoke :: EvalContext -> TL.Text -> [Value] -> IO [Value]
-invoke = undefined
+type Stack = [Value]
+
+data EvalCtx = EvalCtx {
+    locals :: Vector Value,
+    labels :: [Label],
+    stack :: Stack
+}
+
+eval :: Store -> FunctionInstance -> [Value] -> IO [Value]
+eval store FunctionInstance { funcType, moduleInstance, code = Function { localTypes, body} } args = do
+    let checkedArgs = zipWith checkArgType (params funcType) args
+    let initialContext = EvalCtx {
+            locals = Vector.fromList $ checkedArgs ++ map initLocal localTypes,
+            labels = [],
+            stack = []
+        }
+    result <- Monad.foldM step initialContext body
+    return $ reverse $ stack result
+    where
+        checkArgType :: ValueType -> Value -> Value
+        checkArgType I32 (VI32 v) = VI32 v
+        checkArgType I64 (VI64 v) = VI64 v
+        checkArgType F32 (VF32 v) = VF32 v
+        checkArgType F64 (VF64 v) = VF64 v
+        checkArgType _   _        = error "Argument types do not match function type"
+
+        initLocal :: ValueType -> Value
+        initLocal I32 = VI32 0
+        initLocal I64 = VI64 0
+        initLocal F32 = VF32 0
+        initLocal F64 = VF64 0
+
+        step :: EvalCtx -> Instruction -> IO EvalCtx
+        step ctx (I32Const v) = return ctx { stack = VI32 v : stack ctx }
+        step ctx (I64Const v) = return ctx { stack = VI64 v : stack ctx }
+        step ctx (F32Const v) = return ctx { stack = VF32 v : stack ctx }
+        step ctx (F64Const v) = return ctx { stack = VF64 v : stack ctx }
+        step ctx (GetLocal i) = return ctx { stack = (locals ctx ! fromIntegral i) : stack ctx }
+        step ctx@EvalCtx{ stack = (v:rest) } (SetLocal i) =
+            return ctx { stack = rest, locals = locals ctx // [(fromIntegral i, v)] }
+        step ctx@EvalCtx{ locals = ls, stack = (v:rest) } (TeeLocal i) =
+            return ctx {
+                stack = (ls ! fromIntegral i) : rest,
+                locals = locals ctx // [(fromIntegral i, v)]
+            }
+        step ctx (GetGlobal i) = do
+            let globalInst = globalInstances store ! (globaladdrs moduleInstance ! fromIntegral i)
+            val <- case globalInst of
+                GIConst v -> return v
+                GIMut ref -> readIORef ref
+            return ctx { stack = val : stack ctx }
+        step ctx@EvalCtx{ stack = (v:rest) } (SetGlobal i) = do
+            let globalInst = globalInstances store ! (globaladdrs moduleInstance ! fromIntegral i)
+            case globalInst of
+                GIConst v -> error "Attempt of mutation of constant global"
+                GIMut ref -> writeIORef ref v
+            return ctx { stack = rest }
+        step _   _ = error "Error during evaluation"
+eval store HostInstance { funcType, tag } args = return args
+
+invoke :: Store -> Address -> [Value] -> IO [Value]
+invoke st funcIdx = eval st $ funcInstances st ! funcIdx
+
+invokeExport :: Store -> TL.Text -> [Value] -> IO [Value]
+invokeExport = undefined

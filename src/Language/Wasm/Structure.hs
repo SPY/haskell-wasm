@@ -176,7 +176,7 @@ type Expression = [Instruction]
 
 data Function = Function {
     funcType :: TypeIndex,
-    locals :: LocalsType,
+    localTypes :: LocalsType,
     body :: Expression
 } deriving (Show, Eq)
 

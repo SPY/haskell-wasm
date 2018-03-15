@@ -1514,7 +1514,7 @@ desugarize fields =
             let ctx = FunCtx mod [] locals params in
             S.Function {
                 S.funcType = typeIdx,
-                S.locals = map localType locals,
+                S.localTypes = map localType locals,
                 S.body = map (synInstrToStruct ctx) body
             }
 

@@ -454,7 +454,7 @@ ctxFromModule locals labels returns m@Module {types, tables, mems, globals, impo
         getGlobalType _ = Nothing
 
 isFunctionValid :: Function -> Validator
-isFunctionValid Function {funcType, locals, body} mod@Module {types} =
+isFunctionValid Function {funcType, localTypes = locals, body} mod@Module {types} =
     let FuncType params results = types !! fromIntegral funcType in
     let r = safeHead results in
     let ctx = ctxFromModule (params ++ locals) [r] r mod in

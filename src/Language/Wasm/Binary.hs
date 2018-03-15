@@ -719,7 +719,7 @@ instance Serialize LocalTypeRange where
     get = LocalTypeRange <$> getULEB128 <*> get
 
 instance Serialize Function where
-    put Function {locals, body} = do
+    put Function {localTypes = locals, body} = do
         let bs = runPut $ do
                 putVec $ map (LocalTypeRange 1) locals
                 putExpression body
