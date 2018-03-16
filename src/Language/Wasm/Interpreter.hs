@@ -16,9 +16,11 @@ import qualified Data.Vector as Vector
 import qualified Data.Vector.Storable.Mutable as IOVector
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.Word (Word8, Word32, Word64)
+import Data.Int (Int32, Int64)
 import Numeric.Natural (Natural)
 import qualified Control.Monad as Monad
 import Data.Monoid ((<>))
+import Data.Bits ((.|.), (.&.), xor, shiftL, shiftR, rotateL, rotateR)
 
 import Language.Wasm.Structure as Struct
 
@@ -28,6 +30,28 @@ data Value =
     | VF32 Float
     | VF64 Double
     deriving (Eq, Show)
+
+asInt32 :: Word32 -> Int32
+asInt32 w =
+    let base = fromIntegral $ w .&. 0x7FFFFFFF in
+    let sign = w .&. 0x80000000 in
+    if sign /= 0 then -base else base
+
+asInt64 :: Word64 -> Int64
+asInt64 w =
+    let base = fromIntegral $ w .&. 0x7FFFFFFFFFFFFFFF in
+    let sign = w .&. 0x8000000000000000 in
+    if sign /= 0 then -base else base
+
+asWord32 :: Int32 -> Word32
+asWord32 i
+    | i >= 0 = fromIntegral i
+    | otherwise = 0x80000000 .|. (fromIntegral (abs i))
+
+asWord64 :: Int64 -> Word64
+asWord64 i
+    | i >= 0 = fromIntegral i
+    | otherwise = 0x8000000000000000 .|. (fromIntegral (abs i))
 
 data Label = Label ResultType deriving (Show, Eq)
 
@@ -379,6 +403,66 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx (I64Const v) = return $ Done ctx { stack = VI64 v : stack ctx }
         step ctx (F32Const v) = return $ Done ctx { stack = VF32 v : stack ctx }
         step ctx (F64Const v) = return $ Done ctx { stack = VF64 v : stack ctx }
+        step ctx@EvalCtx{ stack = (VI32 v1:VI32 v2:rest) } (IBinOp BS32 IAdd) =
+            return $ Done ctx { stack = VI32 (v1 + v2) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v1:VI32 v2:rest) } (IBinOp BS32 ISub) =
+            return $ Done ctx { stack = VI32 (v1 - v2) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v1:VI32 v2:rest) } (IBinOp BS32 IMul) =
+            return $ Done ctx { stack = VI32 (v1 * v2) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v1:VI32 v2:rest) } (IBinOp BS32 IDivU) =
+            return $ Done ctx { stack = VI32 (v1 `div` v2) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v1:VI32 v2:rest) } (IBinOp BS32 IDivS) =
+            return $ Done ctx { stack = VI32 (asWord32 $ asInt32 v1 `div` asInt32 v2) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v1:VI32 v2:rest) } (IBinOp BS32 IRemU) =
+            return $ Done ctx { stack = VI32 (v1 `rem` v2) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v1:VI32 v2:rest) } (IBinOp BS32 IRemS) =
+            return $ Done ctx { stack = VI32 (asWord32 $ asInt32 v1 `rem` asInt32 v2) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v1:VI32 v2:rest) } (IBinOp BS32 IAnd) =
+            return $ Done ctx { stack = VI32 (v1 .&. v2) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v1:VI32 v2:rest) } (IBinOp BS32 IOr) =
+            return $ Done ctx { stack = VI32 (v1 .|. v2) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v1:VI32 v2:rest) } (IBinOp BS32 IXor) =
+            return $ Done ctx { stack = VI32 (v1 `xor` v2) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v1:VI32 v2:rest) } (IBinOp BS32 IShl) =
+            return $ Done ctx { stack = VI32 (v1 `shiftL` fromIntegral v2) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v1:VI32 v2:rest) } (IBinOp BS32 IShrU) =
+            return $ Done ctx { stack = VI32 (v1 `shiftR` fromIntegral v2) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v1:VI32 v2:rest) } (IBinOp BS32 IShrS) =
+            return $ Done ctx { stack = VI32 (asWord32 $ asInt32 v1 `shiftR` (fromIntegral $ asInt32 v2)) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v1:VI32 v2:rest) } (IBinOp BS32 IRotl) =
+            return $ Done ctx { stack = VI32 (v1 `rotateL` fromIntegral v2) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v1:VI32 v2:rest) } (IBinOp BS32 IRotr) =
+            return $ Done ctx { stack = VI32 (v1 `rotateR` fromIntegral v2) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IBinOp BS64 IAdd) =
+            return $ Done ctx { stack = VI64 (v1 + v2) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IBinOp BS64 ISub) =
+            return $ Done ctx { stack = VI64 (v1 - v2) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IBinOp BS64 IMul) =
+            return $ Done ctx { stack = VI64 (v1 * v2) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IBinOp BS64 IDivU) =
+            return $ Done ctx { stack = VI64 (v1 `div` v2) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IBinOp BS64 IDivS) =
+            return $ Done ctx { stack = VI64 (asWord64 $ asInt64 v1 `div` asInt64 v2) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IBinOp BS64 IRemU) =
+            return $ Done ctx { stack = VI64 (v1 `rem` v2) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IBinOp BS64 IRemS) =
+            return $ Done ctx { stack = VI64 (asWord64 $ asInt64 v1 `rem` asInt64 v2) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IBinOp BS64 IAnd) =
+            return $ Done ctx { stack = VI64 (v1 .&. v2) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IBinOp BS64 IOr) =
+            return $ Done ctx { stack = VI64 (v1 .|. v2) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IBinOp BS64 IXor) =
+            return $ Done ctx { stack = VI64 (v1 `xor` v2) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IBinOp BS64 IShl) =
+            return $ Done ctx { stack = VI64 (v1 `shiftL` fromIntegral v2) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IBinOp BS64 IShrU) =
+            return $ Done ctx { stack = VI64 (v1 `shiftR` fromIntegral v2) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IBinOp BS64 IShrS) =
+            return $ Done ctx { stack = VI64 (asWord64 $ asInt64 v1 `shiftR` (fromIntegral $ asInt64 v2)) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IBinOp BS64 IRotl) =
+            return $ Done ctx { stack = VI64 (v1 `rotateL` fromIntegral v2) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IBinOp BS64 IRotr) =
+            return $ Done ctx { stack = VI64 (v1 `rotateR` fromIntegral v2) : rest }
         step _   instr = error $ "Error during evaluation of instruction " ++ show instr
 eval store HostInstance { funcType, tag } args = return args
 
