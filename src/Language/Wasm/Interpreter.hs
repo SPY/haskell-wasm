@@ -29,7 +29,7 @@ data Value =
     | VF64 Double
     deriving (Eq, Show)
 
-data Label = Label
+data Label = Label ResultType deriving (Show, Eq)
 
 type Address = Int
 
@@ -252,25 +252,37 @@ data EvalCtx = EvalCtx {
     locals :: Vector Value,
     labels :: [Label],
     stack :: Stack
-}
+} deriving (Show, Eq)
+
+data EvalResult =
+    Done EvalCtx
+    | Break Int [Value] EvalCtx
+    | Trap
+    | ReturnFn [Value]
+    deriving (Show, Eq)
 
 eval :: Store -> FunctionInstance -> [Value] -> IO [Value]
 eval store FunctionInstance { funcType, moduleInstance, code = Function { localTypes, body} } args = do
-    let checkedArgs = zipWith checkArgType (params funcType) args
+    let checkedArgs = zipWith checkValType (params funcType) args
     let initialContext = EvalCtx {
             locals = Vector.fromList $ checkedArgs ++ map initLocal localTypes,
-            labels = [],
+            labels = [Label $ results funcType],
             stack = []
         }
-    result <- Monad.foldM step initialContext body
-    return $ reverse $ stack result
+    res <- go initialContext body
+    case res of
+        Done ctx -> return $ reverse $ stack ctx
+        ReturnFn r -> return r
+        Break 0 r _ -> return $ reverse r
+        Break _ _ _ -> error "Break is out of range"
+        Trap -> error "Evaluation terminated with Trap"
     where
-        checkArgType :: ValueType -> Value -> Value
-        checkArgType I32 (VI32 v) = VI32 v
-        checkArgType I64 (VI64 v) = VI64 v
-        checkArgType F32 (VF32 v) = VF32 v
-        checkArgType F64 (VF64 v) = VF64 v
-        checkArgType _   _        = error "Argument types do not match function type"
+        checkValType :: ValueType -> Value -> Value
+        checkValType I32 (VI32 v) = VI32 v
+        checkValType I64 (VI64 v) = VI64 v
+        checkValType F32 (VF32 v) = VF32 v
+        checkValType F64 (VF64 v) = VF64 v
+        checkValType _   _        = error "Value types do not match provided value"
 
         initLocal :: ValueType -> Value
         initLocal I32 = VI32 0
@@ -278,16 +290,66 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         initLocal F32 = VF32 0
         initLocal F64 = VF64 0
 
-        step :: EvalCtx -> Instruction -> IO EvalCtx
-        step ctx (I32Const v) = return ctx { stack = VI32 v : stack ctx }
-        step ctx (I64Const v) = return ctx { stack = VI64 v : stack ctx }
-        step ctx (F32Const v) = return ctx { stack = VF32 v : stack ctx }
-        step ctx (F64Const v) = return ctx { stack = VF64 v : stack ctx }
-        step ctx (GetLocal i) = return ctx { stack = (locals ctx ! fromIntegral i) : stack ctx }
+        go :: EvalCtx -> [Instruction] -> IO EvalResult
+        go ctx [] = return $ Done ctx
+        go ctx (instr:rest) = do
+            res <- step ctx instr
+            case res of
+                Done ctx' -> go ctx' rest
+                command -> return command
+
+        step :: EvalCtx -> Instruction -> IO EvalResult
+        step _ Unreachable = return Trap
+        step ctx Nop = return $ Done ctx
+        step ctx (Block resType expr) = do
+            res <- go ctx { labels = Label resType : labels ctx } expr
+            case res of
+                Break 0 r EvalCtx{ locals = ls } -> return $ Done ctx { locals = ls, stack = r ++ stack ctx }
+                Break n r ctx' -> return $ Break (n - 1) r ctx'
+                command -> return command
+        step ctx loop@(Loop resType expr) = do
+            res <- go ctx { labels = Label resType : labels ctx } expr
+            case res of
+                Break 0 r EvalCtx{ locals = ls } -> step ctx { locals = ls, stack = r ++ stack ctx } loop
+                Break n r ctx' -> return $ Break (n - 1) r ctx'
+                command -> return command
+        step ctx@EvalCtx{ stack = (VI32 v): rest } (If resType true false) = do
+            let expr = if v /= 0 then true else false
+            res <- go ctx { labels = Label resType : labels ctx, stack = rest } expr
+            case res of
+                Break 0 r EvalCtx{ locals = ls } -> return $ Done ctx { locals = ls, stack = r ++ stack ctx }
+                Break n r ctx' -> return $ Break (n - 1) r ctx'
+                command -> return command
+        step ctx@EvalCtx{ stack, labels } (Br label) = do
+            let idx = fromIntegral label
+            let Label resType = labels !! idx
+            return $ Break idx (zipWith checkValType resType $ take (length resType) stack) ctx
+        step ctx@EvalCtx{ stack = (VI32 v): rest } (BrIf label) =
+            if v /= 0
+            then return $ Done ctx { stack = rest }
+            else step ctx { stack = rest } (Br label)
+        step ctx@EvalCtx{ stack = (VI32 v): rest } (BrTable labels label) =
+            let idx = fromIntegral v in
+            let lbl = fromIntegral $ if idx < length labels then labels !! idx else label in
+            step ctx { stack = rest } (Br lbl)
+        step EvalCtx{ stack } Return =
+            let resType = results funcType in
+            return $ ReturnFn $ reverse $ zipWith checkValType resType $ take (length resType) stack
+        step ctx (Call fun) = do
+            let funInst@FunctionInstance { funcType } = funcInstances store ! (funcaddrs moduleInstance ! fromIntegral fun)
+            let args = params funcType
+            res <- eval store funInst (zipWith checkValType args $ take (length args) $ stack ctx)
+            return $ Done ctx { stack = reverse res ++ (drop (length args) $ stack ctx) }
+        step ctx@EvalCtx{ stack = (_:rest) } Drop = return $ Done ctx { stack = rest }
+        step ctx@EvalCtx{ stack = (VI32 test:val2:val1:rest) } Select =
+            if test == 0
+            then return $ Done ctx { stack = val1 : rest }
+            else return $ Done ctx { stack = val2 : rest }
+        step ctx (GetLocal i) = return $ Done ctx { stack = (locals ctx ! fromIntegral i) : stack ctx }
         step ctx@EvalCtx{ stack = (v:rest) } (SetLocal i) =
-            return ctx { stack = rest, locals = locals ctx // [(fromIntegral i, v)] }
+            return $ Done ctx { stack = rest, locals = locals ctx // [(fromIntegral i, v)] }
         step ctx@EvalCtx{ locals = ls, stack = (v:rest) } (TeeLocal i) =
-            return ctx {
+            return $ Done ctx {
                 stack = (ls ! fromIntegral i) : rest,
                 locals = locals ctx // [(fromIntegral i, v)]
             }
@@ -296,14 +358,18 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
             val <- case globalInst of
                 GIConst v -> return v
                 GIMut ref -> readIORef ref
-            return ctx { stack = val : stack ctx }
+            return $ Done ctx { stack = val : stack ctx }
         step ctx@EvalCtx{ stack = (v:rest) } (SetGlobal i) = do
             let globalInst = globalInstances store ! (globaladdrs moduleInstance ! fromIntegral i)
             case globalInst of
                 GIConst v -> error "Attempt of mutation of constant global"
                 GIMut ref -> writeIORef ref v
-            return ctx { stack = rest }
-        step _   _ = error "Error during evaluation"
+            return $ Done ctx { stack = rest }
+        step ctx (I32Const v) = return $ Done ctx { stack = VI32 v : stack ctx }
+        step ctx (I64Const v) = return $ Done ctx { stack = VI64 v : stack ctx }
+        step ctx (F32Const v) = return $ Done ctx { stack = VF32 v : stack ctx }
+        step ctx (F64Const v) = return $ Done ctx { stack = VF64 v : stack ctx }
+        step _   instr = error $ "Error during evaluation of instruction " ++ show instr
 eval store HostInstance { funcType, tag } args = return args
 
 invoke :: Store -> Address -> [Value] -> IO [Value]
