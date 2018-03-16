@@ -82,7 +82,7 @@ emptyStore = Store {
 }
 
 data ModuleInstance = ModuleInstance {
-    types :: Vector FuncType,
+    funcTypes :: Vector FuncType,
     funcaddrs :: Vector Address,
     tableaddrs :: Vector Address,
     memaddrs :: Vector Address,
@@ -120,7 +120,7 @@ calcInstance (Store fs ts ms gs) imps Module {functions, types, tables, mems, gl
             ExportInstance name $ ExternGlobal $ globs ! fromIntegral idx
     in
     ModuleInstance {
-        types = Vector.fromList types,
+        funcTypes = Vector.fromList types,
         funcaddrs = funs,
         tableaddrs = tbls,
         memaddrs = memories,
@@ -131,8 +131,8 @@ calcInstance (Store fs ts ms gs) imps Module {functions, types, tables, mems, gl
 type Imports = Map.Map (TL.Text, TL.Text) ExternalValue
 
 allocFunctions :: ModuleInstance -> [Function] -> Vector FunctionInstance
-allocFunctions inst@ModuleInstance {types} funs =
-    let mkFuncInst f@Function {funcType} = FunctionInstance (types ! (fromIntegral funcType)) inst f in
+allocFunctions inst@ModuleInstance {funcTypes} funs =
+    let mkFuncInst f@Function {funcType} = FunctionInstance (funcTypes ! (fromIntegral funcType)) inst f in
     Vector.fromList $ map mkFuncInst funs
 
 getGlobalValue :: ModuleInstance -> Store -> Natural -> IO Value
@@ -340,6 +340,16 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
             let args = params funcType
             res <- eval store funInst (zipWith checkValType args $ take (length args) $ stack ctx)
             return $ Done ctx { stack = reverse res ++ (drop (length args) $ stack ctx) }
+        step ctx@EvalCtx{ stack = (VI32 v): rest } (CallIndirect typeIdx) = do
+            let funcType = funcTypes moduleInstance ! fromIntegral typeIdx
+            let TableInstance { elements } = tableInstances store ! (tableaddrs moduleInstance ! fromIntegral v)
+            let funcAddr = elements !? fromIntegral v
+            case funcAddr of
+                Just (Just addr) -> do
+                    let args = params funcType
+                    res <- invoke store addr (zipWith checkValType args $ take (length args) rest)
+                    return $ Done ctx { stack = reverse res ++ (drop (length args) rest) }
+                _ -> return Trap
         step ctx@EvalCtx{ stack = (_:rest) } Drop = return $ Done ctx { stack = rest }
         step ctx@EvalCtx{ stack = (VI32 test:val2:val1:rest) } Select =
             if test == 0
