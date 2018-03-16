@@ -433,6 +433,26 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
             return $ Done ctx { stack = VI32 (v1 `rotateL` fromIntegral v2) : rest }
         step ctx@EvalCtx{ stack = (VI32 v1:VI32 v2:rest) } (IBinOp BS32 IRotr) =
             return $ Done ctx { stack = VI32 (v1 `rotateR` fromIntegral v2) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v1:VI32 v2:rest) } (IRelOp BS32 IEq) =
+            return $ Done ctx { stack = VI32 (if v1 == v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v1:VI32 v2:rest) } (IRelOp BS32 INe) =
+            return $ Done ctx { stack = VI32 (if v1 /= v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v1:VI32 v2:rest) } (IRelOp BS32 ILtU) =
+            return $ Done ctx { stack = VI32 (if v1 < v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v1:VI32 v2:rest) } (IRelOp BS32 ILtS) =
+            return $ Done ctx { stack = VI32 (if asInt32 v1 < asInt32 v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v1:VI32 v2:rest) } (IRelOp BS32 IGtU) =
+            return $ Done ctx { stack = VI32 (if v1 > v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v1:VI32 v2:rest) } (IRelOp BS32 IGtS) =
+            return $ Done ctx { stack = VI32 (if asInt32 v1 > asInt32 v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v1:VI32 v2:rest) } (IRelOp BS32 ILeU) =
+            return $ Done ctx { stack = VI32 (if v1 <= v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v1:VI32 v2:rest) } (IRelOp BS32 ILeS) =
+            return $ Done ctx { stack = VI32 (if asInt32 v1 <= asInt32 v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v1:VI32 v2:rest) } (IRelOp BS32 IGeU) =
+            return $ Done ctx { stack = VI32 (if v1 >= v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v1:VI32 v2:rest) } (IRelOp BS32 IGeS) =
+            return $ Done ctx { stack = VI32 (if asInt32 v1 >= asInt32 v2 then 1 else 0) : rest }
         step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IBinOp BS64 IAdd) =
             return $ Done ctx { stack = VI64 (v1 + v2) : rest }
         step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IBinOp BS64 ISub) =
@@ -463,6 +483,26 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
             return $ Done ctx { stack = VI64 (v1 `rotateL` fromIntegral v2) : rest }
         step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IBinOp BS64 IRotr) =
             return $ Done ctx { stack = VI64 (v1 `rotateR` fromIntegral v2) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IRelOp BS64 IEq) =
+            return $ Done ctx { stack = VI64 (if v1 == v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IRelOp BS64 INe) =
+            return $ Done ctx { stack = VI64 (if v1 /= v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IRelOp BS64 ILtU) =
+            return $ Done ctx { stack = VI64 (if v1 < v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IRelOp BS64 ILtS) =
+            return $ Done ctx { stack = VI64 (if asInt64 v1 < asInt64 v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IRelOp BS64 IGtU) =
+            return $ Done ctx { stack = VI64 (if v1 > v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IRelOp BS64 IGtS) =
+            return $ Done ctx { stack = VI64 (if asInt64 v1 > asInt64 v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IRelOp BS64 ILeU) =
+            return $ Done ctx { stack = VI64 (if v1 <= v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IRelOp BS64 ILeS) =
+            return $ Done ctx { stack = VI64 (if asInt64 v1 <= asInt64 v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IRelOp BS64 IGeU) =
+            return $ Done ctx { stack = VI64 (if v1 >= v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v1:VI64 v2:rest) } (IRelOp BS64 IGeS) =
+            return $ Done ctx { stack = VI64 (if asInt64 v1 >= asInt64 v2 then 1 else 0) : rest }
         step _   instr = error $ "Error during evaluation of instruction " ++ show instr
 eval store HostInstance { funcType, tag } args = return args
 
