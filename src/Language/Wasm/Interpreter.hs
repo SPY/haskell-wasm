@@ -24,7 +24,19 @@ import Data.Int (Int32, Int64)
 import Numeric.Natural (Natural)
 import qualified Control.Monad as Monad
 import Data.Monoid ((<>))
-import Data.Bits ((.|.), (.&.), xor, shiftL, shiftR, rotateL, rotateR)
+import Data.Bits (
+        Bits,
+        (.|.),
+        (.&.),
+        xor,
+        shiftL,
+        shiftR,
+        rotateL,
+        rotateR,
+        popCount,
+        countLeadingZeros,
+        countTrailingZeros
+    )
 
 import Debug.Trace as Debug
 
@@ -463,6 +475,14 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
             return $ Done ctx { stack = VI32 (if v1 >= v2 then 1 else 0) : rest }
         step ctx@EvalCtx{ stack = (VI32 v2:VI32 v1:rest) } (IRelOp BS32 IGeS) =
             return $ Done ctx { stack = VI32 (if asInt32 v1 >= asInt32 v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v:rest) } I32Eqz =
+            return $ Done ctx { stack = VI32 (if v == 0 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v:rest) } (IUnOp BS32 IClz) =
+            return $ Done ctx { stack = VI32 (fromIntegral $ countLeadingZeros v) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v:rest) } (IUnOp BS32 ICtz) =
+            return $ Done ctx { stack = VI32 (fromIntegral $ countTrailingZeros v) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v:rest) } (IUnOp BS32 IPopcnt) =
+            return $ Done ctx { stack = VI32 (fromIntegral $ popCount v) : rest }
         step ctx@EvalCtx{ stack = (VI64 v2:VI64 v1:rest) } (IBinOp BS64 IAdd) =
             return $ Done ctx { stack = VI64 (asWord64 $ asInt64 v1 + asInt64 v2) : rest }
         step ctx@EvalCtx{ stack = (VI64 v2:VI64 v1:rest) } (IBinOp BS64 ISub) =
@@ -513,6 +533,14 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
             return $ Done ctx { stack = VI32 (if v1 >= v2 then 1 else 0) : rest }
         step ctx@EvalCtx{ stack = (VI64 v2:VI64 v1:rest) } (IRelOp BS64 IGeS) =
             return $ Done ctx { stack = VI32 (if asInt64 v1 >= asInt64 v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v:rest) } I64Eqz =
+            return $ Done ctx { stack = VI32 (if v == 0 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v:rest) } (IUnOp BS64 IClz) =
+            return $ Done ctx { stack = VI32 (fromIntegral $ countLeadingZeros v) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v:rest) } (IUnOp BS64 ICtz) =
+            return $ Done ctx { stack = VI32 (fromIntegral $ countTrailingZeros v) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v:rest) } (IUnOp BS64 IPopcnt) =
+            return $ Done ctx { stack = VI32 (fromIntegral $ popCount v) : rest }
         step _   instr = error $ "Error during evaluation of instruction: " ++ show instr
 eval store HostInstance { funcType, tag } args = return args
 
