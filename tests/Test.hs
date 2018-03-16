@@ -55,21 +55,23 @@ main = do
           assertEqual "Too many tables" Validate.MoreThanOneTable $ Validate.validate mod
         _ ->
           assertBool "Module matched" $ Validate.isValid $ Validate.validate mod
-  interpretFact <- do
+  interpretFactTestCases <- do
     content <- LBS.readFile "tests/samples/fact.wast"
     let Right mod = Parser.parseModule <$> Lexer.scanner content
     (modInst, store) <- Interpreter.instantiate Interpreter.emptyStore Interpreter.emptyImports mod
-    let fac = \n -> Interpreter.invokeExport store modInst "fac-opt" [Interpreter.VI64 n]
-    fac3 <- fac 3
-    fac5 <- fac 5
-    fac8 <- fac 8
-    return $ testCase "Interprete factorial" $ do
-      assertEqual "Fact 3! == 120" [Interpreter.VI64 6] fac3
-      assertEqual "Fact 5! == 120" [Interpreter.VI64 120] fac5
-      assertEqual "Fact 8! == 40320" [Interpreter.VI64 40320] fac8
+    (`mapM` ["fac-rec", "fac-rec-named", "fac-iter", "fac-iter-named", "fac-opt"]) $ \fn -> do
+    -- (`mapM` ["fac-iter-named"]) $ \fn -> do
+      let fac = \n -> Interpreter.invokeExport store modInst fn [Interpreter.VI64 n]
+      fac3 <- fac 3
+      fac5 <- fac 5
+      fac8 <- fac 8
+      return $ testCase ("Interprete " ++ show fn) $ do
+        assertEqual "Fact 3! == 6" [Interpreter.VI64 6] fac3
+        assertEqual "Fact 5! == 120" [Interpreter.VI64 120] fac5
+        assertEqual "Fact 8! == 40320" [Interpreter.VI64 40320] fac8
   defaultMain $ testGroup "tests" [
       testGroup "Syntax parsing" syntaxTestCases,
       testGroup "Binary format" binaryTestCases,
       testGroup "Validation" validationTestCases,
-      testGroup "Interpretation" [interpretFact]
+      testGroup "Interpretation" interpretFactTestCases
     ]
