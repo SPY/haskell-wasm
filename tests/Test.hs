@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Main (
   main
 ) where
@@ -14,6 +15,7 @@ import qualified Language.Wasm.Parser as Parser
 import qualified Language.Wasm.Structure as Structure
 import qualified Language.Wasm.Binary as Binary
 import qualified Language.Wasm.Validate as Validate
+import qualified Language.Wasm.Interpreter as Interpreter
 
 import qualified Debug.Trace as Debug
 
@@ -53,8 +55,21 @@ main = do
           assertEqual "Too many tables" Validate.MoreThanOneTable $ Validate.validate mod
         _ ->
           assertBool "Module matched" $ Validate.isValid $ Validate.validate mod
+  interpretFact <- do
+    content <- LBS.readFile "tests/samples/fact.wast"
+    let Right mod = Parser.parseModule <$> Lexer.scanner content
+    (modInst, store) <- Interpreter.instantiate Interpreter.emptyStore Interpreter.emptyImports mod
+    let fac = \n -> Interpreter.invokeExport store modInst "fac-opt" [Interpreter.VI64 n]
+    fac3 <- fac 3
+    fac5 <- fac 5
+    fac8 <- fac 8
+    return $ testCase "Interprete factorial" $ do
+      assertEqual "Fact 3! == 120" [Interpreter.VI64 6] fac3
+      assertEqual "Fact 5! == 120" [Interpreter.VI64 120] fac5
+      assertEqual "Fact 8! == 40320" [Interpreter.VI64 40320] fac8
   defaultMain $ testGroup "tests" [
       testGroup "Syntax parsing" syntaxTestCases,
       testGroup "Binary format" binaryTestCases,
-      testGroup "Validation" validationTestCases
+      testGroup "Validation" validationTestCases,
+      testGroup "Interpretation" [interpretFact]
     ]
