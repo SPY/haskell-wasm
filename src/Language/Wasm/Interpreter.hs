@@ -635,6 +635,30 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
             return $ Done ctx { stack = VF64 (max v1 v2) : rest }
         step ctx@EvalCtx{ stack = (VF64 v2:VF64 v1:rest) } (FBinOp BS64 FCopySign) =
             return $ Done ctx { stack = VF64 (abs v1 * signum v2) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v2:VF32 v1:rest) } (FRelOp BS32 FEq) =
+            return $ Done ctx { stack = VI32 (if v1 == v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v2:VF32 v1:rest) } (FRelOp BS32 FNe) =
+            return $ Done ctx { stack = VI32 (if v1 /= v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v2:VF32 v1:rest) } (FRelOp BS32 FLt) =
+            return $ Done ctx { stack = VI32 (if v1 < v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v2:VF32 v1:rest) } (FRelOp BS32 FGt) =
+            return $ Done ctx { stack = VI32 (if v1 > v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v2:VF32 v1:rest) } (FRelOp BS32 FLe) =
+            return $ Done ctx { stack = VI32 (if v1 <= v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v2:VF32 v1:rest) } (FRelOp BS32 FGe) =
+            return $ Done ctx { stack = VI32 (if v1 >= v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v2:VF64 v1:rest) } (FRelOp BS64 FEq) =
+            return $ Done ctx { stack = VI32 (if v1 == v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v2:VF64 v1:rest) } (FRelOp BS64 FNe) =
+            return $ Done ctx { stack = VI32 (if v1 /= v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v2:VF64 v1:rest) } (FRelOp BS64 FLt) =
+            return $ Done ctx { stack = VI32 (if v1 < v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v2:VF64 v1:rest) } (FRelOp BS64 FGt) =
+            return $ Done ctx { stack = VI32 (if v1 > v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v2:VF64 v1:rest) } (FRelOp BS64 FLe) =
+            return $ Done ctx { stack = VI32 (if v1 <= v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v2:VF64 v1:rest) } (FRelOp BS64 FGe) =
+            return $ Done ctx { stack = VI32 (if v1 >= v2 then 1 else 0) : rest }
         step ctx@EvalCtx{ stack = (VI64 v:rest) } I32WrapI64 =
             return $ Done ctx { stack = VI32 (fromIntegral $ v .&. 0xFFFFFFFF) : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncFU BS32 BS32) =
