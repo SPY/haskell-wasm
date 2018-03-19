@@ -607,6 +607,34 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
             return $ Done ctx { stack = VF64 (nearest v) : rest }
         step ctx@EvalCtx{ stack = (VF64 v:rest) } (FUnOp BS64 FSqrt) =
             return $ Done ctx { stack = VF64 (sqrt v) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v2:VF32 v1:rest) } (FBinOp BS32 FAdd) =
+            return $ Done ctx { stack = VF32 (v1 + v2) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v2:VF32 v1:rest) } (FBinOp BS32 FSub) =
+            return $ Done ctx { stack = VF32 (v1 - v2) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v2:VF32 v1:rest) } (FBinOp BS32 FMul) =
+            return $ Done ctx { stack = VF32 (v1 * v2) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v2:VF32 v1:rest) } (FBinOp BS32 FDiv) =
+            return $ Done ctx { stack = VF32 (v1 / v2) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v2:VF32 v1:rest) } (FBinOp BS32 FMin) =
+            return $ Done ctx { stack = VF32 (min v1 v2) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v2:VF32 v1:rest) } (FBinOp BS32 FMax) =
+            return $ Done ctx { stack = VF32 (max v1 v2) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v2:VF32 v1:rest) } (FBinOp BS32 FCopySign) =
+            return $ Done ctx { stack = VF32 (abs v1 * signum v2) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v2:VF64 v1:rest) } (FBinOp BS64 FAdd) =
+            return $ Done ctx { stack = VF64 (v1 + v2) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v2:VF64 v1:rest) } (FBinOp BS64 FSub) =
+            return $ Done ctx { stack = VF64 (v1 - v2) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v2:VF64 v1:rest) } (FBinOp BS64 FMul) =
+            return $ Done ctx { stack = VF64 (v1 * v2) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v2:VF64 v1:rest) } (FBinOp BS64 FDiv) =
+            return $ Done ctx { stack = VF64 (v1 / v2) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v2:VF64 v1:rest) } (FBinOp BS64 FMin) =
+            return $ Done ctx { stack = VF64 (min v1 v2) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v2:VF64 v1:rest) } (FBinOp BS64 FMax) =
+            return $ Done ctx { stack = VF64 (max v1 v2) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v2:VF64 v1:rest) } (FBinOp BS64 FCopySign) =
+            return $ Done ctx { stack = VF64 (abs v1 * signum v2) : rest }
         step ctx@EvalCtx{ stack = (VI64 v:rest) } I32WrapI64 =
             return $ Done ctx { stack = VI32 (fromIntegral $ v .&. 0xFFFFFFFF) : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncFU BS32 BS32) =
