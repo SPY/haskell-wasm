@@ -92,6 +92,23 @@ cast :: (MArray (STUArray s) a (ST s),
          MArray (STUArray s) b (ST s)) => a -> ST s b
 cast x = newArray (0 :: Int, 0) x >>= castSTUArray >>= flip readArray 0
 
+nearest :: (Floating a, RealFrac a) => a -> a
+nearest f
+    | f >= 0 && f <= 0.5 = 0
+    | f < 0 && f >= -0.5 = -0
+    | otherwise =
+        let i = floor f :: Int64 in
+        let fi = fromIntegral i in
+        let r = abs f - abs fi in
+        if r == 0.5
+        then (
+            case (even i, f < 0) of
+                (True, _) -> fi
+                (_, True) -> fi - 1.0
+                (_, False) -> fi + 1.0
+        )
+        else fromIntegral (round f :: Int64)
+
 data Label = Label ResultType deriving (Show, Eq)
 
 type Address = Int
@@ -562,6 +579,34 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
             return $ Done ctx { stack = VI32 (fromIntegral $ countTrailingZeros v) : rest }
         step ctx@EvalCtx{ stack = (VI64 v:rest) } (IUnOp BS64 IPopcnt) =
             return $ Done ctx { stack = VI32 (fromIntegral $ popCount v) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } (FUnOp BS32 FAbs) =
+            return $ Done ctx { stack = VF32 (abs v) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } (FUnOp BS32 FNeg) =
+            return $ Done ctx { stack = VF32 (negate v) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } (FUnOp BS32 FCeil) =
+            return $ Done ctx { stack = VF32 (fromIntegral (ceiling v :: Int)) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } (FUnOp BS32 FFloor) =
+            return $ Done ctx { stack = VF32 (fromIntegral (floor v :: Int)) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } (FUnOp BS32 FTrunc) =
+            return $ Done ctx { stack = VF32 (fromIntegral (truncate v :: Int)) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } (FUnOp BS32 FNearest) =
+            return $ Done ctx { stack = VF32 (nearest v) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } (FUnOp BS32 FSqrt) =
+            return $ Done ctx { stack = VF32 (sqrt v) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } (FUnOp BS64 FAbs) =
+            return $ Done ctx { stack = VF64 (abs v) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } (FUnOp BS64 FNeg) =
+            return $ Done ctx { stack = VF64 (negate v) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } (FUnOp BS64 FCeil) =
+            return $ Done ctx { stack = VF64 (fromIntegral (ceiling v :: Int64)) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } (FUnOp BS64 FFloor) =
+            return $ Done ctx { stack = VF64 (fromIntegral (floor v :: Int64)) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } (FUnOp BS64 FTrunc) =
+            return $ Done ctx { stack = VF64 (fromIntegral (truncate v :: Int64)) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } (FUnOp BS64 FNearest) =
+            return $ Done ctx { stack = VF64 (nearest v) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } (FUnOp BS64 FSqrt) =
+            return $ Done ctx { stack = VF64 (sqrt v) : rest }
         step ctx@EvalCtx{ stack = (VI64 v:rest) } I32WrapI64 =
             return $ Done ctx { stack = VI32 (fromIntegral $ v .&. 0xFFFFFFFF) : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncFU BS32 BS32) =
