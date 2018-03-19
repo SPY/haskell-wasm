@@ -1,5 +1,6 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module Language.Wasm.Interpreter (
     Value(..),
@@ -25,7 +26,6 @@ import Numeric.Natural (Natural)
 import qualified Control.Monad as Monad
 import Data.Monoid ((<>))
 import Data.Bits (
-        Bits,
         (.|.),
         (.&.),
         xor,
@@ -37,6 +37,9 @@ import Data.Bits (
         countLeadingZeros,
         countTrailingZeros
     )
+import Data.Array.ST (newArray, readArray, MArray, STUArray)
+import Data.Array.Unsafe (castSTUArray)
+import GHC.ST (runST, ST)
 
 import Debug.Trace as Debug
 
@@ -70,6 +73,24 @@ asWord64 :: Int64 -> Word64
 asWord64 i
     | i >= 0 = fromIntegral i
     | otherwise = 0x8000000000000000 .|. (fromIntegral (abs i))
+
+-- brough from https://stackoverflow.com/questions/6976684/converting-ieee-754-floating-point-in-haskell-word32-64-to-and-from-haskell-floa
+wordToFloat :: Word32 -> Float
+wordToFloat x = runST (cast x)
+
+floatToWord :: Float -> Word32
+floatToWord x = runST (cast x)
+
+wordToDouble :: Word64 -> Double
+wordToDouble x = runST (cast x)
+
+doubleToWord :: Double -> Word64
+doubleToWord x = runST (cast x)
+
+{-# INLINE cast #-}
+cast :: (MArray (STUArray s) a (ST s),
+         MArray (STUArray s) b (ST s)) => a -> ST s b
+cast x = newArray (0 :: Int, 0) x >>= castSTUArray >>= flip readArray 0
 
 data Label = Label ResultType deriving (Show, Eq)
 
@@ -541,6 +562,56 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
             return $ Done ctx { stack = VI32 (fromIntegral $ countTrailingZeros v) : rest }
         step ctx@EvalCtx{ stack = (VI64 v:rest) } (IUnOp BS64 IPopcnt) =
             return $ Done ctx { stack = VI32 (fromIntegral $ popCount v) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v:rest) } I32WrapI64 =
+            return $ Done ctx { stack = VI32 (fromIntegral $ v .&. 0xFFFFFFFF) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncFU BS32 BS32) =
+            return $ Done ctx { stack = VI32 (round v) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } (ITruncFU BS32 BS64) =
+            return $ Done ctx { stack = VI32 (round v) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncFU BS64 BS32) =
+            return $ Done ctx { stack = VI64 (round v) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } (ITruncFU BS64 BS64) =
+            return $ Done ctx { stack = VI64 (round v) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncFS BS32 BS32) =
+            return $ Done ctx { stack = VI32 (asWord32 $ round v) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } (ITruncFS BS32 BS64) =
+            return $ Done ctx { stack = VI32 (asWord32 $ round v) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncFS BS64 BS32) =
+            return $ Done ctx { stack = VI64 (asWord64 $ round v) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } (ITruncFS BS64 BS64) =
+            return $ Done ctx { stack = VI64 (asWord64 $ round v) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v:rest) } I64ExtendUI32 =
+            return $ Done ctx { stack = VI64 (fromIntegral v) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v:rest) } I64ExtendSI32 =
+            return $ Done ctx { stack = VI64 (asWord64 $ fromIntegral $ asInt32 v) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v:rest) } (FConvertIU BS32 BS32) =
+            return $ Done ctx { stack = VF32 (realToFrac v) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v:rest) } (FConvertIU BS32 BS64) =
+            return $ Done ctx { stack = VF32 (realToFrac v) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v:rest) } (FConvertIU BS64 BS32) =
+            return $ Done ctx { stack = VF64 (realToFrac v) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v:rest) } (FConvertIU BS64 BS64) =
+            return $ Done ctx { stack = VF64 (realToFrac v) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v:rest) } (FConvertIS BS32 BS32) =
+            return $ Done ctx { stack = VF32 (realToFrac $ asInt32 v) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v:rest) } (FConvertIS BS32 BS64) =
+            return $ Done ctx { stack = VF32 (realToFrac $ asInt64 v) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v:rest) } (FConvertIS BS64 BS32) =
+            return $ Done ctx { stack = VF64 (realToFrac $ asInt32 v) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v:rest) } (FConvertIS BS64 BS64) =
+            return $ Done ctx { stack = VF64 (realToFrac $ asInt64 v) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } F32DemoteF64 =
+            return $ Done ctx { stack = VF32 (realToFrac v) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } F64PromoteF32 =
+            return $ Done ctx { stack = VF64 (realToFrac v) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } (IReinterpretF BS32) =
+            return $ Done ctx { stack = VI32 (floatToWord v) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } (IReinterpretF BS64) =
+            return $ Done ctx { stack = VI64 (doubleToWord v) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v:rest) } (FReinterpretI BS32) =
+            return $ Done ctx { stack = VF32 (wordToFloat v) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v:rest) } (FReinterpretI BS64) =
+            return $ Done ctx { stack = VF64 (wordToDouble v) : rest }
         step _   instr = error $ "Error during evaluation of instruction: " ++ show instr
 eval store HostInstance { funcType, tag } args = return args
 
