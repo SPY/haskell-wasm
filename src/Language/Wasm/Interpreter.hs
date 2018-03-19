@@ -1,6 +1,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Language.Wasm.Interpreter (
     Value(..),
@@ -459,6 +460,66 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
                 GIConst v -> error "Attempt of mutation of constant global"
                 GIMut ref -> writeIORef ref v
             return $ Done ctx { stack = rest }
+        step ctx@EvalCtx{ stack = (VI32 v:rest) } (I32Load MemArg { offset }) = do
+            let MemoryInstance { memory } = memInstances store ! (memaddrs moduleInstance ! 0)
+            let addr = fromIntegral $ v + fromIntegral offset
+            let readByte idx = do
+                    byte <- IOVector.read memory $ addr + idx
+                    return $ fromIntegral byte `shiftL` (idx * 8)
+            val <- sum <$> mapM readByte [0..3]
+            return $ Done ctx { stack = VI32 val : rest }
+        step ctx@EvalCtx{ stack = (VI32 v:rest) } (I64Load MemArg { offset }) = do
+            let MemoryInstance { memory } = memInstances store ! (memaddrs moduleInstance ! 0)
+            let addr = fromIntegral $ v + fromIntegral offset
+            let readByte idx = do
+                    byte <- IOVector.read memory $ addr + idx
+                    return $ fromIntegral byte `shiftL` (idx * 8)
+            val <- sum <$> mapM readByte [0..7]
+            return $ Done ctx { stack = VI64 val : rest }
+        step ctx@EvalCtx{ stack = (VI32 v:rest) } (F32Load MemArg { offset }) = do
+            let MemoryInstance { memory } = memInstances store ! (memaddrs moduleInstance ! 0)
+            let addr = fromIntegral $ v + fromIntegral offset
+            let readByte idx = do
+                    byte <- IOVector.read memory $ addr + idx
+                    return $ fromIntegral byte `shiftL` (idx * 8)
+            val <- wordToFloat . sum <$> mapM readByte [0..3]
+            return $ Done ctx { stack = VF32 val : rest }
+        step ctx@EvalCtx{ stack = (VI32 v:rest) } (F64Load MemArg { offset }) = do
+            let MemoryInstance { memory } = memInstances store ! (memaddrs moduleInstance ! 0)
+            let addr = fromIntegral $ v + fromIntegral offset
+            let readByte idx = do
+                    byte <- IOVector.read memory $ addr + idx
+                    return $ fromIntegral byte `shiftL` (idx * 8)
+            val <- wordToDouble . sum <$> mapM readByte [0..7]
+            return $ Done ctx { stack = VF64 val : rest }
+        step ctx@EvalCtx{ stack = (VI32 v:rest) } (I32Load8U MemArg { offset }) = do
+            let MemoryInstance { memory } = memInstances store ! (memaddrs moduleInstance ! 0)
+            let addr = fromIntegral $ v + fromIntegral offset
+            byte <- IOVector.read memory addr
+            return $ Done ctx { stack = VI32 (fromIntegral byte) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v:rest) } (I32Load8S MemArg { offset }) = do
+            let MemoryInstance { memory } = memInstances store ! (memaddrs moduleInstance ! 0)
+            let addr = fromIntegral $ v + fromIntegral offset
+            byte <- IOVector.read memory addr
+            let val = asWord32 $ if byte >= 128 then -1 * fromIntegral (v .&. 0x7F) else fromIntegral v
+            return $ Done ctx { stack = VI32 val : rest }
+        step ctx@EvalCtx{ stack = (VI32 v:rest) } (I32Load16U MemArg { offset }) = do
+            let MemoryInstance { memory } = memInstances store ! (memaddrs moduleInstance ! 0)
+            let addr = fromIntegral $ v + fromIntegral offset
+            let readByte idx = do
+                    byte <- IOVector.read memory $ addr + idx
+                    return $ fromIntegral byte `shiftL` (idx * 8)
+            val <- sum <$> mapM readByte [0..1]
+            return $ Done ctx { stack = VI32 val : rest }
+        step ctx@EvalCtx{ stack = (VI32 v:rest) } (I32Load16S MemArg { offset }) = do
+            let MemoryInstance { memory } = memInstances store ! (memaddrs moduleInstance ! 0)
+            let addr = fromIntegral $ v + fromIntegral offset
+            let readByte idx = do
+                    byte <- IOVector.read memory $ addr + idx
+                    return $ (fromIntegral byte :: Word32) `shiftL` (idx * 8)
+            val <- sum <$> mapM readByte [0..1]
+            let signed = asWord32 $ if val >= 2 ^ 15 then -1 * fromIntegral (val .&. 0x7FFF) else fromIntegral val
+            return $ Done ctx { stack = VI32 signed : rest }
         step ctx (I32Const v) = return $ Done ctx { stack = VI32 v : stack ctx }
         step ctx (I64Const v) = return $ Done ctx { stack = VI64 v : stack ctx }
         step ctx (F32Const v) = return $ Done ctx { stack = VF32 v : stack ctx }
