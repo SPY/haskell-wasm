@@ -565,6 +565,80 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
             val <- sum <$> mapM readByte [0..3]
             let signed = asWord64 $ fromIntegral $ asInt32 val
             return $ Done ctx { stack = VI64 signed : rest }
+        step ctx@EvalCtx{ stack = (VI32 v:VI32 va:rest) } (I32Store MemArg { offset }) = do
+            let MemoryInstance { memory } = memInstances store ! (memaddrs moduleInstance ! 0)
+            let addr = fromIntegral $ va + fromIntegral offset
+            let writeByte idx = do
+                    let byte = fromIntegral $ v `shiftR` (idx * 8) .&. 0xFF
+                    IOVector.write memory (addr + idx) byte
+            mapM_ writeByte [0..3]
+            return $ Done ctx { stack = rest }
+        step ctx@EvalCtx{ stack = (VI64 v:VI32 va:rest) } (I64Store MemArg { offset }) = do
+            let MemoryInstance { memory } = memInstances store ! (memaddrs moduleInstance ! 0)
+            let addr = fromIntegral $ va + fromIntegral offset
+            let writeByte idx = do
+                    let byte = fromIntegral $ v `shiftR` (idx * 8) .&. 0xFF
+                    IOVector.write memory (addr + idx) byte
+            mapM_ writeByte [0..7]
+            return $ Done ctx { stack = rest }
+        step ctx@EvalCtx{ stack = (VF32 f:VI32 va:rest) } (F32Store MemArg { offset }) = do
+            let MemoryInstance { memory } = memInstances store ! (memaddrs moduleInstance ! 0)
+            let addr = fromIntegral $ va + fromIntegral offset
+            let v = floatToWord f
+            let writeByte idx = do
+                    let byte = fromIntegral $ v `shiftR` (idx * 8) .&. 0xFF
+                    IOVector.write memory (addr + idx) byte
+            mapM_ writeByte [0..3]
+            return $ Done ctx { stack = rest }
+        step ctx@EvalCtx{ stack = (VF64 f:VI32 va:rest) } (F64Store MemArg { offset }) = do
+            let MemoryInstance { memory } = memInstances store ! (memaddrs moduleInstance ! 0)
+            let addr = fromIntegral $ va + fromIntegral offset
+            let v = doubleToWord f
+            let writeByte idx = do
+                    let byte = fromIntegral $ v `shiftR` (idx * 8) .&. 0xFF
+                    IOVector.write memory (addr + idx) byte
+            mapM_ writeByte [0..7]
+            return $ Done ctx { stack = rest }
+        step ctx@EvalCtx{ stack = (VI32 v:VI32 va:rest) } (I32Store8 MemArg { offset }) = do
+            let MemoryInstance { memory } = memInstances store ! (memaddrs moduleInstance ! 0)
+            let addr = fromIntegral $ va + fromIntegral offset
+            let writeByte idx = do
+                    let byte = fromIntegral $ v `shiftR` (idx * 8) .&. 0xFF
+                    IOVector.write memory (addr + idx) byte
+            mapM_ writeByte [0]
+            return $ Done ctx { stack = rest }
+        step ctx@EvalCtx{ stack = (VI32 v:VI32 va:rest) } (I32Store16 MemArg { offset }) = do
+            let MemoryInstance { memory } = memInstances store ! (memaddrs moduleInstance ! 0)
+            let addr = fromIntegral $ va + fromIntegral offset
+            let writeByte idx = do
+                    let byte = fromIntegral $ v `shiftR` (idx * 8) .&. 0xFF
+                    IOVector.write memory (addr + idx) byte
+            mapM_ writeByte [0, 1]
+            return $ Done ctx { stack = rest }
+        step ctx@EvalCtx{ stack = (VI64 v:VI32 va:rest) } (I64Store8 MemArg { offset }) = do
+            let MemoryInstance { memory } = memInstances store ! (memaddrs moduleInstance ! 0)
+            let addr = fromIntegral $ va + fromIntegral offset
+            let writeByte idx = do
+                    let byte = fromIntegral $ v `shiftR` (idx * 8) .&. 0xFF
+                    IOVector.write memory (addr + idx) byte
+            mapM_ writeByte [0]
+            return $ Done ctx { stack = rest }
+        step ctx@EvalCtx{ stack = (VI64 v:VI32 va:rest) } (I64Store16 MemArg { offset }) = do
+            let MemoryInstance { memory } = memInstances store ! (memaddrs moduleInstance ! 0)
+            let addr = fromIntegral $ va + fromIntegral offset
+            let writeByte idx = do
+                    let byte = fromIntegral $ v `shiftR` (idx * 8) .&. 0xFF
+                    IOVector.write memory (addr + idx) byte
+            mapM_ writeByte [0, 1]
+            return $ Done ctx { stack = rest }
+        step ctx@EvalCtx{ stack = (VI64 v:VI32 va:rest) } (I64Store32 MemArg { offset }) = do
+            let MemoryInstance { memory } = memInstances store ! (memaddrs moduleInstance ! 0)
+            let addr = fromIntegral $ va + fromIntegral offset
+            let writeByte idx = do
+                    let byte = fromIntegral $ v `shiftR` (idx * 8) .&. 0xFF
+                    IOVector.write memory (addr + idx) byte
+            mapM_ writeByte [0..3]
+            return $ Done ctx { stack = rest }
         step ctx (I32Const v) = return $ Done ctx { stack = VI32 v : stack ctx }
         step ctx (I64Const v) = return $ Done ctx { stack = VI64 v : stack ctx }
         step ctx (F32Const v) = return $ Done ctx { stack = VF32 v : stack ctx }
