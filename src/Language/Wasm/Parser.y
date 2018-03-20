@@ -1291,27 +1291,28 @@ type Script = [Command]
 type Expression = [Instruction]
 
 data ModuleDef
-    = RawModDef Module
-    | TextModDef (Maybe TL.Text) [TL.Text]
-    | BinaryModDef (Maybe TL.Text) [TL.Text]
+    = RawModDef (Maybe Ident) Module
+    | TextModDef (Maybe Ident) [TL.Text]
+    | BinaryModDef (Maybe Ident) [TL.Text]
     deriving (Show, Eq)
 
 data Command
     = ModuleDef ModuleDef
+    | Register TL.Text (Maybe Ident)
     | Action
     | Assertion
     | Meta
     deriving (Show, Eq)
 
 data Action
-    = Invoke (Maybe TL.Text) TL.Text [Expression]
-    | Get (Maybe TL.Text) TL.Text
+    = Invoke (Maybe Ident) TL.Text [Expression]
+    | Get (Maybe Ident) TL.Text
     deriving (Show, Eq)
 
 type FailureString = TL.Text
 
 data Assertion
-    = AssertReturn Action Instruction
+    = AssertReturn Action [Expression]
     | AssertReturnCanonicalNaN Action
     | AssertReturnArithmeticNaN Action
     | AssertTrap (Either Action ModuleDef) FailureString
@@ -1321,9 +1322,9 @@ data Assertion
     deriving (Show, Eq)
 
 data Meta
-    = Script (Maybe TL.Text) Script
-    | Input (Maybe TL.Text) TL.Text
-    | Output (Maybe TL.Text) TL.Text
+    = Script (Maybe Ident) Script
+    | Input (Maybe Ident) TL.Text
+    | Output (Maybe Ident) TL.Text
     deriving (Show, Eq)
 
 type Labels = [Maybe Ident]

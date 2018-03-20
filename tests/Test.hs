@@ -60,7 +60,6 @@ main = do
     let Right mod = Parser.parseModule <$> Lexer.scanner content
     (modInst, store) <- Interpreter.instantiate Interpreter.emptyStore Interpreter.emptyImports mod
     (`mapM` ["fac-rec", "fac-rec-named", "fac-iter", "fac-iter-named", "fac-opt"]) $ \fn -> do
-    -- (`mapM` ["fac-iter-named"]) $ \fn -> do
       let fac = \n -> Interpreter.invokeExport store modInst fn [Interpreter.VI64 n]
       fac3 <- fac 3
       fac5 <- fac 5
