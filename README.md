@@ -11,8 +11,12 @@
   * [x] Renaming Phase: substitute identifiers with correct indexes, expand all implicit type declarations)
   * [x] Binary format parser/serializer
   * [x] Validation Phase: execute a verification procedure from the Spec
+  * [x] Execution Phase: implement a simple interpreter
 
 ## Todo
   * [ ] Improve error messages for text representation parsing
   * [ ] Text Representation pretty-printer
-  * [ ] Execution Phase: implement a simple interpreter for running WebAssembly Core TestsSuit assertions
+  * [ ] Support extended Core Test Suit assertion grammar
+  * [ ] Compile Core Tests to Tasty test cases and pass all tests
+  * [ ] Command line tool for calling interpreter/compiler/validator
+  * [ ] Codegen interface for type-guaranted generating valid WASM code
