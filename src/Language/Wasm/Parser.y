@@ -1286,6 +1286,46 @@ data Module = Module {
     exports :: [Export]
 } deriving (Show, Eq)
 
+type Script = [Command]
+
+type Expression = [Instruction]
+
+data ModuleDef
+    = RawModDef Module
+    | TextModDef (Maybe TL.Text) [TL.Text]
+    | BinaryModDef (Maybe TL.Text) [TL.Text]
+    deriving (Show, Eq)
+
+data Command
+    = ModuleDef ModuleDef
+    | Action
+    | Assertion
+    | Meta
+    deriving (Show, Eq)
+
+data Action
+    = Invoke (Maybe TL.Text) TL.Text [Expression]
+    | Get (Maybe TL.Text) TL.Text
+    deriving (Show, Eq)
+
+type FailureString = TL.Text
+
+data Assertion
+    = AssertReturn Action Instruction
+    | AssertReturnCanonicalNaN Action
+    | AssertReturnArithmeticNaN Action
+    | AssertTrap (Either Action ModuleDef) FailureString
+    | AssertMalformed ModuleDef FailureString
+    | AssertInvalid ModuleDef FailureString
+    | AssertUnlinkable ModuleDef FailureString
+    deriving (Show, Eq)
+
+data Meta
+    = Script (Maybe TL.Text) Script
+    | Input (Maybe TL.Text) TL.Text
+    | Output (Maybe TL.Text) TL.Text
+    deriving (Show, Eq)
+
 type Labels = [Maybe Ident]
 
 data FunCtx = FunCtx {
