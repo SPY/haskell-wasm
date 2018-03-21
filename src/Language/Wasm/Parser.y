@@ -960,7 +960,7 @@ start :: { StartFunction }
 -- but collection of testcases omits 'offset' in this position
 -- I am going to support both options for now, but maybe it has to be updated in future.
 offsetexpr :: { [Instruction] }
-    : 'offset' foldedinstr ')' { $2 }
+    : 'offset' list(foldedinstr) ')' { concat $2 }
     | foldedinstr1 { $1 }
 
 elemsegment :: { ElemSegment }
