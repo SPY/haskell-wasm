@@ -60,3 +60,89 @@
     )
   )
 )
+
+(assert_return (invoke "type-local-i32") (i32.const 0))
+(assert_return (invoke "type-local-i64") (i64.const 0))
+(assert_return (invoke "type-local-f32") (f32.const 0))
+(assert_return (invoke "type-local-f64") (f64.const 0))
+
+(assert_return (invoke "type-param-i32" (i32.const 2)) (i32.const 2))
+(assert_return (invoke "type-param-i64" (i64.const 3)) (i64.const 3))
+(assert_return (invoke "type-param-f32" (f32.const 4.4)) (f32.const 4.4))
+(assert_return (invoke "type-param-f64" (f64.const 5.5)) (f64.const 5.5))
+
+(assert_return
+  (invoke "type-mixed"
+    (i64.const 1) (f32.const 2.2) (f64.const 3.3) (i32.const 4) (i32.const 5)
+  )
+)
+
+(assert_return
+  (invoke "read"
+    (i64.const 1) (f32.const 2) (f64.const 3.3) (i32.const 4) (i32.const 5)
+  )
+  (f64.const 34.8)
+)
+
+
+;; Invalid typing of access to locals
+
+(assert_invalid
+  (module (func $type-local-num-vs-num (result i64) (local i32) (get_local 0)))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-local-num-vs-num (local f32) (i32.eqz (get_local 0))))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-local-num-vs-num (local f64 i64) (f64.neg (get_local 1))))
+  "type mismatch"
+)
+
+
+;; Invalid typing of access to parameters
+
+(assert_invalid
+  (module (func $type-param-num-vs-num (param i32) (result i64) (get_local 0)))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-param-num-vs-num (param f32) (i32.eqz (get_local 0))))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-param-num-vs-num (param f64 i64) (f64.neg (get_local 1))))
+  "type mismatch"
+)
+
+
+;; Invalid local index
+
+(assert_invalid
+  (module (func $unbound-local (local i32 i64) (get_local 3)))
+  "unknown local"
+)
+(assert_invalid
+  (module (func $large-local (local i32 i64) (get_local 14324343)))
+  "unknown local"
+)
+
+(assert_invalid
+  (module (func $unbound-param (param i32 i64) (get_local 2)))
+  "unknown local"
+)
+(assert_invalid
+  (module (func $large-param (local i32 i64) (get_local 714324343)))
+  "unknown local"
+)
+
+(assert_invalid
+  (module (func $unbound-mixed (param i32) (local i32 i64) (get_local 3)))
+  "unknown local"
+)
+(assert_invalid
+  (module (func $large-mixed (param i64) (local i32 i64) (get_local 214324343)))
+  "unknown local"
+)
+

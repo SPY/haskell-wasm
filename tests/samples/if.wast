@@ -3,6 +3,7 @@
 (module
   ;; Auxiliary definition
   (func $dummy)
+
   (func (export "empty") (param i32)
     (if (get_local 0) (then))
     (if (get_local 0) (then) (else))
@@ -128,4 +129,321 @@
     )
     (get_local 1)
   )
+)
+
+(assert_return (invoke "empty" (i32.const 0)))
+(assert_return (invoke "empty" (i32.const 1)))
+(assert_return (invoke "empty" (i32.const 100)))
+(assert_return (invoke "empty" (i32.const -2)))
+
+(assert_return (invoke "singular" (i32.const 0)) (i32.const 8))
+(assert_return (invoke "singular" (i32.const 1)) (i32.const 7))
+(assert_return (invoke "singular" (i32.const 10)) (i32.const 7))
+(assert_return (invoke "singular" (i32.const -10)) (i32.const 7))
+
+(assert_return (invoke "multi" (i32.const 0)) (i32.const 9))
+(assert_return (invoke "multi" (i32.const 1)) (i32.const 8))
+(assert_return (invoke "multi" (i32.const 13)) (i32.const 8))
+(assert_return (invoke "multi" (i32.const -5)) (i32.const 8))
+
+(assert_return (invoke "nested" (i32.const 0) (i32.const 0)) (i32.const 11))
+(assert_return (invoke "nested" (i32.const 1) (i32.const 0)) (i32.const 10))
+(assert_return (invoke "nested" (i32.const 0) (i32.const 1)) (i32.const 10))
+(assert_return (invoke "nested" (i32.const 3) (i32.const 2)) (i32.const 9))
+(assert_return (invoke "nested" (i32.const 0) (i32.const -100)) (i32.const 10))
+(assert_return (invoke "nested" (i32.const 10) (i32.const 10)) (i32.const 9))
+(assert_return (invoke "nested" (i32.const 0) (i32.const -1)) (i32.const 10))
+(assert_return (invoke "nested" (i32.const -111) (i32.const -2)) (i32.const 9))
+
+(assert_return (invoke "as-unary-operand" (i32.const 0)) (i32.const 0))
+(assert_return (invoke "as-unary-operand" (i32.const 1)) (i32.const 0))
+(assert_return (invoke "as-unary-operand" (i32.const -1)) (i32.const 0))
+
+(assert_return (invoke "as-binary-operand" (i32.const 0) (i32.const 0)) (i32.const 15))
+(assert_return (invoke "as-binary-operand" (i32.const 0) (i32.const 1)) (i32.const -12))
+(assert_return (invoke "as-binary-operand" (i32.const 1) (i32.const 0)) (i32.const -15))
+(assert_return (invoke "as-binary-operand" (i32.const 1) (i32.const 1)) (i32.const 12))
+
+(assert_return (invoke "as-test-operand" (i32.const 0)) (i32.const 1))
+(assert_return (invoke "as-test-operand" (i32.const 1)) (i32.const 0))
+
+(assert_return (invoke "as-compare-operand" (i32.const 0) (i32.const 0)) (i32.const 1))
+(assert_return (invoke "as-compare-operand" (i32.const 0) (i32.const 1)) (i32.const 0))
+(assert_return (invoke "as-compare-operand" (i32.const 1) (i32.const 0)) (i32.const 1))
+(assert_return (invoke "as-compare-operand" (i32.const 1) (i32.const 1)) (i32.const 0))
+
+(assert_return (invoke "break-bare") (i32.const 19))
+(assert_return (invoke "break-value" (i32.const 1)) (i32.const 18))
+(assert_return (invoke "break-value" (i32.const 0)) (i32.const 21))
+
+(assert_return (invoke "effects" (i32.const 1)) (i32.const -14))
+(assert_return (invoke "effects" (i32.const 0)) (i32.const -6))
+
+(assert_invalid
+  (module (func $type-empty-i32 (result i32) (if (i32.const 0) (then))))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-empty-i64 (result i64) (if (i32.const 0) (then))))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-empty-f32 (result f32) (if (i32.const 0) (then))))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-empty-f64 (result f64) (if (i32.const 0) (then))))
+  "type mismatch"
+)
+
+(assert_invalid
+  (module (func $type-empty-i32 (result i32) (if (i32.const 0) (then) (else))))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-empty-i64 (result i64) (if (i32.const 0) (then) (else))))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-empty-f32 (result f32) (if (i32.const 0) (then) (else))))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-empty-f64 (result f64) (if (i32.const 0) (then) (else))))
+  "type mismatch"
+)
+
+(assert_invalid
+  (module (func $type-then-value-num-vs-void
+    (if (i32.const 1) (then (i32.const 1)))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-then-value-num-vs-void
+    (if (i32.const 1) (then (i32.const 1)) (else))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-else-value-num-vs-void
+    (if (i32.const 1) (then) (else (i32.const 1)))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-both-value-num-vs-void
+    (if (i32.const 1) (then (i32.const 1)) (else (i32.const 1)))
+  ))
+  "type mismatch"
+)
+
+(assert_invalid
+  (module (func $type-then-value-empty-vs-num (result i32)
+    (if (result i32) (i32.const 1) (then) (else (i32.const 0)))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-then-value-empty-vs-num (result i32)
+    (if (result i32) (i32.const 1) (then (i32.const 0)) (else))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-both-value-empty-vs-num (result i32)
+    (if (result i32) (i32.const 1) (then) (else))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-no-else-vs-num (result i32)
+    (if (result i32) (i32.const 1) (then (i32.const 1)))
+  ))
+  "type mismatch"
+)
+
+(assert_invalid
+  (module (func $type-then-value-void-vs-num (result i32)
+    (if (result i32) (i32.const 1) (then (nop)) (else (i32.const 0)))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-then-value-void-vs-num (result i32)
+    (if (result i32) (i32.const 1) (then (i32.const 0)) (else (nop)))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-both-value-void-vs-num (result i32)
+    (if (result i32) (i32.const 1) (then (nop)) (else (nop)))
+  ))
+  "type mismatch"
+)
+
+(assert_invalid
+  (module (func $type-then-value-num-vs-num (result i32)
+    (if (result i32) (i32.const 1) (then (i64.const 1)) (else (i32.const 1)))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-then-value-num-vs-num (result i32)
+    (if (result i32) (i32.const 1) (then (i32.const 1)) (else (i64.const 1)))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-both-value-num-vs-num (result i32)
+    (if (result i32) (i32.const 1) (then (i64.const 1)) (else (i64.const 1)))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-both-different-value-num-vs-num (result i32)
+    (if (result i32) (i32.const 1) (then (i64.const 1)) (else (f64.const 1)))
+  ))
+  "type mismatch"
+)
+
+(assert_invalid
+  (module (func $type-then-value-unreached-select (result i32)
+    (if (result i64)
+      (i32.const 0)
+      (then (select (unreachable) (unreachable) (unreachable)))
+      (else (i64.const 0))
+    )
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-else-value-unreached-select (result i32)
+    (if (result i64)
+      (i32.const 1)
+      (then (i64.const 0))
+      (else (select (unreachable) (unreachable) (unreachable)))
+    )
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-else-value-unreached-select (result i32)
+    (if (result i64)
+      (i32.const 1)
+      (then (select (unreachable) (unreachable) (unreachable)))
+      (else (select (unreachable) (unreachable) (unreachable)))
+    )
+  ))
+  "type mismatch"
+)
+
+(assert_invalid
+  (module (func $type-then-break-last-void-vs-num (result i32)
+    (if (result i32) (i32.const 1) (then (br 0)) (else (i32.const 1)))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-else-break-last-void-vs-num (result i32)
+    (if (result i32) (i32.const 1) (then (i32.const 1)) (else (br 0)))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-then-break-empty-vs-num (result i32)
+    (if (result i32) (i32.const 1)
+      (then (br 0) (i32.const 1))
+      (else (i32.const 1))
+    )
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-else-break-empty-vs-num (result i32)
+    (if (result i32) (i32.const 1)
+      (then (i32.const 1))
+      (else (br 0) (i32.const 1))
+    )
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-then-break-void-vs-num (result i32)
+    (if (result i32) (i32.const 1)
+      (then (br 0 (nop)) (i32.const 1))
+      (else (i32.const 1))
+    )
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-else-break-void-vs-num (result i32)
+    (if (result i32) (i32.const 1)
+      (then (i32.const 1))
+      (else (br 0 (nop)) (i32.const 1))
+    )
+  ))
+  "type mismatch"
+)
+
+(assert_invalid
+  (module (func $type-then-break-num-vs-num (result i32)
+    (if (result i32) (i32.const 1)
+      (then (br 0 (i64.const 1)) (i32.const 1))
+      (else (i32.const 1))
+    )
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-else-break-num-vs-num (result i32)
+    (if (result i32) (i32.const 1)
+      (then (i32.const 1))
+      (else (br 0 (i64.const 1)) (i32.const 1))
+    )
+  ))
+  "type mismatch"
+)
+
+
+(assert_malformed
+  (module quote "(func if end $l)")
+  "mismatching label"
+)
+(assert_malformed
+  (module quote "(func if $a end $l)")
+  "mismatching label"
+)
+(assert_malformed
+  (module quote "(func if else $l end)")
+  "mismatching label"
+)
+(assert_malformed
+  (module quote "(func if $a else $l end)")
+  "mismatching label"
+)
+(assert_malformed
+  (module quote "(func if else end $l)")
+  "mismatching label"
+)
+(assert_malformed
+  (module quote "(func if else $l end $l)")
+  "mismatching label"
+)
+(assert_malformed
+  (module quote "(func if else $l1 end $l2)")
+  "mismatching label"
+)
+(assert_malformed
+  (module quote "(func if $a else end $l)")
+  "mismatching label"
+)
+(assert_malformed
+  (module quote "(func if $a else $a end $l)")
+  "mismatching label"
+)
+(assert_malformed
+  (module quote "(func if $a else $l end $l)")
+  "mismatching label"
 )

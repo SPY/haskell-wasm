@@ -136,3 +136,164 @@
     (i32.eq (get_local 0) (i32.const -14))
   )
 )
+
+(assert_return (invoke "empty"))
+(assert_return (invoke "singular") (i32.const 7))
+(assert_return (invoke "multi") (i32.const 8))
+(assert_return (invoke "nested") (i32.const 9))
+(assert_return (invoke "deep") (i32.const 150))
+
+(assert_return (invoke "as-unary-operand") (i32.const 0))
+(assert_return (invoke "as-binary-operand") (i32.const 12))
+(assert_return (invoke "as-test-operand") (i32.const 0))
+(assert_return (invoke "as-compare-operand") (i32.const 0))
+
+(assert_return (invoke "break-bare") (i32.const 19))
+(assert_return (invoke "break-value") (i32.const 18))
+(assert_return (invoke "break-repeated") (i32.const 18))
+(assert_return (invoke "break-inner") (i32.const 0xf))
+
+(assert_return (invoke "effects") (i32.const 1))
+
+(assert_invalid
+  (module (func $type-empty-i32 (result i32) (block)))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-empty-i64 (result i64) (block)))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-empty-f32 (result f32) (block)))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-empty-f64 (result f64) (block)))
+  "type mismatch"
+)
+
+(assert_invalid
+  (module (func $type-value-num-vs-void
+    (block (i32.const 1))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-value-empty-vs-num (result i32)
+    (block (result i32))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-value-void-vs-num (result i32)
+    (block (result i32) (nop))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-value-num-vs-num (result i32)
+    (block (result i32) (f32.const 0))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-value-unreached-select (result i32)
+    (block (result i64) (select (unreachable) (unreachable) (unreachable)))
+  ))
+  "type mismatch"
+)
+
+(assert_invalid
+  (module (func $type-break-last-void-vs-num (result i32)
+    (block (result i32) (br 0))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-break-empty-vs-num (result i32)
+    (block (result i32) (br 0) (i32.const 1))
+  ))
+  "type mismatch"
+)
+
+(assert_invalid
+  (module (func $type-break-void-vs-num (result i32)
+    (block (result i32) (br 0 (nop)) (i32.const 1))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-break-num-vs-num (result i32)
+    (block (result i32) (br 0 (i64.const 1)) (i32.const 1))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-break-first-void-vs-num (result i32)
+    (block (result i32) (br 0 (nop)) (br 0 (i32.const 1)))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-break-first-num-vs-num (result i32)
+    (block (result i32) (br 0 (i64.const 1)) (br 0 (i32.const 1)))
+  ))
+  "type mismatch"
+)
+
+(assert_invalid
+  (module (func $type-break-nested-num-vs-void
+    (block (result i32) (block (result i32) (br 1 (i32.const 1))) (br 0))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-break-nested-empty-vs-num (result i32)
+    (block (result i32) (block (br 1)) (br 0 (i32.const 1)))
+  ))
+  "type mismatch"
+)
+
+(assert_invalid
+  (module (func $type-break-nested-void-vs-num (result i32)
+    (block (result i32) (block (result i32) (br 1 (nop))) (br 0 (i32.const 1)))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-break-nested-num-vs-num (result i32)
+    (block (result i32)
+      (block (result i32) (br 1 (i64.const 1))) (br 0 (i32.const 1))
+    )
+  ))
+  "type mismatch"
+)
+
+(assert_invalid
+  (module (func $type-break-operand-empty-vs-num (result i32)
+    (i32.ctz (block (br 0)))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-break-operand-void-vs-num (result i32)
+    (i64.ctz (block (br 0 (nop))))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-break-operand-num-vs-num (result i32)
+    (i64.ctz (block (br 0 (i64.const 9))))
+  ))
+  "type mismatch"
+)
+
+
+(assert_malformed
+  (module quote "(func block end $l)")
+  "mismatching label"
+)
+(assert_malformed
+  (module quote "(func block $a end $l)")
+  "mismatching label"
+)

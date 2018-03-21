@@ -300,6 +300,7 @@ import Debug.Trace as Debug
 'assert_malformed'    { Lexeme _ (TKeyword "assert_malformed") }
 'assert_invalid'      { Lexeme _ (TKeyword "assert_invalid") }
 'assert_unlinkable'   { Lexeme _ (TKeyword "assert_unlinkable") }
+'assert_exhaustion'   { Lexeme _ (TKeyword "assert_exhaustion") }
 'script'              { Lexeme _ (TKeyword "script") }
 'input'               { Lexeme _ (TKeyword "input") }
 'output'              { Lexeme _ (TKeyword "output") }
@@ -882,6 +883,9 @@ memory_limits_export_import :: { Maybe Ident -> [ModuleField] }
     : memory_limits { $1 }
     | '(' memory_limits_export_import1 { $2 }
 
+datastring :: { TL.Text }
+    : list(string) { TL.concat $1 }
+
 memory_limits_export_import1 :: { Maybe Ident -> [ModuleField] }
     : 'export' name ')' memory_limits_export_import {
         \ident -> (MFExport $ Export $2 $ ExportMemory $ Named `fmap` ident) : $4 ident
@@ -889,7 +893,7 @@ memory_limits_export_import1 :: { Maybe Ident -> [ModuleField] }
     | 'import' name name ')' limits ')' {
         \ident -> [MFImport $ Import $2 $3 $ ImportMemory ident $5]
     }
-    | 'data' string ')' ')' {
+    | 'data' datastring ')' ')' {
         \ident ->
             let m = fromIntegral $ TL.length $2 in
             [
@@ -960,7 +964,7 @@ elemsegment :: { ElemSegment }
     : 'elem' opt(tableidx) '(' offsetexpr list(funcidx) ')' { ElemSegment (fromMaybe (Index 0) $2) $4 $5 }
 
 datasegment :: { DataSegment }
-    : 'data' opt(memidx) '(' offsetexpr list(string) ')' { DataSegment (fromMaybe (Index 0) $2) $4 (TL.concat $5) }
+    : 'data' opt(memidx) '(' offsetexpr datastring ')' { DataSegment (fromMaybe (Index 0) $2) $4 $5 }
 
 modulefield1_single :: { ModuleField }
     : typedef { MFType $1 }
@@ -992,7 +996,7 @@ mod :: { S.Module }
 
 -- Wasm Script Extended Grammar
 script :: { Script }
-    : list(command) { $1 }
+    : list(command) EOF { $1 }
 
 command :: { Command }
     : '(' command1 { $2 }
@@ -1008,10 +1012,11 @@ module1 :: { ModuleDef }
     : 'module' opt(ident) 'binary' list(string) ')' { BinaryModDef $2 $4 }
     | 'module' opt(ident) 'quote' list(string) ')' { TextModDef $2 $4 }
     | 'module' opt(ident) list(modulefield) ')' { RawModDef $2 (desugarize $ concat $3) }
+    | modulefield1 list(modulefield) { RawModDef Nothing (desugarize $ $1 ++ concat $2) }
 
 action1 :: { Action }
-    : 'invoke' opt(ident) string list(foldedinstr) { Invoke $2 $3 $4 }
-    | 'get' opt(ident) string { Get $2 $3 }
+    : 'invoke' opt(ident) string list(foldedinstr) ')' { Invoke $2 $3 $4 }
+    | 'get' opt(ident) string ')' { Get $2 $3 }
 
 assertion1 :: { Assertion }
     : 'assert_return' '(' action1 list(foldedinstr) ')' { AssertReturn $3 $4 }
@@ -1021,6 +1026,7 @@ assertion1 :: { Assertion }
     | 'assert_malformed' '(' module1 string ')' { AssertMalformed $3 $4 }
     | 'assert_invalid' '(' module1 string ')' { AssertInvalid $3 $4 }
     | 'assert_unlinkable' '(' module1 string ')' { AssertUnlinkable $3 $4 }
+    | 'assert_exhaustion' '(' action1 string ')' { AssertExhaustion $3 $4 }
 
 assertion_trap :: { Either Action ModuleDef }
     : action1 { Left $1 }
@@ -1379,6 +1385,7 @@ data Assertion
     | AssertMalformed ModuleDef FailureString
     | AssertInvalid ModuleDef FailureString
     | AssertUnlinkable ModuleDef FailureString
+    | AssertExhaustion Action FailureString
     deriving (Show, Eq)
 
 data Meta

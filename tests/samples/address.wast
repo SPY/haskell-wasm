@@ -48,3 +48,56 @@
     (drop (i32.load offset=4294967295 (get_local $i)))
   )
 )
+
+(assert_return (invoke "good1" (i32.const 0)) (i32.const 97))
+(assert_return (invoke "good2" (i32.const 0)) (i32.const 98))
+(assert_return (invoke "good3" (i32.const 0)) (i32.const 99))
+(assert_return (invoke "good4" (i32.const 0)) (i32.const 122))
+(assert_return (invoke "good5" (i32.const 0)) (i32.const 25185))
+(assert_return (invoke "good6" (i32.const 0)) (i32.const 25185))
+(assert_return (invoke "good7" (i32.const 0)) (i32.const 25442))
+(assert_return (invoke "good8" (i32.const 0)) (i32.const 25699))
+(assert_return (invoke "good9" (i32.const 0)) (i32.const 122))
+(assert_return (invoke "good10" (i32.const 0)) (i32.const 1684234849))
+(assert_return (invoke "good11" (i32.const 0)) (i32.const 1701077858))
+(assert_return (invoke "good12" (i32.const 0)) (i32.const 1717920867))
+(assert_return (invoke "good13" (i32.const 0)) (i32.const 122))
+
+(assert_return (invoke "good1" (i32.const 65507)) (i32.const 0))
+(assert_return (invoke "good2" (i32.const 65507)) (i32.const 0))
+(assert_return (invoke "good3" (i32.const 65507)) (i32.const 0))
+(assert_return (invoke "good4" (i32.const 65507)) (i32.const 0))
+(assert_return (invoke "good5" (i32.const 65507)) (i32.const 0))
+(assert_return (invoke "good6" (i32.const 65507)) (i32.const 0))
+(assert_return (invoke "good7" (i32.const 65507)) (i32.const 0))
+(assert_return (invoke "good8" (i32.const 65507)) (i32.const 0))
+(assert_return (invoke "good9" (i32.const 65507)) (i32.const 0))
+(assert_return (invoke "good10" (i32.const 65507)) (i32.const 0))
+(assert_return (invoke "good11" (i32.const 65507)) (i32.const 0))
+(assert_return (invoke "good12" (i32.const 65507)) (i32.const 0))
+(assert_return (invoke "good13" (i32.const 65507)) (i32.const 0))
+
+(assert_return (invoke "good1" (i32.const 65508)) (i32.const 0))
+(assert_return (invoke "good2" (i32.const 65508)) (i32.const 0))
+(assert_return (invoke "good3" (i32.const 65508)) (i32.const 0))
+(assert_return (invoke "good4" (i32.const 65508)) (i32.const 0))
+(assert_return (invoke "good5" (i32.const 65508)) (i32.const 0))
+(assert_return (invoke "good6" (i32.const 65508)) (i32.const 0))
+(assert_return (invoke "good7" (i32.const 65508)) (i32.const 0))
+(assert_return (invoke "good8" (i32.const 65508)) (i32.const 0))
+(assert_return (invoke "good9" (i32.const 65508)) (i32.const 0))
+(assert_return (invoke "good10" (i32.const 65508)) (i32.const 0))
+(assert_return (invoke "good11" (i32.const 65508)) (i32.const 0))
+(assert_return (invoke "good12" (i32.const 65508)) (i32.const 0))
+(assert_trap (invoke "good13" (i32.const 65508)) "out of bounds memory access")
+
+(assert_trap (invoke "bad" (i32.const 0)) "out of bounds memory access")
+(assert_trap (invoke "bad" (i32.const 1)) "out of bounds memory access")
+
+(assert_malformed
+  (module quote
+    "(memory 1)"
+    "(func (drop (i32.load offset=4294967296 (i32.const 0))))"
+  )
+  "i32 constant"
+)

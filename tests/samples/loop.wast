@@ -200,3 +200,110 @@
     (get_local 3)
   )
 )
+
+(assert_return (invoke "empty"))
+(assert_return (invoke "singular") (i32.const 7))
+(assert_return (invoke "multi") (i32.const 8))
+(assert_return (invoke "nested") (i32.const 9))
+(assert_return (invoke "deep") (i32.const 150))
+
+(assert_return (invoke "as-unary-operand") (i32.const 0))
+(assert_return (invoke "as-binary-operand") (i32.const 12))
+(assert_return (invoke "as-test-operand") (i32.const 0))
+(assert_return (invoke "as-compare-operand") (i32.const 0))
+
+(assert_return (invoke "break-bare") (i32.const 19))
+(assert_return (invoke "break-value") (i32.const 18))
+(assert_return (invoke "break-repeated") (i32.const 18))
+(assert_return (invoke "break-inner") (i32.const 0x1f))
+
+(assert_return (invoke "effects") (i32.const 1))
+
+(assert_return (invoke "while" (i64.const 0)) (i64.const 1))
+(assert_return (invoke "while" (i64.const 1)) (i64.const 1))
+(assert_return (invoke "while" (i64.const 2)) (i64.const 2))
+(assert_return (invoke "while" (i64.const 3)) (i64.const 6))
+(assert_return (invoke "while" (i64.const 5)) (i64.const 120))
+(assert_return (invoke "while" (i64.const 20)) (i64.const 2432902008176640000))
+
+(assert_return (invoke "for" (i64.const 0)) (i64.const 1))
+(assert_return (invoke "for" (i64.const 1)) (i64.const 1))
+(assert_return (invoke "for" (i64.const 2)) (i64.const 2))
+(assert_return (invoke "for" (i64.const 3)) (i64.const 6))
+(assert_return (invoke "for" (i64.const 5)) (i64.const 120))
+(assert_return (invoke "for" (i64.const 20)) (i64.const 2432902008176640000))
+
+(assert_return (invoke "nesting" (f32.const 0) (f32.const 7)) (f32.const 0))
+(assert_return (invoke "nesting" (f32.const 7) (f32.const 0)) (f32.const 0))
+(assert_return (invoke "nesting" (f32.const 1) (f32.const 1)) (f32.const 1))
+(assert_return (invoke "nesting" (f32.const 1) (f32.const 2)) (f32.const 2))
+(assert_return (invoke "nesting" (f32.const 1) (f32.const 3)) (f32.const 4))
+(assert_return (invoke "nesting" (f32.const 1) (f32.const 4)) (f32.const 6))
+(assert_return (invoke "nesting" (f32.const 1) (f32.const 100)) (f32.const 2550))
+(assert_return (invoke "nesting" (f32.const 1) (f32.const 101)) (f32.const 2601))
+(assert_return (invoke "nesting" (f32.const 2) (f32.const 1)) (f32.const 1))
+(assert_return (invoke "nesting" (f32.const 3) (f32.const 1)) (f32.const 1))
+(assert_return (invoke "nesting" (f32.const 10) (f32.const 1)) (f32.const 1))
+(assert_return (invoke "nesting" (f32.const 2) (f32.const 2)) (f32.const 3))
+(assert_return (invoke "nesting" (f32.const 2) (f32.const 3)) (f32.const 4))
+(assert_return (invoke "nesting" (f32.const 7) (f32.const 4)) (f32.const 10.3095235825))
+(assert_return (invoke "nesting" (f32.const 7) (f32.const 100)) (f32.const 4381.54785156))
+(assert_return (invoke "nesting" (f32.const 7) (f32.const 101)) (f32.const 2601))
+
+(assert_invalid
+  (module (func $type-empty-i32 (result i32) (loop)))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-empty-i64 (result i64) (loop)))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-empty-f32 (result f32) (loop)))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-empty-f64 (result f64) (loop)))
+  "type mismatch"
+)
+
+(assert_invalid
+  (module (func $type-value-num-vs-void
+    (loop (i32.const 1))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-value-empty-vs-num (result i32)
+    (loop (result i32))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-value-void-vs-num (result i32)
+    (loop (result i32) (nop))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-value-num-vs-num (result i32)
+    (loop (result i32) (f32.const 0))
+  ))
+  "type mismatch"
+)
+(assert_invalid
+  (module (func $type-value-unreached-select (result i32)
+    (loop (result i64) (select (unreachable) (unreachable) (unreachable)))
+  ))
+  "type mismatch"
+)
+
+
+(assert_malformed
+  (module quote "(func loop end $l)")
+  "mismatching label"
+)
+(assert_malformed
+  (module quote "(func loop $a end $l)")
+  "mismatching label"
+)
