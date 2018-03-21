@@ -717,18 +717,20 @@ foldedinstr1 :: { [Instruction] }
 folded_block :: { Maybe Ident -> Instruction }
     : ')' { \ident -> BlockInstr ident [] [] }
     | '(' folded_block1 { $2 }
+    | raw_instr list(instruction) ')' { \ident -> BlockInstr ident [] ($1 ++ concat $2) }
 
 folded_block1 :: { Maybe Ident -> Instruction }
-    : 'result' valtype ')' list(foldedinstr) ')' { \ident -> BlockInstr ident [$2] (concat $4) }
-    | foldedinstr1 list(foldedinstr) ')' { \ident -> BlockInstr ident [] ($1 ++ concat $2) }
+    : 'result' valtype ')' list(instruction) ')' { \ident -> BlockInstr ident [$2] (concat $4) }
+    | foldedinstr1 list(instruction) ')' { \ident -> BlockInstr ident [] ($1 ++ concat $2) }
 
 folded_loop :: { Maybe Ident -> Instruction }
     : ')' { \ident -> LoopInstr ident [] [] }
     | '(' folded_loop1 { $2 }
+    | raw_instr list(instruction) ')' { \ident -> LoopInstr ident [] ($1 ++ concat $2) }
 
 folded_loop1 :: { Maybe Ident -> Instruction }
-    : 'result' valtype ')' list(foldedinstr) ')' { \ident -> LoopInstr ident [$2] (concat $4) }
-    | foldedinstr1 list(foldedinstr) ')' { \ident -> LoopInstr ident [] ($1 ++ concat $2) }
+    : 'result' valtype ')' list(instruction) ')' { \ident -> LoopInstr ident [$2] (concat $4) }
+    | foldedinstr1 list(instruction) ')' { \ident -> LoopInstr ident [] ($1 ++ concat $2) }
 
 folded_if_result :: { Maybe Ident -> [Instruction] }
     : 'result' valtype ')' '(' folded_then_else {
@@ -744,11 +746,11 @@ folded_if :: { Maybe Ident -> [Instruction] }
     | foldedinstr1 '(' folded_then_else { \ident -> $1 ++ [IfInstr ident [] (fst $3) (snd $3)] }
 
 folded_then_else :: { ([Instruction], [Instruction]) }
-    : 'then' list(foldedinstr) ')' folded_else { (concat $2, $4)}
+    : 'then' list(instruction) ')' folded_else { (concat $2, $4)}
 
 folded_else :: { [Instruction] }
     : ')' { [] }
-    | '(' 'else' list(foldedinstr) ')' ')' { concat $3 }
+    | '(' 'else' list(instruction) ')' ')' { concat $3 }
 
 folded_call_indirect :: { [Instruction] }
     : ')' { [PlainInstr $ CallIndirect $ AnonimousTypeUse $ FuncType [] []] }
