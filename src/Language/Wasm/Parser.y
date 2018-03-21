@@ -7,6 +7,7 @@
 module Language.Wasm.Parser (
     parseModule,
     parseModuleFields,
+    parseScript,
     desugarize,
     ModuleField(..),
     DataSegment(..),
@@ -85,6 +86,7 @@ import Debug.Trace as Debug
 
 %name parseModule mod
 %name parseModuleFields modAsFields
+%name parseScript script
 %tokentype { Lexeme }
 
 %token
@@ -285,6 +287,23 @@ import Debug.Trace as Debug
 'offset'              { Lexeme _ (TKeyword "offset") }
 'start'               { Lexeme _ (TKeyword "start") }
 'module'              { Lexeme _ (TKeyword "module") }
+-- script extension
+'binary'              { Lexeme _ (TKeyword "binary") }
+'quote'               { Lexeme _ (TKeyword "quote") }
+'register'            { Lexeme _ (TKeyword "register") }
+'invoke'              { Lexeme _ (TKeyword "invoke") }
+'get'                 { Lexeme _ (TKeyword "get") }
+'assert_return'       { Lexeme _ (TKeyword "assert_return") }
+'assert_return_canonical_nan' { Lexeme _ (TKeyword "assert_return_canonical_nan") }
+'assert_return_arithmetic_nan' { Lexeme _ (TKeyword "assert_return_arithmetic_nan") }
+'assert_trap'         { Lexeme _ (TKeyword "assert_trap") }
+'assert_malformed'    { Lexeme _ (TKeyword "assert_malformed") }
+'assert_invalid'      { Lexeme _ (TKeyword "assert_invalid") }
+'assert_unlinkable'   { Lexeme _ (TKeyword "assert_unlinkable") }
+'script'              { Lexeme _ (TKeyword "script") }
+'input'               { Lexeme _ (TKeyword "input") }
+'output'              { Lexeme _ (TKeyword "output") }
+-- script extension end
 id                    { Lexeme _ (TId $$) }
 u32                   { Lexeme _ (TIntLit (asUInt32 -> Just $$)) }
 i32                   { Lexeme _ (TIntLit (asInt32 -> Just $$)) }
@@ -971,6 +990,47 @@ modAsFields :: { [ModuleField] }
 mod :: { S.Module }
     : modAsFields { desugarize $1 }
 
+-- Wasm Script Extended Grammar
+script :: { Script }
+    : list(command) { $1 }
+
+command :: { Command }
+    : '(' command1 { $2 }
+
+command1 :: { Command }
+    : module1 { ModuleDef $1 }
+    | 'register' string opt(ident) ')' { Register $2 $3 }
+    | action1 { Action $1 }
+    | assertion1 { Assertion $1 }
+    | meta1 { Meta $1 }
+
+module1 :: { ModuleDef }
+    : 'module' opt(ident) 'binary' list(string) ')' { BinaryModDef $2 $4 }
+    | 'module' opt(ident) 'quote' list(string) ')' { TextModDef $2 $4 }
+    | 'module' opt(ident) list(modulefield) ')' { RawModDef $2 (desugarize $ concat $3) }
+
+action1 :: { Action }
+    : 'invoke' opt(ident) string list(foldedinstr) { Invoke $2 $3 $4 }
+    | 'get' opt(ident) string { Get $2 $3 }
+
+assertion1 :: { Assertion }
+    : 'assert_return' '(' action1 list(foldedinstr) ')' { AssertReturn $3 $4 }
+    | 'assert_return_canonical_nan' '(' action1 ')' { AssertReturnCanonicalNaN $3 }
+    | 'assert_return_arithmetic_nan' '(' action1 ')' { AssertReturnArithmeticNaN $3 }
+    | 'assert_trap' '(' assertion_trap string ')' { AssertTrap $3 $4 }
+    | 'assert_malformed' '(' module1 string ')' { AssertMalformed $3 $4 }
+    | 'assert_invalid' '(' module1 string ')' { AssertInvalid $3 $4 }
+    | 'assert_unlinkable' '(' module1 string ')' { AssertUnlinkable $3 $4 }
+
+assertion_trap :: { Either Action ModuleDef }
+    : action1 { Left $1 }
+    | module1 { Right $1 }
+
+meta1 :: { Meta }
+    : 'script' opt(ident) script ')' { Script $2 $3 }
+    | 'input' opt(ident) string ')' { Input $2 $3 }
+    | 'output' opt(ident) string ')' { Output $2 $3 }
+
 -- utils
 
 rev_list(p)
@@ -1291,7 +1351,7 @@ type Script = [Command]
 type Expression = [Instruction]
 
 data ModuleDef
-    = RawModDef (Maybe Ident) Module
+    = RawModDef (Maybe Ident) S.Module
     | TextModDef (Maybe Ident) [TL.Text]
     | BinaryModDef (Maybe Ident) [TL.Text]
     deriving (Show, Eq)
@@ -1299,9 +1359,9 @@ data ModuleDef
 data Command
     = ModuleDef ModuleDef
     | Register TL.Text (Maybe Ident)
-    | Action
-    | Assertion
-    | Meta
+    | Action Action
+    | Assertion Assertion
+    | Meta Meta
     deriving (Show, Eq)
 
 data Action
