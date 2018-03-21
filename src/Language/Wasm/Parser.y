@@ -829,6 +829,7 @@ signature_locals_body1 :: { Function }
 result_locals_body :: { Function }
     : ')' { emptyFunction }
     | '(' result_locals_body1 { $2 }
+    | raw_instr list(instruction) ')' { emptyFunction { body = $1 ++ concat $2 } }
 
 result_locals_body1 :: { Function }
     : 'result' list(valtype) ')' result_locals_body {
