@@ -309,6 +309,7 @@ id                    { Lexeme _ (TId $$) }
 u32                   { Lexeme _ (TIntLit (asUInt32 -> Just $$)) }
 i32                   { Lexeme _ (TIntLit (asInt32 -> Just $$)) }
 i64                   { Lexeme _ (TIntLit (asInt64 -> Just $$)) }
+unrestricted_int      { Lexeme _ (TIntLit $$) }
 f32                   { Lexeme _ (TFloatLit (asFloat32 -> $$)) }
 f64                   { Lexeme _ (TFloatLit (asFloat64 -> $$)) }
 offset                { Lexeme _ (TKeyword (asOffset -> Just $$)) }
@@ -370,11 +371,15 @@ int64 :: { Integer }
 float32 :: { Float }
     : u32 { fromIntegral $1 }
     | i32 { fromIntegral $1 }
+    | i64 { fromIntegral $1 }
+    | unrestricted_int { fromIntegral $1 }
     | f32 { $1 }
 
 float64 :: { Double }
     : u32 { fromIntegral $1 }
     | i32 { fromIntegral $1 }
+    | i64 { fromIntegral $1 }
+    | unrestricted_int { fromIntegral $1 }
     | f32 { realToFrac $1 }
     | f64 { realToFrac $1 }
 
