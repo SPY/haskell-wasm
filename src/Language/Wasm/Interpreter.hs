@@ -289,19 +289,49 @@ initialize inst Module {elems, datas, start} store = do
             return storeWithMems
         Nothing -> return storeWithMems
     where
+        fitOrGrowTable :: Address -> Store -> Int -> TableInstance
+        fitOrGrowTable idx st last =
+            let t@(TableInstance elems maxLen) = tableInstances st ! idx in
+            let len = Vector.length elems in
+            let increased = TableInstance (elems Vector.++ (Vector.fromList $ replicate (last - len) Nothing)) maxLen in
+            if last < len
+            then t
+            else case maxLen of
+                Nothing -> increased
+                Just max ->
+                    if max < last
+                    then error $ "Max table length reached. Max " ++ show max ++ ", but requested " ++ show last
+                    else increased
+
         initElem :: Store -> ElemSegment -> IO Store
         initElem st ElemSegment {tableIndex, offset, funcIndexes} = do
             VI32 val <- evalConstExpr inst store offset
             let from = fromIntegral val
             let funcs = map ((funcaddrs inst !) . fromIntegral) funcIndexes
             let idx = tableaddrs inst ! fromIntegral tableIndex
-            let TableInstance elems maxLen = tableInstances st ! idx
+            let last = from + length funcs
+            let TableInstance elems maxLen = fitOrGrowTable idx st last
             let len = Vector.length elems
-            if from + length funcs >= len
-            then error "Element indexes are out of the table bounds"
-            else do
-                let table = TableInstance (elems // zip [from..] (map Just funcs)) maxLen
-                return $ st { tableInstances = tableInstances st Vector.// [(idx, table)] }
+            let table = TableInstance (elems // zip [from..] (map Just funcs)) maxLen
+            return $ st { tableInstances = tableInstances st Vector.// [(idx, table)] }
+
+        fitOrGrowMemory :: Address -> Store -> Int -> IO MemoryInstance
+        fitOrGrowMemory idx st last = do
+            let m@(MemoryInstance mem maxLen) = memInstances st ! idx
+            let len = IOVector.length mem
+            let increased = do
+                    let pages = (last - len) `div` pageSize + (if (last - len) `rem` len == 0 then 0 else 1)
+                    mem' <- IOVector.grow mem $ pages * pageSize
+                    return $ MemoryInstance mem' maxLen
+            if last < len
+            then return m
+            else case maxLen of
+                Nothing -> increased
+                Just max ->
+                    let maxInBytes = max * pageSize in
+                    if maxInBytes <= last
+                    then error $ "Max memory length reached. Max " ++ show max ++ "(" ++ show maxInBytes ++ "b), but requested " ++ show last
+                    else increased
 
         initData :: Store -> DataSegment -> IO Store
         initData st DataSegment {memIndex, offset, chunk} = do
@@ -309,13 +339,9 @@ initialize inst Module {elems, datas, start} store = do
             let from = fromIntegral val
             let idx = memaddrs inst ! fromIntegral memIndex
             let last = from + (fromIntegral $ LBS.length chunk)
-            let MemoryInstance mem maxLen = memInstances st ! idx
-            let len = IOVector.length mem
-            if last >= len
-            then error "Data chunk is out of the memory bounds"
-            else do
-                mapM_ (\(i,b) -> IOVector.write mem i b) $ zip [from..] $ LBS.unpack chunk
-                return $ st { memInstances = memInstances st // [(idx, MemoryInstance mem maxLen)] }
+            MemoryInstance mem maxLen <- fitOrGrowMemory idx st last
+            mapM_ (\(i,b) -> IOVector.write mem i b) $ zip [from..] $ LBS.unpack chunk
+            return $ st { memInstances = memInstances st // [(idx, MemoryInstance mem maxLen)] }
 
 instantiate :: Store -> Imports -> Module -> IO (ModuleInstance, Store)
 instantiate st imps m = do
