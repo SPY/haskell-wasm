@@ -316,6 +316,7 @@ initialize inst Module {elems, datas, start} store = do
             return $ st { tableInstances = tableInstances st Vector.// [(idx, table)] }
 
         fitOrGrowMemory :: Address -> Store -> Int -> IO MemoryInstance
+        fitOrGrowMemory idx st 0 = return $ memInstances st ! idx
         fitOrGrowMemory idx st last = do
             let m@(MemoryInstance mem maxLen) = memInstances st ! idx
             let len = IOVector.length mem
@@ -329,7 +330,7 @@ initialize inst Module {elems, datas, start} store = do
                 Nothing -> increased
                 Just max ->
                     let maxInBytes = max * pageSize in
-                    if maxInBytes <= last
+                    if maxInBytes < last
                     then error $ "Max memory length reached. Max " ++ show max ++ "(" ++ show maxInBytes ++ "b), but requested " ++ show last
                     else increased
 
