@@ -1421,7 +1421,7 @@ data FunCtx = FunCtx {
 desugarize :: [ModuleField] -> S.Module
 desugarize fields =
     let mod = Module {
-        types = extract extractTypeDef fields,
+        types = reverse $ foldl' extractTypeDef (explicitTypeDefs fields) fields,
         functions = extract extractFunction fields,
         tables = extract extractTable fields,
         imports = extract extractImport fields,
@@ -1457,8 +1457,14 @@ desugarize fields =
         synTypeDefToStruct (TypeDef _ FuncType { params, results }) =
             S.FuncType (map paramType params) results
 
+        explicitTypeDefs :: [ModuleField] -> [TypeDef]
+        explicitTypeDefs = map (\(MFType def) -> def) . filter isTypeDef
+            where
+                isTypeDef (MFType _) = True
+                isTypeDef _ = False
+        
         extractTypeDef :: [TypeDef] -> ModuleField -> [TypeDef]
-        extractTypeDef defs (MFType def) = def : defs
+        extractTypeDef defs (MFType _) = defs -- should be extracted before implicit defs
         extractTypeDef defs (MFImport Import { desc = ImportFunc _ typeUse }) =
             matchTypeUse defs typeUse
         extractTypeDef defs (MFFunc Function { funcType, body }) =

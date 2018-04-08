@@ -32,7 +32,7 @@ data ValidationResult =
     | ResultTypeDoesntMatch
     | NoTableInModule
     | NoMemoryInModule
-    | TypeMismatch
+    | TypeMismatch { actual :: Arrow, expected :: Arrow }
     | InvalidConstantExpr
     | InvalidStartFunctionType
     | ImportedGlobalIsNotConst
@@ -169,20 +169,20 @@ getInstrType Block { result, body } = do
     t <- withLabel result $ getExpressionType body
     if isArrowMatch t blockType
     then return $ empty ==> result
-    else throwError TypeMismatch
+    else throwError $ TypeMismatch t blockType
 getInstrType Loop { result, body } = do
     let blockType = empty ==> result
     t <- withLabel result $ getExpressionType body
     if isArrowMatch t blockType
     then return $ empty ==> result
-    else throwError TypeMismatch
+    else throwError $ TypeMismatch t blockType
 getInstrType If { result, true, false } = do
     let blockType = empty ==> result
     l <- withLabel result $ getExpressionType true
     r <- withLabel result $ getExpressionType false
-    if isArrowMatch l blockType && isArrowMatch r blockType
-    then return $ I32 ==> result
-    else throwError TypeMismatch
+    if isArrowMatch l blockType
+    then (if isArrowMatch r blockType then (return $ I32 ==> result) else (throwError $ TypeMismatch r blockType))
+    else throwError $ TypeMismatch l blockType
 getInstrType (Br lbl) = do
     r <- map Val . maybeToList <$> getLabel lbl
     return $ (Any : r) ==> Any
@@ -373,7 +373,7 @@ unify (from `Arrow` to) (from' `Arrow` to') =
         unify' (f `Arrow` (Val v':t)) ((Val v:f') `Arrow` t') =
             if v == v'
             then unify' (f `Arrow` t) (f' `Arrow` t')
-            else throwError TypeMismatch
+            else throwError $ TypeMismatch (from `Arrow` to) (from' `Arrow` to')
         unify' (f `Arrow` (Var r:t)) ((Val v:f') `Arrow` t') =
             let subst = replace (Var r) (Val v) in
             unify' (subst f `Arrow` subst t) (f' `Arrow` t')
@@ -463,7 +463,7 @@ isFunctionValid Function {funcType, localTypes = locals, body} mod@Module {types
         Right arr ->
             if isArrowMatch arr (empty ==> results)
             then Valid
-            else TypeMismatch
+            else TypeMismatch arr (empty ==> results)
 
 functionsShouldBeValid :: Validator
 functionsShouldBeValid mod@Module {functions} =
@@ -510,11 +510,11 @@ globalsShouldBeValid m@Module { imports, globals } =
             let check = runChecker ctx $ do
                     isConstExpression init
                     t <- getExpressionType init
-                    return $ isArrowMatch (empty ==> getGlobalType gt) t
+                    return $ if isArrowMatch (empty ==> I32) t then Valid else TypeMismatch (empty ==> I32) t
             in
             case check of
                 Left err -> err
-                Right eq -> if eq then Valid else TypeMismatch
+                Right res -> res
 
 elemsShouldBeValid :: Validator
 elemsShouldBeValid m@Module { elems, functions, tables, imports } =
@@ -526,11 +526,11 @@ elemsShouldBeValid m@Module { elems, functions, tables, imports } =
             let check = runChecker ctx $ do
                     isConstExpression offset
                     t <- getExpressionType offset
-                    return $ isArrowMatch (empty ==> I32) t
+                    return $ if isArrowMatch (empty ==> I32) t then Valid else TypeMismatch (empty ==> I32) t
             in
             let isIniterValid = case check of
                     Left err -> err
-                    Right eq -> if eq then Valid else TypeMismatch
+                    Right res -> res
             in
             let tableImports = filter isTableImport imports in
             let isTableIndexValid =
@@ -552,11 +552,11 @@ datasShouldBeValid m@Module { datas, mems, imports } =
             let check = runChecker ctx $ do
                     isConstExpression offset
                     t <- getExpressionType offset
-                    return $ isArrowMatch (empty ==> I32) t
+                    return $ if isArrowMatch (empty ==> I32) t then Valid else TypeMismatch (empty ==> I32) t
             in
             let isOffsetValid = case check of
                     Left err -> err
-                    Right eq -> if eq then Valid else TypeMismatch
+                    Right res -> res
             in
             let memImports = filter isMemImport imports in
             if memIdx < (fromIntegral $ length memImports + length mems)
