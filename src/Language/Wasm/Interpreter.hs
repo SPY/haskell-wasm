@@ -5,6 +5,8 @@
 
 module Language.Wasm.Interpreter (
     Value(..),
+    Store,
+    ModuleInstance,
     instantiate,
     invoke,
     invokeExport,

@@ -41,6 +41,7 @@ library
       Language.Wasm.Binary
       Language.Wasm.Validate
       Language.Wasm.Interpreter
+      Language.Wasm.Script
       Language.Wasm
   other-modules:
       Paths_wasm

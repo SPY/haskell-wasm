@@ -16,6 +16,7 @@ import qualified Language.Wasm.Structure as Structure
 import qualified Language.Wasm.Binary as Binary
 import qualified Language.Wasm.Validate as Validate
 import qualified Language.Wasm.Interpreter as Interpreter
+import qualified Language.Wasm.Script as Script
 
 import qualified Debug.Trace as Debug
 
@@ -33,44 +34,9 @@ compile file = do
 main :: IO ()
 main = do
   files <- Directory.listDirectory "tests/samples"
-  -- let files = ["call_indirect.wast"]
-  -- compile "fact.wast"
-  syntaxTestCases <- (`mapM` files) $ \file -> do
+  scriptTestCases <- (`mapM` files) $ \file -> do
     content <- LBS.readFile $ "tests/samples/" ++ file
-    let result = Parser.parseScript <$> Lexer.scanner content
-    return $ testCase ("Parse module from core Test Suit: " ++ file) $
-      assertBool "Module parsed" $ isRight result
-  -- binaryTestCases <- (`mapM` files) $ \file -> do
-  --   content <- LBS.readFile $ "tests/samples/" ++ file
-  --   let Right mod = Parser.parseModule <$> Lexer.scanner content
-  --   let Right mod' = Binary.decodeModuleLazy $ Binary.dumpModuleLazy mod
-  --   return $ testCase ("Dump module to binary and parse back: " ++ file) $
-  --     assertEqual "Module matched" mod mod'
-  -- validationTestCases <- (`mapM` files) $ \file -> do
-  --   content <- LBS.readFile $ "tests/samples/" ++ file
-  --   let Right mod = Parser.parseModule <$> Lexer.scanner content
-  --   return $ testCase ("Validate module: " ++ file) $
-  --     case file of
-  --       "import.wast" ->
-  --         assertEqual "Too many tables" Validate.MoreThanOneTable $ Validate.validate mod
-  --       _ ->
-  --         assertBool "Module matched" $ Validate.isValid $ Validate.validate mod
-  -- interpretFactTestCases <- do
-  --   content <- LBS.readFile "tests/samples/fact.wast"
-  --   let Right mod = Parser.parseModule <$> Lexer.scanner content
-  --   (modInst, store) <- Interpreter.instantiate Interpreter.emptyStore Interpreter.emptyImports mod
-  --   (`mapM` ["fac-rec", "fac-rec-named", "fac-iter", "fac-iter-named", "fac-opt"]) $ \fn -> do
-  --     let fac = \n -> Interpreter.invokeExport store modInst fn [Interpreter.VI64 n]
-  --     fac3 <- fac 3
-  --     fac5 <- fac 5
-  --     fac8 <- fac 8
-  --     return $ testCase ("Interprete " ++ show fn) $ do
-  --       assertEqual "Fact 3! == 6" [Interpreter.VI64 6] fac3
-  --       assertEqual "Fact 5! == 120" [Interpreter.VI64 120] fac5
-  --       assertEqual "Fact 8! == 40320" [Interpreter.VI64 40320] fac8
-  defaultMain $ testGroup "tests" [
-      testGroup "Syntax parsing" syntaxTestCases
-      -- testGroup "Binary format" binaryTestCases,
-      -- testGroup "Validation" validationTestCases,
-      -- testGroup "Interpretation" interpretFactTestCases
-    ]
+    let Right script = Parser.parseScript <$> Lexer.scanner content
+    return $ testCase file $ do
+      Script.runScript (assertFailure . ("Failed assert: " ++) . show) script
+  defaultMain $ testGroup "Wasm Core Test Suit" scriptTestCases

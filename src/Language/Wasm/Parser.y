@@ -29,7 +29,14 @@ module Language.Wasm.Parser (
     Index(..),
     Ident(..),
     ParamType(..),
-    FuncType(..)
+    FuncType(..),
+    -- script
+    Script,
+    ModuleDef(..),
+    Command(..),
+    Action(..),
+    Assertion(..),
+    Meta(..)
 ) where
 
 import Language.Wasm.Structure (
@@ -323,7 +330,7 @@ name :: { TL.Text }
     : string { $1 }
 
 ident :: { Ident }
-    : id { Ident (TL.toStrict (TLEncoding.decodeUtf8 $1)) }
+    : id { Ident (TLEncoding.decodeUtf8 $1) }
 
 valtype :: { ValueType }
     : 'i32' { I32 }
@@ -1017,8 +1024,8 @@ command1 :: { Command }
     | meta1 { Meta $1 }
 
 module1 :: { ModuleDef }
-    : 'module' opt(ident) 'binary' list(string) ')' { BinaryModDef $2 $4 }
-    | 'module' opt(ident) 'quote' list(string) ')' { TextModDef $2 $4 }
+    : 'module' opt(ident) 'binary' list(string) ')' { BinaryModDef $2 (TLEncoding.encodeUtf8 $ TL.concat $4) }
+    | 'module' opt(ident) 'quote' list(string) ')' { TextModDef $2 (TL.concat $4) }
     | 'module' opt(ident) list(modulefield) ')' { RawModDef $2 (desugarize $ concat $3) }
     | modulefield1 list(modulefield) { RawModDef Nothing (desugarize $ $1 ++ concat $2) }
 
@@ -1141,7 +1148,7 @@ data ParamType = ParamType {
         paramType :: ValueType
     } deriving (Show, Eq)
 
-newtype Ident = Ident T.Text deriving (Show, Eq)
+newtype Ident = Ident TL.Text deriving (Show, Eq)
 
 data Index = Named Ident | Index Natural deriving (Show, Eq)
 
@@ -1366,8 +1373,8 @@ type Expression = [Instruction]
 
 data ModuleDef
     = RawModDef (Maybe Ident) S.Module
-    | TextModDef (Maybe Ident) [TL.Text]
-    | BinaryModDef (Maybe Ident) [TL.Text]
+    | TextModDef (Maybe Ident) TL.Text
+    | BinaryModDef (Maybe Ident) LBS.ByteString
     deriving (Show, Eq)
 
 data Command
