@@ -23,11 +23,11 @@ import qualified Data.Text.Lazy.Encoding as TLEncoding
 getULEB128 :: (Integral a, Bits a) => Get a
 getULEB128 = do
     val <- getWord8
-    if val < 2 ^ 7
+    if not (testBit val 7)
     then return $ fromIntegral val
     else do
         rest <- getULEB128
-        return $ (fromIntegral $ 0x7F .&. val) + 128 * rest
+        return $ (fromIntegral $ val .&. 0x7F) .|. (rest `shiftL` 7)
 
 putULEB128 :: (Integral a, Bits a) => a -> Put
 putULEB128 val =
@@ -101,8 +101,12 @@ skipCustomSection = do
 
 getSection :: SectionType -> Get a -> a -> Get a
 getSection sectionType parser def = do
-    nextByte <- lookAhead getWord8
-    parseSection $ fromIntegral nextByte
+    empty <- isEmpty
+    if empty
+    then return def
+    else do
+        nextByte <- lookAhead getWord8
+        parseSection $ fromIntegral nextByte
     where
         parseSection op
             | op == 0 = skipCustomSection >> getSection sectionType parser def

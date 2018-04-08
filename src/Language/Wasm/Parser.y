@@ -63,6 +63,7 @@ import qualified Data.Text.Lazy.Encoding as TLEncoding
 import qualified Data.Text.Lazy.Read as TLRead
 
 import qualified Data.ByteString.Lazy as LBS
+import qualified Data.ByteString.Lazy.Char8 as LBSChar8
 import Data.Maybe (fromMaybe, fromJust)
 import Data.List (foldl', findIndex, find)
 import Control.Monad (guard)
@@ -1024,7 +1025,7 @@ command1 :: { Command }
     | meta1 { Meta $1 }
 
 module1 :: { ModuleDef }
-    : 'module' opt(ident) 'binary' list(string) ')' { BinaryModDef $2 (TLEncoding.encodeUtf8 $ TL.concat $4) }
+    : 'module' opt(ident) 'binary' list(string) ')' { BinaryModDef $2 (LBSChar8.pack $ TL.unpack $ TL.concat $4) }
     | 'module' opt(ident) 'quote' list(string) ')' { TextModDef $2 (TL.concat $4) }
     | 'module' opt(ident) list(modulefield) ')' { RawModDef $2 (desugarize $ concat $3) }
     | modulefield1 list(modulefield) { RawModDef Nothing (desugarize $ $1 ++ concat $2) }

@@ -510,7 +510,8 @@ globalsShouldBeValid m@Module { imports, globals } =
             let check = runChecker ctx $ do
                     isConstExpression init
                     t <- getExpressionType init
-                    return $ if isArrowMatch (empty ==> I32) t then Valid else TypeMismatch (empty ==> I32) t
+                    let expected = empty ==> getGlobalType gt
+                    return $ if isArrowMatch expected t then Valid else TypeMismatch t expected
             in
             case check of
                 Left err -> err
@@ -526,7 +527,7 @@ elemsShouldBeValid m@Module { elems, functions, tables, imports } =
             let check = runChecker ctx $ do
                     isConstExpression offset
                     t <- getExpressionType offset
-                    return $ if isArrowMatch (empty ==> I32) t then Valid else TypeMismatch (empty ==> I32) t
+                    return $ if isArrowMatch (empty ==> I32) t then Valid else TypeMismatch t (empty ==> I32) 
             in
             let isIniterValid = case check of
                     Left err -> err
@@ -552,7 +553,7 @@ datasShouldBeValid m@Module { datas, mems, imports } =
             let check = runChecker ctx $ do
                     isConstExpression offset
                     t <- getExpressionType offset
-                    return $ if isArrowMatch (empty ==> I32) t then Valid else TypeMismatch (empty ==> I32) t
+                    return $ if isArrowMatch (empty ==> I32) t then Valid else TypeMismatch t (empty ==> I32) 
             in
             let isOffsetValid = case check of
                     Left err -> err
