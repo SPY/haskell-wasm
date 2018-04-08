@@ -4,6 +4,7 @@ module Language.Wasm.Script (
 ) where
 
 import qualified Data.Map as Map
+import qualified Data.Vector as Vector
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TLEncoding
 
@@ -47,17 +48,36 @@ runScript onAssertFail script = go script emptyState
         go [] _ = return ()
         go (c:cs) st = runCommand st c >>= go cs
         
-        addToRegistery :: Maybe Ident -> Interpreter.ModuleInstance -> ScriptState -> ScriptState
-        addToRegistery (Just (Ident ident)) m st = st { moduleRegistery = Map.insert ident m $ moduleRegistery st }
-        addToRegistery Nothing _ st = st
+        addToRegistery :: TL.Text -> Maybe Ident -> ScriptState -> ScriptState
+        addToRegistery name i st =
+            case getModule st i of
+                Just m -> st { moduleRegistery = Map.insert name m $ moduleRegistery st }
+                Nothing -> error $ "Cannot register module with identifier '" ++ show i  ++ "'. No such module"
+
+        addToStore :: Maybe Ident -> Interpreter.ModuleInstance -> ScriptState -> ScriptState
+        addToStore (Just (Ident ident)) m st = st { modules = Map.insert ident m $ modules st }
+        addToStore Nothing _ st = st
+
+        buildImports :: ScriptState -> Interpreter.Imports
+        buildImports st =
+            Map.fromList $ concat $ map toImports $ Map.toList $ moduleRegistery st
+            where
+                toImports :: (TL.Text, Interpreter.ModuleInstance) -> [((TL.Text, TL.Text), Interpreter.ExternalValue)]
+                toImports (modName, mod) = map (asImport modName) $ Vector.toList $ Interpreter.exports mod
+                asImport :: TL.Text -> Interpreter.ExportInstance -> ((TL.Text, TL.Text), Interpreter.ExternalValue)
+                asImport modName (Interpreter.ExportInstance name val) = ((modName, name), val)
 
         addModule :: Maybe Ident -> Struct.Module -> ScriptState -> IO ScriptState
         addModule ident m st =
             case Validate.validate m of
                 Validate.Valid -> do
-                    (modInst, store') <- Interpreter.instantiate (store st) Interpreter.emptyImports m
-                    return $ addToRegistery ident modInst $ st { lastModule = Just modInst, store = store' }
+                    (modInst, store') <- Interpreter.instantiate (store st) (buildImports st) m
+                    return $ addToStore ident modInst $ st { lastModule = Just modInst, store = store' }
                 reason -> error $ "Module instantiation failed dut to invalid module with reason: " ++ show reason
+        
+        getModule :: ScriptState -> Maybe Ident -> Maybe Interpreter.ModuleInstance
+        getModule st (Just (Ident i)) = Map.lookup i (modules st)
+        getModule st Nothing = lastModule st
 
         runCommand :: ScriptState -> Command -> IO ScriptState
         runCommand st (ModuleDef (RawModDef ident m)) = addModule ident m st
@@ -67,4 +87,5 @@ runScript onAssertFail script = go script emptyState
         runCommand st (ModuleDef (BinaryModDef ident binaryRep)) =
             let Right m = Binary.decodeModuleLazy binaryRep in
             addModule ident m st
+        runCommand st (Register name i) = return $ addToRegistery name i st
         runCommand st _ = return st

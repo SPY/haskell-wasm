@@ -1422,7 +1422,7 @@ data FunCtx = FunCtx {
 desugarize :: [ModuleField] -> S.Module
 desugarize fields =
     let mod = Module {
-        types = reverse $ foldl' extractTypeDef (explicitTypeDefs fields) fields,
+        types = reverse $ foldl' extractTypeDef (reverse $ explicitTypeDefs fields) fields,
         functions = extract extractFunction fields,
         tables = extract extractTable fields,
         imports = extract extractImport fields,
