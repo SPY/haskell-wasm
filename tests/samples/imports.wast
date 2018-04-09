@@ -32,7 +32,7 @@
   ;; (func (import "spectest" "print_i64") (param i64))
   (import "spectest" "print_i32" (func $print_i32 (param i32)))
   ;; JavaScript can't handle i64 yet.
-  ;; (import "spectest" "print_i64" (func $print_i64 (param i64)))
+  (import "spectest" "print_i64" (func $print_i64 (param i64)))
   (import "spectest" "print_f32" (func $print_f32 (param f32)))
   (import "spectest" "print_f64" (func $print_f64 (param f64)))
   (import "spectest" "print_i32_f32" (func $print_i32_f32 (param i32 f32)))

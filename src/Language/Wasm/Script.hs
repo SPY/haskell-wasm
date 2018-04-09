@@ -56,7 +56,8 @@ runScript onAssertFail script = do
             ("global_i32", globI32),
             ("global_f32", globF32),
             ("global_f64", globF64),
-            ("memory", Interpreter.HostMemory $ Struct.Limit 1 (Just 2))
+            ("memory", Interpreter.HostMemory $ Struct.Limit 1 (Just 2)),
+            ("table", Interpreter.HostTable $ Struct.Limit 10 (Just 20))
         ]
     go script $ emptyState { store = st, moduleRegistery = Map.singleton "spectest" inst }
     where

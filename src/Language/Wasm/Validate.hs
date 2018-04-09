@@ -539,7 +539,8 @@ elemsShouldBeValid m@Module { elems, functions, tables, imports } =
                     then Valid
                     else IndexOutOfRange
             in
-            let funsLength = fromIntegral $ length functions in
+            let funImports = filter isFuncImport imports in
+            let funsLength = fromIntegral $ length functions + length funImports in
             let isFunsValid = foldMap (\i -> if i < funsLength then Valid else IndexOutOfRange) funs in
             isIniterValid <> isFunsValid <> isTableIndexValid
 
