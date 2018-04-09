@@ -124,7 +124,7 @@ parseNanSigned :: AlexAction Lexeme
 parseNanSigned = token $ \(pos, _, s, _) len -> 
     let (sign, slen) = parseSign s in
     let num = readHexFromPrefix (len - 6 - slen) $ LBSUtf8.drop (6 + slen) s in
-    Lexeme pos $ TFloatLit $ sign $ fromIntegral num
+    Lexeme pos $ TFloatLit $ sign $ nanWithPayload $ fromIntegral num
 
 parseDecimalSignedInt :: AlexAction Lexeme
 parseDecimalSignedInt = token $ \(pos, _, s, _) len ->
