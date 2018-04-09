@@ -34,10 +34,10 @@ compile file = do
 main :: IO ()
 main = do
   files <- Directory.listDirectory "tests/samples"
-  -- let files = ["labels.wast"]
+  let files = ["linking.wast"]
   scriptTestCases <- (`mapM` files) $ \file -> do
     content <- LBS.readFile $ "tests/samples/" ++ file
     let Right script = Parser.parseScript <$> Lexer.scanner content
     return $ testCase file $ do
-      Script.runScript (assertFailure . ("Failed assert: " ++) . show) script
+      Script.runScript (\msg assert -> assertFailure ("Failed assert: " ++ msg ++ ". Assert " ++ show assert)) script
   defaultMain $ testGroup "Wasm Core Test Suit" scriptTestCases

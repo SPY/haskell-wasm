@@ -15,8 +15,7 @@ import Language.Wasm.Parser (
         ModuleDef(..),
         Command(..),
         Action(..),
-        Assertion(..),
-        Meta(..)
+        Assertion(..)
     )
 
 import qualified Language.Wasm.Interpreter as Interpreter
@@ -26,7 +25,7 @@ import qualified Language.Wasm.Parser as Parser
 import qualified Language.Wasm.Lexer as Lexer
 import qualified Language.Wasm.Binary as Binary
 
-type OnAssertFail = Assertion -> IO ()
+type OnAssertFail = String -> Assertion -> IO ()
 
 data ScriptState = ScriptState {
     store :: Interpreter.Store,
@@ -118,6 +117,14 @@ runScript onAssertFail script = do
             case getModule st ident of
                 Just m -> Interpreter.getGlobalValueByName (store st) m name >>= return . (: [])
                 Nothing -> error $ "Cannot invoke function on module with identifier '" ++ show ident  ++ "'. No such module"
+        
+        runAssert :: ScriptState -> Assertion -> IO ()
+        runAssert st assert@(AssertReturn action expected) = do
+            result <- runAction st action
+            if result == map asArg expected
+            then return ()
+            else onAssertFail ("Expected " ++ show (map asArg expected) ++ ", but action returned " ++ show result) assert
+        runAssert _ _ = return ()
 
         runCommand :: ScriptState -> Command -> IO ScriptState
         runCommand st (ModuleDef (RawModDef ident m)) = addModule ident m st
@@ -129,4 +136,5 @@ runScript onAssertFail script = do
             addModule ident m st
         runCommand st (Register name i) = return $ addToRegistery name i st
         runCommand st (Action action) = runAction st action >> return st
+        runCommand st (Assertion assertion) = runAssert st assertion >> return st
         runCommand st _ = return st
