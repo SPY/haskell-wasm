@@ -11,6 +11,7 @@ import qualified Data.Char as Char
 import qualified Data.ByteString.Lazy.UTF8 as LBSUtf8
 import Control.Applicative ((<$>))
 import Control.Monad (when)
+import Numeric.IEEE (infinity, nan, nanWithPayload)
 
 }
 
@@ -54,11 +55,9 @@ tokens :-
 <0> "nan"                                 { constToken $ TFloatLit nan }
 <0> "+nan"                                { constToken $ TFloatLit nan }
 <0> "-nan"                                { constToken $ TFloatLit minusNaN }
-<0> @nanhex                               { constToken $ TFloatLit nan {- TODO: real hex rep parsing -}}
-<0> "+" @nanhex                           { constToken $ TFloatLit nan {- TODO: real hex rep parsing -}}
-<0> "-" @nanhex                           { constToken $ TFloatLit minusNaN {- TODO: real hex rep parsing -}}
+<0> $sign? @nanhex                        { parseNanSigned }
 <0> "inf"                                 { constToken $ TFloatLit inf }
-<0> "+inf"                                 { constToken $ TFloatLit inf }
+<0> "+inf"                                { constToken $ TFloatLit inf }
 <0> "-inf"                                { constToken $ TFloatLit minusInf }
 <0> @keyword                              { tokenStr TKeyword }
 <0> @linecomment                          ;
@@ -99,11 +98,10 @@ isAllowedStringChar _userState (_pos, _rest, inp, _) _len _nextInp =
     let code = Char.ord char in
     code >= 0x20 && code /= 0x7f && char /= '"' && char /= '\\'
 
-minusNaN, nan, inf, minusInf :: Double
-minusNaN = read "-NaN"
-nan = read "NaN"
-inf = read "Infinity"
-minusInf = read "-Infinity"
+minusNaN, inf, minusInf :: Double
+minusNaN = -nan
+inf = infinity
+minusInf = -infinity
 
 parseSign :: (Num a) => LBS.ByteString -> ((a -> a), Int64)
 parseSign str =
@@ -121,6 +119,12 @@ parseHexalSignedInt = token $ \(pos, _, s, _) len ->
     let (sign, slen) = parseSign s in
     let num = readHexFromPrefix (len - 2 - slen) $ LBSUtf8.drop (2 + slen) s in
     Lexeme pos $ TIntLit $ sign num
+
+parseNanSigned :: AlexAction Lexeme
+parseNanSigned = token $ \(pos, _, s, _) len -> 
+    let (sign, slen) = parseSign s in
+    let num = readHexFromPrefix (len - 6 - slen) $ LBSUtf8.drop (6 + slen) s in
+    Lexeme pos $ TFloatLit $ sign $ fromIntegral num
 
 parseDecimalSignedInt :: AlexAction Lexeme
 parseDecimalSignedInt = token $ \(pos, _, s, _) len ->

@@ -71,6 +71,7 @@ import Control.Monad (guard)
 import Numeric.Natural (Natural)
 import Data.Word (Word32, Word64)
 import Data.Bits ((.|.))
+import Numeric.IEEE (infinity, nan)
 
 import Language.Wasm.Lexer (
         Token (
@@ -318,8 +319,7 @@ u32                   { Lexeme _ (TIntLit (asUInt32 -> Just $$)) }
 i32                   { Lexeme _ (TIntLit (asInt32 -> Just $$)) }
 i64                   { Lexeme _ (TIntLit (asInt64 -> Just $$)) }
 unrestricted_int      { Lexeme _ (TIntLit $$) }
-f32                   { Lexeme _ (TFloatLit (asFloat32 -> $$)) }
-f64                   { Lexeme _ (TFloatLit (asFloat64 -> $$)) }
+f64                   { Lexeme _ (TFloatLit $$) }
 offset                { Lexeme _ (TKeyword (asOffset -> Just $$)) }
 align                 { Lexeme _ (TKeyword (asAlign -> Just $$)) }
 string                { Lexeme _ (TStringLit (asString -> Just $$)) }
@@ -381,15 +381,14 @@ float32 :: { Float }
     | i32 { fromIntegral $1 }
     | i64 { fromIntegral $1 }
     | unrestricted_int { fromIntegral $1 }
-    | f32 { $1 }
+    | f64 { asFloat32 $1 }
 
 float64 :: { Double }
     : u32 { fromIntegral $1 }
     | i32 { fromIntegral $1 }
     | i64 { fromIntegral $1 }
     | unrestricted_int { fromIntegral $1 }
-    | f32 { realToFrac $1 }
-    | f64 { realToFrac $1 }
+    | f64 { $1 }
 
 plaininstr :: { PlainInstr }
     -- control instructions
@@ -801,9 +800,9 @@ function :: { [ModuleField] }
     : 'func' opt(ident) export_import_typeuse_locals_body { $3 $2 }
 
 export_import_typeuse_locals_body :: { Maybe Ident -> [ModuleField] }
-    : ')' { \i -> [MFFunc $ emptyFunction { ident = i }] }
+    : ')' { \i -> [MFFunc Nothing $ emptyFunction { ident = i }] }
     | raw_instr list(instruction) ')' {
-        \i -> [MFFunc $ emptyFunction { ident = i, body = $1 ++ concat $2 }]
+        \i -> [MFFunc Nothing $ emptyFunction { ident = i, body = $1 ++ concat $2 }]
     }
     | '(' export_import_typeuse_locals_body1 { $2 }
 
@@ -817,7 +816,7 @@ import_typeuse_locals_body1 :: { Maybe Ident -> ModuleField }
     : 'import' name name ')' typeuse ')' {
         \ident -> MFImport $ Import $2 $3 $ ImportFunc ident $5
     }
-    | typeuse_locals_body1 { MFFunc . $1 }
+    | typeuse_locals_body1 { MFFunc Nothing . $1 }
 
 typeuse_locals_body1 :: { Maybe Ident -> Function }
     : 'type' typeidx ')' signature_locals_body {
@@ -1100,10 +1099,7 @@ asInt64 val
     | otherwise = Nothing
 
 asFloat32 :: Double -> Float
-asFloat32 = realToFrac
-
-asFloat64 :: Double -> Double
-asFloat64 = id
+asFloat32 v = realToFrac v
 
 asOffset :: LBS.ByteString -> Maybe Natural
 asOffset str = do
@@ -1337,7 +1333,7 @@ data DataSegment = DataSegment {
 data ModuleField =
     MFType TypeDef
     | MFImport Import
-    | MFFunc Function
+    | MFFunc (Maybe Int) Function
     | MFTable Table
     | MFMem Memory
     | MFGlobal Global
@@ -1443,7 +1439,7 @@ desugarize fields =
         S.mems = map synMemoryToStruct $ mems mod,
         S.globals = map (synGlobalToStruct mod) $ globals mod,
         S.start = fmap (synStartToStruct mod) $ start mod,
-        S.exports = synExportsToStruct mod fields
+        S.exports = synExportsToStruct mod $ appendIndexToFuncs fields
     }
     where
         -- utils
@@ -1468,7 +1464,7 @@ desugarize fields =
         extractTypeDef defs (MFType _) = defs -- should be extracted before implicit defs
         extractTypeDef defs (MFImport Import { desc = ImportFunc _ typeUse }) =
             matchTypeUse defs typeUse
-        extractTypeDef defs (MFFunc Function { funcType, body }) =
+        extractTypeDef defs (MFFunc _ Function { funcType, body }) =
             extractTypeDefFromInstructions (matchTypeUse defs funcType) body
         extractTypeDef defs (MFGlobal Global { initializer }) =
             extractTypeDefFromInstructions defs initializer
@@ -1649,7 +1645,7 @@ desugarize fields =
             }
 
         extractFunction :: [Function] -> ModuleField -> [Function]
-        extractFunction funcs (MFFunc fun) = fun : funcs
+        extractFunction funcs (MFFunc _ fun) = fun : funcs
         extractFunction funcs _ = funcs
 
         getLabelIdx :: FunCtx -> LabelIndex -> Maybe Natural
@@ -1806,6 +1802,13 @@ desugarize fields =
         extractStart' start _ = start
 
         -- exports
+        appendIndexToFuncs :: [ModuleField] -> [ModuleField]
+        appendIndexToFuncs mf = reverse $ snd $ foldl' appendIndexToFunc (0, []) mf
+            where
+                appendIndexToFunc :: (Int, [ModuleField]) -> ModuleField -> (Int, [ModuleField])
+                appendIndexToFunc (idx, mf) (MFFunc _ fun) = (idx + 1, (MFFunc (Just idx) fun):mf)
+                appendIndexToFunc (idx, mf) f = (idx, f:mf)
+ 
         synExportsToStruct :: Module -> [ModuleField] -> [S.Export]
         synExportsToStruct mod (MFExport Export { name, desc = ExportFunc Nothing } : rest) =
             let
@@ -1819,7 +1822,7 @@ desugarize fields =
             let 
                 idx = fromIntegral $ case head rest' of
                     MFImport imp -> fromJust $ findIndex (== imp) funImports
-                    MFFunc fun -> length funImports + (fromJust $ findIndex (== fun) $ functions mod)
+                    MFFunc (Just idx) fun -> length funImports + idx
                     _ -> error "export statement without index has to be followed with import or function"
             in
             map (\name -> S.Export name $ S.ExportFunc idx) names ++ synExportsToStruct mod rest'
