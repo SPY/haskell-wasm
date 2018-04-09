@@ -1787,7 +1787,7 @@ desugarize fields =
             let ctx = FunCtx mod [] [] [] in
             let offsetInstrs = map (synInstrToStruct ctx) offset in
             let idx = fromJust $ getMemIndex mod memIndex in
-            S.DataSegment idx offsetInstrs $ TLEncoding.encodeUtf8 datastring
+            S.DataSegment idx offsetInstrs $ LBSChar8.pack $ TL.unpack datastring
 
         extractDataSegment :: [DataSegment] -> ModuleField -> [DataSegment]
         extractDataSegment datas (MFData dataSegment) = dataSegment : datas

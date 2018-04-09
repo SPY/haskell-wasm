@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Language.Wasm.Script (
     runScript,
     OnAssertFail
@@ -43,8 +44,29 @@ emptyState = ScriptState {
 }
 
 runScript :: OnAssertFail -> Script -> IO ()
-runScript onAssertFail script = go script emptyState
+runScript onAssertFail script = do
+    (globI32, globF32, globF64) <- hostGlobals
+    (st, inst) <- Interpreter.makeHostModule Interpreter.emptyStore [
+            ("print", hostPrint []),
+            ("print_i32", hostPrint [Struct.I32]),
+            ("print_i32_f32", hostPrint [Struct.I32, Struct.F32]),
+            ("print_f64_f64", hostPrint [Struct.F64, Struct.F64]),
+            ("print_f32", hostPrint [Struct.F32]),
+            ("print_f64", hostPrint [Struct.F64]),
+            ("global_i32", globI32),
+            ("global_f32", globF32),
+            ("global_f64", globF64),
+            ("memory", Interpreter.HostMemory $ Struct.Limit 1 (Just 2))
+        ]
+    go script $ emptyState { store = st, moduleRegistery = Map.singleton "spectest" inst }
     where
+        hostPrint paramTypes = Interpreter.HostFunction (Struct.FuncType paramTypes []) (\args -> print args >> return [])
+        hostGlobals = do
+            globI32 <- Interpreter.makeMutGlobal $ Interpreter.VI32 666
+            globF32 <- Interpreter.makeMutGlobal $ Interpreter.VF32 666
+            globF64 <- Interpreter.makeMutGlobal $ Interpreter.VF64 666
+            return (Interpreter.HostGlobal globI32, Interpreter.HostGlobal globF32, Interpreter.HostGlobal globF64)
+
         go [] _ = return ()
         go (c:cs) st = runCommand st c >>= go cs
         

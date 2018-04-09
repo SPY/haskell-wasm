@@ -9,12 +9,16 @@ module Language.Wasm.Interpreter (
     ModuleInstance(..),
     ExternalValue(..),
     ExportInstance(..),
+    GlobalInstance(..),
     Imports,
+    HostItem(..),
     instantiate,
     invoke,
     invokeExport,
     emptyStore,
-    emptyImports
+    emptyImports,
+    makeHostModule,
+    makeMutGlobal
 ) where
 
 import qualified Data.Map as Map
@@ -131,6 +135,9 @@ data MemoryInstance = MemoryInstance {
 
 data GlobalInstance = GIConst Value | GIMut (IORef Value)
 
+makeMutGlobal :: Value -> IO GlobalInstance
+makeMutGlobal val = GIMut <$> newIORef val
+
 data ExportInstance = ExportInstance TL.Text ExternalValue deriving (Eq, Show)
 
 data ExternalValue =
@@ -148,9 +155,8 @@ data FunctionInstance =
     }
     | HostInstance {
         funcType :: FuncType,
-        tag :: TL.Text
+        hostCode :: HostFunction
     }
-    deriving (Show, Eq)
 
 data Store = Store {
     funcInstances :: Vector FunctionInstance,
@@ -167,6 +173,101 @@ emptyStore = Store {
     globalInstances = Vector.empty
 }
 
+type HostFunction = [Value] -> IO [Value]
+
+data HostItem
+    = HostFunction FuncType HostFunction
+    | HostGlobal GlobalInstance
+    | HostMemory Limit
+    | HostTable Limit
+
+makeHostModule :: Store -> [(TL.Text, HostItem)] -> IO (Store, ModuleInstance)
+makeHostModule st items = do
+    let (st', inst') = makeHostFunctions st emptyModInstance
+    let (st'', inst'') = makeHostGlobals st' inst'
+    (st''', inst''') <- makeHostMems st'' inst''
+    makeHostTables st''' inst'''
+    where
+        hostFunctions :: [(TL.Text, HostItem)]
+        hostFunctions = filter isHostFunction items
+
+        isHostFunction :: (TL.Text, HostItem) -> Bool
+        isHostFunction (_, (HostFunction _ _)) = True
+        isHostFunction _ = False
+
+        makeHostFunctions :: Store -> ModuleInstance -> (Store, ModuleInstance)
+        makeHostFunctions st inst =
+            let funcLen = Vector.length $ funcInstances st in
+            let instances = map (\(_, (HostFunction t c)) -> HostInstance t c) hostFunctions in
+            let types = map (\(_, (HostFunction t _)) -> t) hostFunctions in
+            let exps = Vector.fromList $ zipWith (\(name, _) i -> ExportInstance name (ExternFunction i)) hostFunctions [funcLen..] in
+            let inst' = inst {
+                    funcTypes = Vector.fromList types,
+                    funcaddrs = Vector.fromList [funcLen..funcLen + length instances - 1],
+                    exports = Language.Wasm.Interpreter.exports inst <> exps
+                }
+            in
+            let st' = st { funcInstances = funcInstances st <> Vector.fromList instances } in
+            (st', inst')
+        
+        hostGlobals :: [(TL.Text, HostItem)]
+        hostGlobals = filter isHostGlobal items
+
+        isHostGlobal :: (TL.Text, HostItem) -> Bool
+        isHostGlobal (_, (HostGlobal _)) = True
+        isHostGlobal _ = False
+        
+        makeHostGlobals :: Store -> ModuleInstance -> (Store, ModuleInstance)
+        makeHostGlobals st inst =
+            let globLen = Vector.length $ globalInstances st in
+            let instances = map (\(_, (HostGlobal g)) -> g) hostGlobals in
+            let exps = Vector.fromList $ zipWith (\(name, _) i -> ExportInstance name (ExternGlobal i)) hostGlobals [globLen..] in
+            let inst' = inst {
+                    globaladdrs = Vector.fromList [globLen..globLen + length instances - 1],
+                    exports = Language.Wasm.Interpreter.exports inst <> exps
+                }
+            in
+            let st' = st { globalInstances = globalInstances st <> Vector.fromList instances } in
+            (st', inst')
+
+        hostMems :: [(TL.Text, HostItem)]
+        hostMems = filter isHostMem items
+
+        isHostMem :: (TL.Text, HostItem) -> Bool
+        isHostMem (_, (HostMemory _)) = True
+        isHostMem _ = False
+            
+        makeHostMems :: Store -> ModuleInstance -> IO (Store, ModuleInstance)
+        makeHostMems st inst = do
+            let memLen = Vector.length $ memInstances st
+            instances <- allocMems $ map (\(_, (HostMemory lim)) -> Memory lim) hostMems
+            let exps = Vector.fromList $ zipWith (\(name, _) i -> ExportInstance name (ExternMemory i)) hostMems [memLen..]
+            let inst' = inst {
+                    memaddrs = Vector.fromList [memLen..memLen + length instances - 1],
+                    exports = Language.Wasm.Interpreter.exports inst <> exps
+                }
+            let st' = st { memInstances = memInstances st <> instances }
+            return (st', inst')
+        
+        hostTables :: [(TL.Text, HostItem)]
+        hostTables = filter isHostTable items
+
+        isHostTable :: (TL.Text, HostItem) -> Bool
+        isHostTable (_, (HostTable _)) = True
+        isHostTable _ = False
+            
+        makeHostTables :: Store -> ModuleInstance -> IO (Store, ModuleInstance)
+        makeHostTables st inst = do
+            let tableLen = Vector.length $ tableInstances st
+            let instances = allocTables $ map (\(_, (HostTable lim)) -> Table (TableType lim AnyFunc)) hostTables
+            let exps = Vector.fromList $ zipWith (\(name, _) i -> ExportInstance name (ExternTable i)) hostTables [tableLen..]
+            let inst' = inst {
+                    tableaddrs = Vector.fromList [tableLen..tableLen + length instances - 1],
+                    exports = Language.Wasm.Interpreter.exports inst <> exps
+                }
+            let st' = st { tableInstances = tableInstances st <> instances }
+            return (st', inst')
+
 data ModuleInstance = ModuleInstance {
     funcTypes :: Vector FuncType,
     funcaddrs :: Vector Address,
@@ -175,6 +276,16 @@ data ModuleInstance = ModuleInstance {
     globaladdrs :: Vector Address,
     exports :: Vector ExportInstance
 } deriving (Eq, Show)
+
+emptyModInstance :: ModuleInstance
+emptyModInstance = ModuleInstance {
+    funcTypes = Vector.empty,
+    funcaddrs = Vector.empty,
+    tableaddrs = Vector.empty,
+    memaddrs = Vector.empty,
+    globaladdrs = Vector.empty,
+    exports = Vector.empty
+}
 
 calcInstance :: Store -> Imports -> Module -> ModuleInstance
 calcInstance (Store fs ts ms gs) imps Module {functions, types, tables, mems, globals, exports, imports} =
@@ -453,8 +564,9 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
             let resType = results funcType in
             return $ ReturnFn $ reverse $ zipWith checkValType resType $ take (length resType) stack
         step ctx (Call fun) = do
-            let funInst@FunctionInstance { funcType } = funcInstances store ! (funcaddrs moduleInstance ! fromIntegral fun)
-            let args = params funcType
+            let funInst = funcInstances store ! (funcaddrs moduleInstance ! fromIntegral fun)
+            let ft = Language.Wasm.Interpreter.funcType funInst 
+            let args = params ft
             res <- eval store funInst (zipWith checkValType args $ take (length args) $ stack ctx)
             return $ Done ctx { stack = reverse res ++ (drop (length args) $ stack ctx) }
         step ctx@EvalCtx{ stack = (VI32 v): rest } (CallIndirect typeIdx) = do
@@ -922,7 +1034,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VI64 v:rest) } (FReinterpretI BS64) =
             return $ Done ctx { stack = VF64 (wordToDouble v) : rest }
         step _   instr = error $ "Error during evaluation of instruction: " ++ show instr
-eval store HostInstance { funcType, tag } args = return args
+eval _ HostInstance { funcType, hostCode } args = hostCode args
 
 invoke :: Store -> Address -> [Value] -> IO [Value]
 invoke st funcIdx = eval st $ funcInstances st ! funcIdx
