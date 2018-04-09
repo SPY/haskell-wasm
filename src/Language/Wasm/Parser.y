@@ -1030,11 +1030,11 @@ module1 :: { ModuleDef }
     | modulefield1 list(modulefield) { RawModDef Nothing (desugarize $ $1 ++ concat $2) }
 
 action1 :: { Action }
-    : 'invoke' opt(ident) string list(foldedinstr) ')' { Invoke $2 $3 $4 }
+    : 'invoke' opt(ident) string list(foldedinstr) ')' { Invoke $2 $3 (map (map constInstructionToValue) $4) }
     | 'get' opt(ident) string ')' { Get $2 $3 }
 
 assertion1 :: { Assertion }
-    : 'assert_return' '(' action1 list(foldedinstr) ')' { AssertReturn $3 $4 }
+    : 'assert_return' '(' action1 list(foldedinstr) ')' { AssertReturn $3 (map (map constInstructionToValue) $4) }
     | 'assert_return_canonical_nan' '(' action1 ')' { AssertReturnCanonicalNaN $3 }
     | 'assert_return_arithmetic_nan' '(' action1 ')' { AssertReturnArithmeticNaN $3 }
     | 'assert_trap' '(' assertion_trap string ')' { AssertTrap $3 $4 }
@@ -1383,14 +1383,14 @@ data Command
     deriving (Show, Eq)
 
 data Action
-    = Invoke (Maybe Ident) TL.Text [Expression]
+    = Invoke (Maybe Ident) TL.Text [[S.Instruction]]
     | Get (Maybe Ident) TL.Text
     deriving (Show, Eq)
 
 type FailureString = TL.Text
 
 data Assertion
-    = AssertReturn Action [Expression]
+    = AssertReturn Action [[S.Instruction]]
     | AssertReturnCanonicalNaN Action
     | AssertReturnArithmeticNaN Action
     | AssertTrap (Either Action ModuleDef) FailureString
@@ -1414,6 +1414,13 @@ data FunCtx = FunCtx {
     ctxLocals :: [LocalType],
     ctxParams :: [ParamType]
 } deriving (Eq, Show)
+
+constInstructionToValue :: Instruction -> S.Instruction
+constInstructionToValue (PlainInstr (I32Const v)) = S.I32Const $ integerToWord32 v
+constInstructionToValue (PlainInstr (F32Const v)) = S.F32Const v
+constInstructionToValue (PlainInstr (I64Const v)) = S.I64Const $ integerToWord64 v
+constInstructionToValue (PlainInstr (F64Const v)) = S.F64Const v
+constInstructionToValue _ = error "Only const instructions supported as arguments for actions"
 
 desugarize :: [ModuleField] -> S.Module
 desugarize fields =

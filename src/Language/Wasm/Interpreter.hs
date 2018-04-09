@@ -15,6 +15,7 @@ module Language.Wasm.Interpreter (
     instantiate,
     invoke,
     invokeExport,
+    getGlobalValueByName,
     emptyStore,
     emptyImports,
     makeHostModule,
@@ -1043,4 +1044,14 @@ invokeExport :: Store -> ModuleInstance -> TL.Text -> [Value] -> IO [Value]
 invokeExport st ModuleInstance { exports } name args =
     case Vector.find (\(ExportInstance n _) -> n == name) exports of
         Just (ExportInstance _ (ExternFunction addr)) -> invoke st addr args
+        _ -> error $ "Function with name " ++ show name ++ " was not found in module's exports"
+
+getGlobalValueByName :: Store -> ModuleInstance -> TL.Text -> IO Value
+getGlobalValueByName store ModuleInstance { exports } name =
+    case Vector.find (\(ExportInstance n _) -> n == name) exports of
+        Just (ExportInstance _ (ExternGlobal addr)) ->
+            let globalInst = globalInstances store ! addr in
+            case globalInst of
+                GIConst v -> return v
+                GIMut ref -> readIORef ref
         _ -> error $ "Function with name " ++ show name ++ " was not found in module's exports"

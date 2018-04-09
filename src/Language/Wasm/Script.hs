@@ -61,7 +61,7 @@ runScript onAssertFail script = do
         ]
     go script $ emptyState { store = st, moduleRegistery = Map.singleton "spectest" inst }
     where
-        hostPrint paramTypes = Interpreter.HostFunction (Struct.FuncType paramTypes []) (\args -> print args >> return [])
+        hostPrint paramTypes = Interpreter.HostFunction (Struct.FuncType paramTypes []) (const $ return [])
         hostGlobals = do
             globI32 <- Interpreter.makeMutGlobal $ Interpreter.VI32 666
             globF32 <- Interpreter.makeMutGlobal $ Interpreter.VF32 666
@@ -102,6 +102,23 @@ runScript onAssertFail script = do
         getModule st (Just (Ident i)) = Map.lookup i (modules st)
         getModule st Nothing = lastModule st
 
+        asArg :: [Struct.Instruction] -> Interpreter.Value
+        asArg [Struct.I32Const v] = Interpreter.VI32 v
+        asArg [Struct.F32Const v] = Interpreter.VF32 v
+        asArg [Struct.I64Const v] = Interpreter.VI64 v
+        asArg [Struct.F64Const v] = Interpreter.VF64 v
+        asArg _                   = error "Only const instructions supported as arguments for actions"
+
+        runAction :: ScriptState -> Action -> IO [Interpreter.Value]
+        runAction st (Invoke ident name args) = do
+            case getModule st ident of
+                Just m -> Interpreter.invokeExport (store st) m name $ map asArg args
+                Nothing -> error $ "Cannot invoke function on module with identifier '" ++ show ident  ++ "'. No such module"
+        runAction st (Get ident name) = do
+            case getModule st ident of
+                Just m -> Interpreter.getGlobalValueByName (store st) m name >>= return . (: [])
+                Nothing -> error $ "Cannot invoke function on module with identifier '" ++ show ident  ++ "'. No such module"
+
         runCommand :: ScriptState -> Command -> IO ScriptState
         runCommand st (ModuleDef (RawModDef ident m)) = addModule ident m st
         runCommand st (ModuleDef (TextModDef ident textRep)) =
@@ -111,4 +128,5 @@ runScript onAssertFail script = do
             let Right m = Binary.decodeModuleLazy binaryRep in
             addModule ident m st
         runCommand st (Register name i) = return $ addToRegistery name i st
+        runCommand st (Action action) = runAction st action >> return st
         runCommand st _ = return st
