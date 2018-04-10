@@ -8,6 +8,7 @@ import qualified Data.Map as Map
 import qualified Data.Vector as Vector
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TLEncoding
+import Numeric.IEEE (identicalIEEE, copySign)
 
 import Language.Wasm.Parser (
         Ident(..),
@@ -60,7 +61,7 @@ runScript onAssertFail script = do
         ]
     go script $ emptyState { store = st, moduleRegistery = Map.singleton "spectest" inst }
     where
-        hostPrint paramTypes = Interpreter.HostFunction (Struct.FuncType paramTypes []) (\args -> print args >> return [])
+        hostPrint paramTypes = Interpreter.HostFunction (Struct.FuncType paramTypes []) (\args -> return [])
         hostGlobals = do
             globI32 <- Interpreter.makeMutGlobal $ Interpreter.VI32 666
             globF32 <- Interpreter.makeMutGlobal $ Interpreter.VF32 666
@@ -117,11 +118,18 @@ runScript onAssertFail script = do
             case getModule st ident of
                 Just m -> Interpreter.getGlobalValueByName (store st) m name >>= return . (: [])
                 Nothing -> error $ "Cannot invoke function on module with identifier '" ++ show ident  ++ "'. No such module"
-        
+
+        isValueEqual :: Interpreter.Value -> Interpreter.Value -> Bool
+        isValueEqual (Interpreter.VI32 v1) (Interpreter.VI32 v2) = v1 == v2
+        isValueEqual (Interpreter.VI64 v1) (Interpreter.VI64 v2) = v1 == v2
+        isValueEqual (Interpreter.VF32 v1) (Interpreter.VF32 v2) = identicalIEEE v1 v2
+        isValueEqual (Interpreter.VF64 v1) (Interpreter.VF64 v2) = identicalIEEE v1 v2
+        isValueEqual _ _ = False
+
         runAssert :: ScriptState -> Assertion -> IO ()
         runAssert st assert@(AssertReturn action expected) = do
             result <- runAction st action
-            if result == map asArg expected
+            if length result == length expected && (all id $ zipWith isValueEqual result (map asArg expected))
             then return ()
             else onAssertFail ("Expected " ++ show (map asArg expected) ++ ", but action returned " ++ show result) assert
         runAssert _ _ = return ()

@@ -52,9 +52,9 @@ $doublequote = \"
 tokens :-
 
 <0> $space                                ;
-<0> "nan"                                 { constToken $ TFloatLit nan }
-<0> "+nan"                                { constToken $ TFloatLit nan }
-<0> "-nan"                                { constToken $ TFloatLit minusNaN }
+<0> "nan"                                 { constToken $ TFloatLit (abs nan) }
+<0> "+nan"                                { constToken $ TFloatLit (abs nan) }
+<0> "-nan"                                { constToken $ TFloatLit nan }
 <0> $sign? @nanhex                        { parseNanSigned }
 <0> "inf"                                 { constToken $ TFloatLit inf }
 <0> "+inf"                                { constToken $ TFloatLit inf }
@@ -99,7 +99,7 @@ isAllowedStringChar _userState (_pos, _rest, inp, _) _len _nextInp =
     code >= 0x20 && code /= 0x7f && char /= '"' && char /= '\\'
 
 minusNaN, inf, minusInf :: Double
-minusNaN = -nan
+minusNaN = negate nan
 inf = infinity
 minusInf = -infinity
 

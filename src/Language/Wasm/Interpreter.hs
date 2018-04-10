@@ -52,6 +52,7 @@ import Data.Bits (
 import Data.Array.ST (newArray, readArray, MArray, STUArray)
 import Data.Array.Unsafe (castSTUArray)
 import GHC.ST (runST, ST)
+import Numeric.IEEE (copySign)
 
 import Debug.Trace as Debug
 
@@ -585,8 +586,8 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (_:rest) } Drop = return $ Done ctx { stack = rest }
         step ctx@EvalCtx{ stack = (VI32 test:val2:val1:rest) } Select =
             if test == 0
-            then return $ Done ctx { stack = val1 : rest }
-            else return $ Done ctx { stack = val2 : rest }
+            then return $ Done ctx { stack = val2 : rest }
+            else return $ Done ctx { stack = val1 : rest }
         step ctx (GetLocal i) = return $ Done ctx { stack = (locals ctx ! fromIntegral i) : stack ctx }
         step ctx@EvalCtx{ stack = (v:rest) } (SetLocal i) =
             return $ Done ctx { stack = rest, locals = locals ctx // [(fromIntegral i, v)] }
@@ -965,7 +966,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VF32 v2:VF32 v1:rest) } (FBinOp BS32 FMax) =
             return $ Done ctx { stack = VF32 (max v1 v2) : rest }
         step ctx@EvalCtx{ stack = (VF32 v2:VF32 v1:rest) } (FBinOp BS32 FCopySign) =
-            return $ Done ctx { stack = VF32 (abs v1 * signum v2) : rest }
+            return $ Done ctx { stack = VF32 (copySign v1 v2) : rest }
         step ctx@EvalCtx{ stack = (VF64 v2:VF64 v1:rest) } (FBinOp BS64 FAdd) =
             return $ Done ctx { stack = VF64 (v1 + v2) : rest }
         step ctx@EvalCtx{ stack = (VF64 v2:VF64 v1:rest) } (FBinOp BS64 FSub) =
@@ -979,7 +980,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VF64 v2:VF64 v1:rest) } (FBinOp BS64 FMax) =
             return $ Done ctx { stack = VF64 (max v1 v2) : rest }
         step ctx@EvalCtx{ stack = (VF64 v2:VF64 v1:rest) } (FBinOp BS64 FCopySign) =
-            return $ Done ctx { stack = VF64 (abs v1 * signum v2) : rest }
+            return $ Done ctx { stack = VF64 (copySign v1 v2) : rest }
         step ctx@EvalCtx{ stack = (VF32 v2:VF32 v1:rest) } (FRelOp BS32 FEq) =
             return $ Done ctx { stack = VI32 (if v1 == v2 then 1 else 0) : rest }
         step ctx@EvalCtx{ stack = (VF32 v2:VF32 v1:rest) } (FRelOp BS32 FNe) =
