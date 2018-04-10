@@ -572,7 +572,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
             return $ Done ctx { stack = reverse res ++ (drop (length args) $ stack ctx) }
         step ctx@EvalCtx{ stack = (VI32 v): rest } (CallIndirect typeIdx) = do
             let funcType = funcTypes moduleInstance ! fromIntegral typeIdx
-            let TableInstance { elements } = tableInstances store ! (tableaddrs moduleInstance ! fromIntegral v)
+            let TableInstance { elements } = tableInstances store ! (tableaddrs moduleInstance ! 0)
             let funcAddr = elements !? fromIntegral v
             case funcAddr of
                 Just (Just addr) -> do
