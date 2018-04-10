@@ -784,6 +784,10 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
                     IOVector.write memory (addr + idx) byte
             mapM_ writeByte [0..3]
             return $ Done ctx { stack = rest }
+        step ctx@EvalCtx{ stack = st } CurrentMemory = do
+            let MemoryInstance { memory } = memInstances store ! (memaddrs moduleInstance ! 0)
+            let size = fromIntegral $ IOVector.length memory `div` pageSize
+            return $ Done ctx { stack = VI32 size : st }
         step ctx (I32Const v) = return $ Done ctx { stack = VI32 v : stack ctx }
         step ctx (I64Const v) = return $ Done ctx { stack = VI64 v : stack ctx }
         step ctx (F32Const v) = return $ Done ctx { stack = VF32 v : stack ctx }
