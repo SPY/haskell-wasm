@@ -809,11 +809,11 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx (F32Const v) = return $ Done ctx { stack = VF32 v : stack ctx }
         step ctx (F64Const v) = return $ Done ctx { stack = VF64 v : stack ctx }
         step ctx@EvalCtx{ stack = (VI32 v2:VI32 v1:rest) } (IBinOp BS32 IAdd) =
-            return $ Done ctx { stack = VI32 (v1 + v2) : rest }
+            return $ Done ctx { stack = VI32 (asWord32 $ asInt32 v1 + asInt32 v2) : rest }
         step ctx@EvalCtx{ stack = (VI32 v2:VI32 v1:rest) } (IBinOp BS32 ISub) =
-            return $ Done ctx { stack = VI32 (v1 - v2) : rest }
+            return $ Done ctx { stack = VI32 (asWord32 $ asInt32 v1 - asInt32 v2) : rest }
         step ctx@EvalCtx{ stack = (VI32 v2:VI32 v1:rest) } (IBinOp BS32 IMul) =
-            return $ Done ctx { stack = VI32 (v1 * v2) : rest }
+            return $ Done ctx { stack = VI32 (asWord32 $ asInt32 v1 * asInt32 v2) : rest }
         step ctx@EvalCtx{ stack = (VI32 v2:VI32 v1:rest) } (IBinOp BS32 IDivU) =
             return $ Done ctx { stack = VI32 (v1 `div` v2) : rest }
         step ctx@EvalCtx{ stack = (VI32 v2:VI32 v1:rest) } (IBinOp BS32 IDivS) =

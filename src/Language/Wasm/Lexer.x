@@ -141,7 +141,7 @@ parseHexFloat :: AlexAction Lexeme
 parseHexFloat = token $ \(pos, _, s, _) len ->
     let (sign, slen) = parseSign s in
     let ('0' : 'x' : str) = filter (/= '_') $ takeChars (len - slen) $ LBS.drop slen s in
-    Lexeme pos $ TFloatLit $ readHexFloat str
+    Lexeme pos $ TFloatLit $ sign $ readHexFloat str
 
 startBlockComment :: AlexAction Lexeme
 startBlockComment _inp _len = do
@@ -340,14 +340,14 @@ readHexFloat str =
         readHexExp :: String -> Double
         readHexExp [] = 1
         readHexExp ('+' : rest) = readHexExp rest
-        readHexExp ('-' : rest) = negate $ readHexExp rest
-        readHexExp expStr = 2 * read expStr
+        readHexExp ('-' : rest) = 1 / readHexExp rest
+        readHexExp expStr = 2 ^ read expStr
 
         readHexFrac :: String -> Double
         readHexFrac [] = 0
         readHexFrac val =
             let len = length val in
-            sum $ zipWith (\i c -> readHexFromChar c / (16 ^ len - i)) [1..] val
+            sum $ zipWith (\i c -> readHexFromChar c / (16 ^ i)) [1..] val
 
 scanner :: LBS.ByteString -> Either String [Lexeme]
 scanner str = runAlex str loop
