@@ -152,6 +152,8 @@ import Debug.Trace as Debug
 'i64.store32'         { Lexeme _ (TKeyword "i64.store32") }
 'current_memory'      { Lexeme _ (TKeyword "current_memory") }
 'grow_memory'         { Lexeme _ (TKeyword "grow_memory") }
+'memory.size'         { Lexeme _ (TKeyword "memory.size") }
+'memory.grow'         { Lexeme _ (TKeyword "memory.grow") }
 'i32.const'           { Lexeme _ (TKeyword "i32.const") }
 'i64.const'           { Lexeme _ (TKeyword "i64.const") }
 'f32.const'           { Lexeme _ (TKeyword "f32.const") }
@@ -436,6 +438,8 @@ plaininstr :: { PlainInstr }
     | 'i64.store32' memarg4          { I64Store32 $2 }
     | 'current_memory'               { CurrentMemory }
     | 'grow_memory'                  { GrowMemory }
+    | 'memory.size'                  { CurrentMemory }
+    | 'memory.grow'                  { GrowMemory }
     -- numeric instructions
     | 'i32.const' int32              { I32Const $2 }
     | 'i64.const' int64              { I64Const $2 }

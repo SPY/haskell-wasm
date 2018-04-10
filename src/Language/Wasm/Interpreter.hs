@@ -570,7 +570,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
             let funInst = funcInstances store ! (funcaddrs moduleInstance ! fromIntegral fun)
             let ft = Language.Wasm.Interpreter.funcType funInst 
             let args = params ft
-            res <- eval store funInst (zipWith checkValType args $ take (length args) $ stack ctx)
+            res <- eval store funInst (zipWith checkValType args $ reverse $ take (length args) $ stack ctx)
             return $ Done ctx { stack = reverse res ++ (drop (length args) $ stack ctx) }
         step ctx@EvalCtx{ stack = (VI32 v): rest } (CallIndirect typeIdx) = do
             let funcType = funcTypes moduleInstance ! fromIntegral typeIdx
@@ -579,7 +579,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
             case funcAddr of
                 Just (Just addr) -> do
                     let args = params funcType
-                    res <- invoke store addr (zipWith checkValType args $ take (length args) rest)
+                    res <- invoke store addr (zipWith checkValType args $ reverse $ take (length args) rest)
                     return $ Done ctx { stack = reverse res ++ (drop (length args) rest) }
                 _ -> return Trap
         step ctx@EvalCtx{ stack = (_:rest) } Drop = return $ Done ctx { stack = rest }
