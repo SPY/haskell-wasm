@@ -52,7 +52,7 @@ import Data.Bits (
 import Data.Array.ST (newArray, readArray, MArray, STUArray)
 import Data.Array.Unsafe (castSTUArray)
 import GHC.ST (runST, ST)
-import Numeric.IEEE (copySign)
+import Numeric.IEEE (IEEE, copySign, minNum, maxNum, identicalIEEE)
 
 import Debug.Trace as Debug
 
@@ -105,22 +105,54 @@ cast :: (MArray (STUArray s) a (ST s),
          MArray (STUArray s) b (ST s)) => a -> ST s b
 cast x = newArray (0 :: Int, 0) x >>= castSTUArray >>= flip readArray 0
 
-nearest :: (Floating a, RealFrac a) => a -> a
+nearest :: (IEEE a) => a -> a
 nearest f
-    | f >= 0 && f <= 0.5 = 0
+    | f >= 0 && f <= 0.5 = copySign 0 f
     | f < 0 && f >= -0.5 = -0
     | otherwise =
-        let i = floor f :: Int64 in
+        let i = floor f :: Integer in
         let fi = fromIntegral i in
         let r = abs f - abs fi in
-        if r == 0.5
-        then (
-            case (even i, f < 0) of
-                (True, _) -> fi
-                (_, True) -> fi - 1.0
-                (_, False) -> fi + 1.0
+        flip copySign f $ (
+            if r == 0.5
+            then (
+                case (even i, f < 0) of
+                    (True, _) -> fi
+                    (_, True) -> fi - 1.0
+                    (_, False) -> fi + 1.0
+            )
+            else fromIntegral (round f :: Integer)
         )
-        else fromIntegral (round f :: Int64)
+
+zeroAwareMin :: IEEE a => a -> a -> a
+zeroAwareMin a b =
+    if identicalIEEE a 0 && identicalIEEE b (-0)
+    then b
+    else minNum a b
+
+zeroAwareMax :: IEEE a => a -> a -> a
+zeroAwareMax a b =
+    if identicalIEEE a (-0) && identicalIEEE b 0
+    then b
+    else maxNum a b
+
+floatFloor :: Float -> Float
+floatFloor a = copySign (fromIntegral (floor a :: Integer)) a
+
+doubleFloor :: Double -> Double
+doubleFloor a = copySign (fromIntegral (floor a :: Integer)) a
+
+floatCeil :: Float -> Float
+floatCeil a = copySign (fromIntegral (ceiling a :: Integer)) a
+
+doubleCeil :: Double -> Double
+doubleCeil a = copySign (fromIntegral (ceiling a :: Integer)) a
+
+floatTrunc :: Float -> Float
+floatTrunc a = copySign (fromIntegral (truncate a :: Integer)) a
+
+doubleTrunc :: Double -> Double
+doubleTrunc a = copySign (fromIntegral (truncate a :: Integer)) a
 
 data Label = Label ResultType deriving (Show, Eq)
 
@@ -930,11 +962,11 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (FUnOp BS32 FNeg) =
             return $ Done ctx { stack = VF32 (negate v) : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (FUnOp BS32 FCeil) =
-            return $ Done ctx { stack = VF32 (fromIntegral (ceiling v :: Int)) : rest }
+            return $ Done ctx { stack = VF32 (floatCeil v) : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (FUnOp BS32 FFloor) =
-            return $ Done ctx { stack = VF32 (fromIntegral (floor v :: Int)) : rest }
+            return $ Done ctx { stack = VF32 (floatFloor v) : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (FUnOp BS32 FTrunc) =
-            return $ Done ctx { stack = VF32 (fromIntegral (truncate v :: Int)) : rest }
+            return $ Done ctx { stack = VF32 (floatTrunc v) : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (FUnOp BS32 FNearest) =
             return $ Done ctx { stack = VF32 (nearest v) : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (FUnOp BS32 FSqrt) =
@@ -944,11 +976,11 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VF64 v:rest) } (FUnOp BS64 FNeg) =
             return $ Done ctx { stack = VF64 (negate v) : rest }
         step ctx@EvalCtx{ stack = (VF64 v:rest) } (FUnOp BS64 FCeil) =
-            return $ Done ctx { stack = VF64 (fromIntegral (ceiling v :: Int64)) : rest }
+            return $ Done ctx { stack = VF64 (doubleCeil v) : rest }
         step ctx@EvalCtx{ stack = (VF64 v:rest) } (FUnOp BS64 FFloor) =
-            return $ Done ctx { stack = VF64 (fromIntegral (floor v :: Int64)) : rest }
+            return $ Done ctx { stack = VF64 (doubleFloor v) : rest }
         step ctx@EvalCtx{ stack = (VF64 v:rest) } (FUnOp BS64 FTrunc) =
-            return $ Done ctx { stack = VF64 (fromIntegral (truncate v :: Int64)) : rest }
+            return $ Done ctx { stack = VF64 (doubleTrunc v) : rest }
         step ctx@EvalCtx{ stack = (VF64 v:rest) } (FUnOp BS64 FNearest) =
             return $ Done ctx { stack = VF64 (nearest v) : rest }
         step ctx@EvalCtx{ stack = (VF64 v:rest) } (FUnOp BS64 FSqrt) =
@@ -962,9 +994,9 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VF32 v2:VF32 v1:rest) } (FBinOp BS32 FDiv) =
             return $ Done ctx { stack = VF32 (v1 / v2) : rest }
         step ctx@EvalCtx{ stack = (VF32 v2:VF32 v1:rest) } (FBinOp BS32 FMin) =
-            return $ Done ctx { stack = VF32 (min v1 v2) : rest }
+            return $ Done ctx { stack = VF32 (zeroAwareMin v1 v2) : rest }
         step ctx@EvalCtx{ stack = (VF32 v2:VF32 v1:rest) } (FBinOp BS32 FMax) =
-            return $ Done ctx { stack = VF32 (max v1 v2) : rest }
+            return $ Done ctx { stack = VF32 (zeroAwareMax v1 v2) : rest }
         step ctx@EvalCtx{ stack = (VF32 v2:VF32 v1:rest) } (FBinOp BS32 FCopySign) =
             return $ Done ctx { stack = VF32 (copySign v1 v2) : rest }
         step ctx@EvalCtx{ stack = (VF64 v2:VF64 v1:rest) } (FBinOp BS64 FAdd) =
@@ -976,9 +1008,9 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VF64 v2:VF64 v1:rest) } (FBinOp BS64 FDiv) =
             return $ Done ctx { stack = VF64 (v1 / v2) : rest }
         step ctx@EvalCtx{ stack = (VF64 v2:VF64 v1:rest) } (FBinOp BS64 FMin) =
-            return $ Done ctx { stack = VF64 (min v1 v2) : rest }
+            return $ Done ctx { stack = VF64 (zeroAwareMin v1 v2) : rest }
         step ctx@EvalCtx{ stack = (VF64 v2:VF64 v1:rest) } (FBinOp BS64 FMax) =
-            return $ Done ctx { stack = VF64 (max v1 v2) : rest }
+            return $ Done ctx { stack = VF64 (zeroAwareMax v1 v2) : rest }
         step ctx@EvalCtx{ stack = (VF64 v2:VF64 v1:rest) } (FBinOp BS64 FCopySign) =
             return $ Done ctx { stack = VF64 (copySign v1 v2) : rest }
         step ctx@EvalCtx{ stack = (VF32 v2:VF32 v1:rest) } (FRelOp BS32 FEq) =
