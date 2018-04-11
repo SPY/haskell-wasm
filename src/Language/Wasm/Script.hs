@@ -61,7 +61,7 @@ runScript onAssertFail script = do
         ]
     go script $ emptyState { store = st, moduleRegistery = Map.singleton "spectest" inst }
     where
-        hostPrint paramTypes = Interpreter.HostFunction (Struct.FuncType paramTypes []) (\args -> print args >> return [])
+        hostPrint paramTypes = Interpreter.HostFunction (Struct.FuncType paramTypes []) (\args -> return [])
         hostGlobals = do
             globI32 <- Interpreter.makeMutGlobal $ Interpreter.VI32 666
             globF32 <- Interpreter.makeMutGlobal $ Interpreter.VF32 666
