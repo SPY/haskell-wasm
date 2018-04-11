@@ -8,7 +8,7 @@ import qualified Data.Map as Map
 import qualified Data.Vector as Vector
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TLEncoding
-import Numeric.IEEE (identicalIEEE, copySign)
+import Numeric.IEEE (identicalIEEE)
 
 import Language.Wasm.Parser (
         Ident(..),
@@ -61,7 +61,7 @@ runScript onAssertFail script = do
         ]
     go script $ emptyState { store = st, moduleRegistery = Map.singleton "spectest" inst }
     where
-        hostPrint paramTypes = Interpreter.HostFunction (Struct.FuncType paramTypes []) (\args -> return [])
+        hostPrint paramTypes = Interpreter.HostFunction (Struct.FuncType paramTypes []) (\args -> print args >> return [])
         hostGlobals = do
             globI32 <- Interpreter.makeMutGlobal $ Interpreter.VI32 666
             globF32 <- Interpreter.makeMutGlobal $ Interpreter.VF32 666

@@ -1130,13 +1130,13 @@ eitherToMaybe = either (const Nothing) Just
 integerToWord32 :: Integer -> Word32
 integerToWord32 i
     | i >= 0 && i <= 2 ^ 32 = fromIntegral i
-    | i < 0 && i >= -(2 ^ 31) = 0x80000000 .|. (fromIntegral (abs i))
+    | i < 0 && i >= -(2 ^ 31) = 0xFFFFFFFF - (fromIntegral (abs i)) + 1
     | otherwise = error "I32 is out of bounds."
 
 integerToWord64 :: Integer -> Word64
 integerToWord64 i
     | i >= 0 && i <= 2 ^ 64 = fromIntegral i
-    | i < 0 && i >= -(2 ^ 63) = 0x8000000000000000 .|. (fromIntegral (abs i))
+    | i < 0 && i >= -(2 ^ 63) = 0xFFFFFFFFFFFFFFFF - (fromIntegral (abs i)) + 1
     | otherwise = error "I64 is out of bounds."
 
 data FuncType = FuncType { params :: [ParamType], results :: [ValueType] } deriving (Show, Eq)

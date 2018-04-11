@@ -67,25 +67,25 @@ data Value =
 
 asInt32 :: Word32 -> Int32
 asInt32 w =
-    let base = fromIntegral $ w .&. 0x7FFFFFFF in
-    let sign = w .&. 0x80000000 in
-    if sign /= 0 then -base else base
+    if w < 0x80000000
+    then fromIntegral w
+    else -1 * fromIntegral (0xFFFFFFFF - w + 1)
 
 asInt64 :: Word64 -> Int64
 asInt64 w =
-    let base = fromIntegral $ w .&. 0x7FFFFFFFFFFFFFFF in
-    let sign = w .&. 0x8000000000000000 in
-    if sign /= 0 then -base else base
+    if w < 0x8000000000000000
+    then fromIntegral w
+    else -1 * fromIntegral (0xFFFFFFFFFFFFFFFF - w + 1)
 
 asWord32 :: Int32 -> Word32
 asWord32 i
     | i >= 0 = fromIntegral i
-    | otherwise = 0x80000000 .|. (fromIntegral (abs i))
+    | otherwise = 0xFFFFFFFF - (fromIntegral (abs i)) + 1
 
 asWord64 :: Int64 -> Word64
 asWord64 i
     | i >= 0 = fromIntegral i
-    | otherwise = 0x8000000000000000 .|. (fromIntegral (abs i))
+    | otherwise = 0xFFFFFFFFFFFFFFFF - (fromIntegral (abs i)) + 1
 
 -- brough from https://stackoverflow.com/questions/6976684/converting-ieee-754-floating-point-in-haskell-word32-64-to-and-from-haskell-floa
 wordToFloat :: Word32 -> Float
@@ -810,15 +810,15 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx (F32Const v) = return $ Done ctx { stack = VF32 v : stack ctx }
         step ctx (F64Const v) = return $ Done ctx { stack = VF64 v : stack ctx }
         step ctx@EvalCtx{ stack = (VI32 v2:VI32 v1:rest) } (IBinOp BS32 IAdd) =
-            return $ Done ctx { stack = VI32 (asWord32 $ asInt32 v1 + asInt32 v2) : rest }
+            return $ Done ctx { stack = VI32 (v1 + v2) : rest }
         step ctx@EvalCtx{ stack = (VI32 v2:VI32 v1:rest) } (IBinOp BS32 ISub) =
-            return $ Done ctx { stack = VI32 (asWord32 $ asInt32 v1 - asInt32 v2) : rest }
+            return $ Done ctx { stack = VI32 (v1 - v2) : rest }
         step ctx@EvalCtx{ stack = (VI32 v2:VI32 v1:rest) } (IBinOp BS32 IMul) =
-            return $ Done ctx { stack = VI32 (asWord32 $ asInt32 v1 * asInt32 v2) : rest }
+            return $ Done ctx { stack = VI32 (v1 * v2) : rest }
         step ctx@EvalCtx{ stack = (VI32 v2:VI32 v1:rest) } (IBinOp BS32 IDivU) =
-            return $ Done ctx { stack = VI32 (v1 `div` v2) : rest }
+            return $ Done ctx { stack = VI32 (v1 `quot` v2) : rest }
         step ctx@EvalCtx{ stack = (VI32 v2:VI32 v1:rest) } (IBinOp BS32 IDivS) =
-            return $ Done ctx { stack = VI32 (asWord32 $ asInt32 v1 `div` asInt32 v2) : rest }
+            return $ Done ctx { stack = VI32 (asWord32 $ asInt32 v1 `quot` asInt32 v2) : rest }
         step ctx@EvalCtx{ stack = (VI32 v2:VI32 v1:rest) } (IBinOp BS32 IRemU) =
             return $ Done ctx { stack = VI32 (v1 `rem` v2) : rest }
         step ctx@EvalCtx{ stack = (VI32 v2:VI32 v1:rest) } (IBinOp BS32 IRemS) =
@@ -868,15 +868,15 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VI32 v:rest) } (IUnOp BS32 IPopcnt) =
             return $ Done ctx { stack = VI32 (fromIntegral $ popCount v) : rest }
         step ctx@EvalCtx{ stack = (VI64 v2:VI64 v1:rest) } (IBinOp BS64 IAdd) =
-            return $ Done ctx { stack = VI64 (asWord64 $ asInt64 v1 + asInt64 v2) : rest }
+            return $ Done ctx { stack = VI64 (v1 + v2) : rest }
         step ctx@EvalCtx{ stack = (VI64 v2:VI64 v1:rest) } (IBinOp BS64 ISub) =
-            return $ Done ctx { stack = VI64 (asWord64 $ asInt64 v1 - asInt64 v2) : rest }
+            return $ Done ctx { stack = VI64 (v1 - v2) : rest }
         step ctx@EvalCtx{ stack = (VI64 v2:VI64 v1:rest) } (IBinOp BS64 IMul) =
-            return $ Done ctx { stack = VI64 (asWord64 $ asInt64 v1 * asInt64 v2) : rest }
+            return $ Done ctx { stack = VI64 (v1 * v2) : rest }
         step ctx@EvalCtx{ stack = (VI64 v2:VI64 v1:rest) } (IBinOp BS64 IDivU) =
-            return $ Done ctx { stack = VI64 (v1 `div` v2) : rest }
+            return $ Done ctx { stack = VI64 (v1 `quot` v2) : rest }
         step ctx@EvalCtx{ stack = (VI64 v2:VI64 v1:rest) } (IBinOp BS64 IDivS) =
-            return $ Done ctx { stack = VI64 (asWord64 $ asInt64 v1 `div` asInt64 v2) : rest }
+            return $ Done ctx { stack = VI64 (asWord64 $ asInt64 v1 `quot` asInt64 v2) : rest }
         step ctx@EvalCtx{ stack = (VI64 v2:VI64 v1:rest) } (IBinOp BS64 IRemU) =
             return $ Done ctx { stack = VI64 (v1 `rem` v2) : rest }
         step ctx@EvalCtx{ stack = (VI64 v2:VI64 v1:rest) } (IBinOp BS64 IRemS) =

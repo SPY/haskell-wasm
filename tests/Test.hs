@@ -34,7 +34,7 @@ compile file = do
 main :: IO ()
 main = do
   files <- Directory.listDirectory "tests/samples"
-  let files = ["float_misc.wast"]
+  let files = ["i32.wast"]
   scriptTestCases <- (`mapM` files) $ \file -> do
     content <- LBS.readFile $ "tests/samples/" ++ file
     let Right script = Parser.parseScript <$> Lexer.scanner content
