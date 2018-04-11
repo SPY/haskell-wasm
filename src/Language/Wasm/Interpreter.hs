@@ -649,7 +649,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
             MemoryInstance { memory } <- readIORef $ memInstances store ! (memaddrs moduleInstance ! 0)
             let addr = fromIntegral $ v + fromIntegral offset
             byte <- IOVector.read memory addr
-            let val = asWord32 $ if byte >= 128 then -1 * fromIntegral (v .&. 0x7F) else fromIntegral v
+            let val = asWord32 $ if byte >= 128 then -1 * fromIntegral (byte .&. 0x7F) else fromIntegral byte
             return $ Done ctx { stack = VI32 val : rest }
         step ctx@EvalCtx{ stack = (VI32 v:rest) } (I32Load16U MemArg { offset }) = do
             MemoryInstance { memory } <- readIORef $ memInstances store ! (memaddrs moduleInstance ! 0)

@@ -75,7 +75,7 @@ data FBinOp = FAdd | FSub | FMul | FDiv | FMin | FMax | FCopySign deriving (Show
 
 data FRelOp = FEq | FNe | FLt | FGt | FLe | FGe deriving (Show, Eq)
 
-data MemArg = MemArg { align :: Natural, offset :: Natural } deriving (Show, Eq)
+data MemArg = MemArg { offset :: Natural, align :: Natural } deriving (Show, Eq)
 
 type LabelIndex = Natural
 type FuncIndex = Natural
