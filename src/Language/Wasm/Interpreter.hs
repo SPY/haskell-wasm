@@ -570,12 +570,14 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
             case res of
                 Break 0 r EvalCtx{ locals = ls } -> return $ Done ctx { locals = ls, stack = r ++ stack ctx }
                 Break n r ctx' -> return $ Break (n - 1) r ctx'
+                Done ctx'@EvalCtx{ labels = (_:rest) } -> return $ Done ctx' { labels = rest }
                 command -> return command
         step ctx loop@(Loop resType expr) = do
             res <- go ctx { labels = Label resType : labels ctx } expr
             case res of
                 Break 0 r EvalCtx{ locals = ls } -> step ctx { locals = ls, stack = r ++ stack ctx } loop
                 Break n r ctx' -> return $ Break (n - 1) r ctx'
+                Done ctx'@EvalCtx{ labels = (_:rest) } -> return $ Done ctx' { labels = rest }
                 command -> return command
         step ctx@EvalCtx{ stack = (VI32 v): rest } (If resType true false) = do
             let expr = if v /= 0 then true else false
@@ -583,6 +585,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
             case res of
                 Break 0 r EvalCtx{ locals = ls } -> return $ Done ctx { locals = ls, stack = r ++ rest }
                 Break n r ctx' -> return $ Break (n - 1) r ctx'
+                Done ctx'@EvalCtx{ labels = (_:rest) } -> return $ Done ctx' { labels = rest }
                 command -> return command
         step ctx@EvalCtx{ stack, labels } (Br label) = do
             let idx = fromIntegral label
@@ -952,11 +955,11 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VI64 v:rest) } I64Eqz =
             return $ Done ctx { stack = VI32 (if v == 0 then 1 else 0) : rest }
         step ctx@EvalCtx{ stack = (VI64 v:rest) } (IUnOp BS64 IClz) =
-            return $ Done ctx { stack = VI32 (fromIntegral $ countLeadingZeros v) : rest }
+            return $ Done ctx { stack = VI64 (fromIntegral $ countLeadingZeros v) : rest }
         step ctx@EvalCtx{ stack = (VI64 v:rest) } (IUnOp BS64 ICtz) =
-            return $ Done ctx { stack = VI32 (fromIntegral $ countTrailingZeros v) : rest }
+            return $ Done ctx { stack = VI64 (fromIntegral $ countTrailingZeros v) : rest }
         step ctx@EvalCtx{ stack = (VI64 v:rest) } (IUnOp BS64 IPopcnt) =
-            return $ Done ctx { stack = VI32 (fromIntegral $ popCount v) : rest }
+            return $ Done ctx { stack = VI64 (fromIntegral $ popCount v) : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (FUnOp BS32 FAbs) =
             return $ Done ctx { stack = VF32 (abs v) : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (FUnOp BS32 FNeg) =
@@ -1087,7 +1090,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
             return $ Done ctx { stack = VF32 (wordToFloat v) : rest }
         step ctx@EvalCtx{ stack = (VI64 v:rest) } (FReinterpretI BS64) =
             return $ Done ctx { stack = VF64 (wordToDouble v) : rest }
-        step _   instr = error $ "Error during evaluation of instruction: " ++ show instr
+        step EvalCtx{ stack } instr = error $ "Error during evaluation of instruction: " ++ show instr ++ ". Stack " ++ show stack
 eval _ HostInstance { funcType, hostCode } args = hostCode args
 
 invoke :: Store -> Address -> [Value] -> IO [Value]
