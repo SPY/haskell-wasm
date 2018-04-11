@@ -1043,21 +1043,21 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VI64 v:rest) } I32WrapI64 =
             return $ Done ctx { stack = VI32 (fromIntegral $ v .&. 0xFFFFFFFF) : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncFU BS32 BS32) =
-            return $ Done ctx { stack = VI32 (round v) : rest }
+            return $ Done ctx { stack = VI32 (truncate v) : rest }
         step ctx@EvalCtx{ stack = (VF64 v:rest) } (ITruncFU BS32 BS64) =
-            return $ Done ctx { stack = VI32 (round v) : rest }
+            return $ Done ctx { stack = VI32 (truncate v) : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncFU BS64 BS32) =
-            return $ Done ctx { stack = VI64 (round v) : rest }
+            return $ Done ctx { stack = VI64 (truncate v) : rest }
         step ctx@EvalCtx{ stack = (VF64 v:rest) } (ITruncFU BS64 BS64) =
-            return $ Done ctx { stack = VI64 (round v) : rest }
+            return $ Done ctx { stack = VI64 (truncate v) : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncFS BS32 BS32) =
-            return $ Done ctx { stack = VI32 (asWord32 $ round v) : rest }
+            return $ Done ctx { stack = VI32 (asWord32 $ truncate v) : rest }
         step ctx@EvalCtx{ stack = (VF64 v:rest) } (ITruncFS BS32 BS64) =
-            return $ Done ctx { stack = VI32 (asWord32 $ round v) : rest }
+            return $ Done ctx { stack = VI32 (asWord32 $ truncate v) : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncFS BS64 BS32) =
-            return $ Done ctx { stack = VI64 (asWord64 $ round v) : rest }
+            return $ Done ctx { stack = VI64 (asWord64 $ truncate v) : rest }
         step ctx@EvalCtx{ stack = (VF64 v:rest) } (ITruncFS BS64 BS64) =
-            return $ Done ctx { stack = VI64 (asWord64 $ round v) : rest }
+            return $ Done ctx { stack = VI64 (asWord64 $ truncate v) : rest }
         step ctx@EvalCtx{ stack = (VI32 v:rest) } I64ExtendUI32 =
             return $ Done ctx { stack = VI64 (fromIntegral v) : rest }
         step ctx@EvalCtx{ stack = (VI32 v:rest) } I64ExtendSI32 =
