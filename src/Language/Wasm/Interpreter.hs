@@ -794,12 +794,12 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VI32 n:rest) } GrowMemory = do
             let ref = memInstances store ! (memaddrs moduleInstance ! 0)
             MemoryInstance { memory, maxLen } <- readIORef ref
-            let size = fromIntegral $ IOVector.length memory `div` pageSize
+            let size = fromIntegral $ IOVector.length memory `quot` pageSize
             let growTo = size + fromIntegral n
             result <- (
-                    if fromMaybe True ((growTo <=) <$> maxLen)
+                    if fromMaybe True ((growTo <=) <$> maxLen) && growTo <= 0xFFFF
                     then do
-                        mem' <- IOVector.grow memory $ growTo * pageSize
+                        mem' <- IOVector.grow memory $ fromIntegral n * pageSize
                         writeIORef ref $ MemoryInstance mem' maxLen
                         return size
                     else return $ -1
