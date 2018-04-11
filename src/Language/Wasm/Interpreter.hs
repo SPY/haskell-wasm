@@ -593,7 +593,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
             return $ Done ctx { stack = rest, locals = locals ctx // [(fromIntegral i, v)] }
         step ctx@EvalCtx{ locals = ls, stack = (v:rest) } (TeeLocal i) =
             return $ Done ctx {
-                stack = (ls ! fromIntegral i) : rest,
+                stack = v : rest,
                 locals = locals ctx // [(fromIntegral i, v)]
             }
         step ctx (GetGlobal i) = do
