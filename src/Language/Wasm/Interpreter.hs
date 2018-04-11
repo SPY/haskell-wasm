@@ -581,7 +581,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
             let expr = if v /= 0 then true else false
             res <- go ctx { labels = Label resType : labels ctx, stack = rest } expr
             case res of
-                Break 0 r EvalCtx{ locals = ls } -> return $ Done ctx { locals = ls, stack = r ++ stack ctx }
+                Break 0 r EvalCtx{ locals = ls } -> return $ Done ctx { locals = ls, stack = r ++ rest }
                 Break n r ctx' -> return $ Break (n - 1) r ctx'
                 command -> return command
         step ctx@EvalCtx{ stack, labels } (Br label) = do
