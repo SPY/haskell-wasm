@@ -57,8 +57,7 @@ import Language.Wasm.FloatUtils (
         wordToFloat,
         floatToWord,
         wordToDouble,
-        doubleToWord,
-        makeNaN
+        doubleToWord
     )
 
 data Value =
@@ -92,6 +91,7 @@ asWord64 i
 
 nearest :: (IEEE a) => a -> a
 nearest f
+    | isNaN f = f
     | f >= 0 && f <= 0.5 = copySign 0 f
     | f < 0 && f >= -0.5 = -0
     | otherwise =
@@ -110,34 +110,48 @@ nearest f
         )
 
 zeroAwareMin :: IEEE a => a -> a -> a
-zeroAwareMin a b =
-    if identicalIEEE a 0 && identicalIEEE b (-0)
-    then b
-    else minNum a b
+zeroAwareMin a b
+    | identicalIEEE a 0 && identicalIEEE b (-0) = b
+    | isNaN a = a
+    | isNaN b = b
+    | otherwise = minNum a b
 
 zeroAwareMax :: IEEE a => a -> a -> a
-zeroAwareMax a b =
-    if identicalIEEE a (-0) && identicalIEEE b 0
-    then b
-    else maxNum a b
+zeroAwareMax a b
+    | identicalIEEE a (-0) && identicalIEEE b 0 = b
+    | isNaN a = a
+    | isNaN b = b
+    | otherwise = maxNum a b
 
 floatFloor :: Float -> Float
-floatFloor a = copySign (fromIntegral (floor a :: Integer)) a
+floatFloor a
+    | isNaN a = a
+    | otherwise = copySign (fromIntegral (floor a :: Integer)) a
 
 doubleFloor :: Double -> Double
-doubleFloor a = copySign (fromIntegral (floor a :: Integer)) a
+doubleFloor a
+    | isNaN a = a
+    | otherwise = copySign (fromIntegral (floor a :: Integer)) a
 
 floatCeil :: Float -> Float
-floatCeil a = copySign (fromIntegral (ceiling a :: Integer)) a
+floatCeil a
+    | isNaN a = a
+    | otherwise = copySign (fromIntegral (ceiling a :: Integer)) a
 
 doubleCeil :: Double -> Double
-doubleCeil a = copySign (fromIntegral (ceiling a :: Integer)) a
+doubleCeil a
+    | isNaN a = a
+    | otherwise = copySign (fromIntegral (ceiling a :: Integer)) a
 
 floatTrunc :: Float -> Float
-floatTrunc a = copySign (fromIntegral (truncate a :: Integer)) a
+floatTrunc a
+    | isNaN a = a
+    | otherwise = copySign (fromIntegral (truncate a :: Integer)) a
 
 doubleTrunc :: Double -> Double
-doubleTrunc a = copySign (fromIntegral (truncate a :: Integer)) a
+doubleTrunc a
+    | isNaN a = a
+    | otherwise = copySign (fromIntegral (truncate a :: Integer)) a
 
 data Label = Label ResultType deriving (Show, Eq)
 

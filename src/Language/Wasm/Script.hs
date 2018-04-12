@@ -126,12 +126,28 @@ runScript onAssertFail script = do
         isValueEqual (Interpreter.VF64 v1) (Interpreter.VF64 v2) = identicalIEEE v1 v2
         isValueEqual _ _ = False
 
+        isNaNReturned :: ScriptState -> Action -> Assertion -> IO ()
+        isNaNReturned st action assert = do
+            result <- runAction st action
+            case result of
+                [Interpreter.VF32 v] ->
+                    if isNaN v
+                    then return ()
+                    else onAssertFail ("Expected NaN, but action returned " ++ show v) assert
+                [Interpreter.VF64 v] ->
+                    if isNaN v
+                    then return ()
+                    else onAssertFail ("Expected NaN, but action returned " ++ show v) assert
+                _ -> onAssertFail ("Expected NaN, but action returned " ++ show result) assert
+
         runAssert :: ScriptState -> Assertion -> IO ()
         runAssert st assert@(AssertReturn action expected) = do
             result <- runAction st action
             if length result == length expected && (all id $ zipWith isValueEqual result (map asArg expected))
             then return ()
             else onAssertFail ("Expected " ++ show (map asArg expected) ++ ", but action returned " ++ show result) assert
+        runAssert st assert@(AssertReturnCanonicalNaN action) = isNaNReturned st action assert
+        runAssert st assert@(AssertReturnArithmeticNaN action) = isNaNReturned st action assert
         runAssert _ _ = return ()
 
         runCommand :: ScriptState -> Command -> IO ScriptState
