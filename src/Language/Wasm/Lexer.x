@@ -1,4 +1,6 @@
 {
+{-# LANGUAGE FlexibleContexts #-}
+
 module Language.Wasm.Lexer (
     Lexeme(..),
     Token(..),
@@ -11,7 +13,10 @@ import qualified Data.Char as Char
 import qualified Data.ByteString.Lazy.UTF8 as LBSUtf8
 import Control.Applicative ((<$>))
 import Control.Monad (when)
-import Numeric.IEEE (infinity, nan, nanWithPayload)
+import Numeric.IEEE (infinity, nan)
+import Language.Wasm.FloatUtils (makeNaN)
+
+import qualified Debug.Trace as Debug
 
 }
 
@@ -124,7 +129,7 @@ parseNanSigned :: AlexAction Lexeme
 parseNanSigned = token $ \(pos, _, s, _) len -> 
     let (sign, slen) = parseSign s in
     let num = readHexFromPrefix (len - 6 - slen) $ LBSUtf8.drop (6 + slen) s in
-    Lexeme pos $ TFloatLit $ sign $ nanWithPayload $ fromIntegral num
+    Lexeme pos $ TFloatLit $ sign $ makeNaN $ fromIntegral num
 
 parseDecimalSignedInt :: AlexAction Lexeme
 parseDecimalSignedInt = token $ \(pos, _, s, _) len ->
@@ -134,8 +139,9 @@ parseDecimalSignedInt = token $ \(pos, _, s, _) len ->
 
 parseDecFloat :: AlexAction Lexeme
 parseDecFloat = token $ \(pos, _, s, _) len ->
-    let str = filter (/= '_') $ takeChars len s in
-    Lexeme pos $ TFloatLit $ read str
+    let (sign, slen) = parseSign s in
+    let str = filter (/= '_') $ takeChars (len - slen) $ LBSUtf8.drop slen s in
+    Lexeme pos $ TFloatLit $ sign $ readDecFloat str
 
 parseHexFloat :: AlexAction Lexeme
 parseHexFloat = token $ \(pos, _, s, _) len ->
@@ -348,6 +354,13 @@ readHexFloat str =
         readHexFrac val =
             let len = length val in
             sum $ zipWith (\i c -> readHexFromChar c / (16 ^ i)) [1..] val
+
+readDecFloat :: String -> Double
+readDecFloat str =
+    let (val, exp) = splitBy (\c -> c == 'E' || c == 'e') str in
+    let (int, frac) = splitBy (== '.') val in
+    let nullIfEmpty str = if null str then "0" else str in
+    read $ nullIfEmpty int ++ "." ++ nullIfEmpty frac ++ "e" ++ nullIfEmpty exp
 
 scanner :: LBS.ByteString -> Either String [Lexeme]
 scanner str = runAlex str loop

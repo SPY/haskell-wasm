@@ -1,6 +1,5 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Language.Wasm.Interpreter (
@@ -49,14 +48,18 @@ import Data.Bits (
         countLeadingZeros,
         countTrailingZeros
     )
-import Data.Array.ST (newArray, readArray, MArray, STUArray)
-import Data.Array.Unsafe (castSTUArray)
-import GHC.ST (runST, ST)
 import Numeric.IEEE (IEEE, copySign, minNum, maxNum, identicalIEEE)
 
 import Debug.Trace as Debug
 
 import Language.Wasm.Structure as Struct
+import Language.Wasm.FloatUtils (
+        wordToFloat,
+        floatToWord,
+        wordToDouble,
+        doubleToWord,
+        makeNaN
+    )
 
 data Value =
     VI32 Word32
@@ -86,24 +89,6 @@ asWord64 :: Int64 -> Word64
 asWord64 i
     | i >= 0 = fromIntegral i
     | otherwise = 0xFFFFFFFFFFFFFFFF - (fromIntegral (abs i)) + 1
-
--- brough from https://stackoverflow.com/questions/6976684/converting-ieee-754-floating-point-in-haskell-word32-64-to-and-from-haskell-floa
-wordToFloat :: Word32 -> Float
-wordToFloat x = runST (cast x)
-
-floatToWord :: Float -> Word32
-floatToWord x = runST (cast x)
-
-wordToDouble :: Word64 -> Double
-wordToDouble x = runST (cast x)
-
-doubleToWord :: Double -> Word64
-doubleToWord x = runST (cast x)
-
-{-# INLINE cast #-}
-cast :: (MArray (STUArray s) a (ST s),
-         MArray (STUArray s) b (ST s)) => a -> ST s b
-cast x = newArray (0 :: Int, 0) x >>= castSTUArray >>= flip readArray 0
 
 nearest :: (IEEE a) => a -> a
 nearest f

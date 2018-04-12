@@ -43,6 +43,7 @@ library
       Language.Wasm.Validate
       Language.Wasm.Interpreter
       Language.Wasm.Script
+      Language.Wasm.FloatUtils
       Language.Wasm
   other-modules:
       Paths_wasm

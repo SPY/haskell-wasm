@@ -72,6 +72,7 @@ import Numeric.Natural (Natural)
 import Data.Word (Word32, Word64)
 import Data.Bits ((.|.))
 import Numeric.IEEE (infinity, nan)
+import Language.Wasm.FloatUtils (doubleToFloat)
 
 import Language.Wasm.Lexer (
         Token (
@@ -1103,7 +1104,7 @@ asInt64 val
     | otherwise = Nothing
 
 asFloat32 :: Double -> Float
-asFloat32 v = realToFrac v
+asFloat32 v = doubleToFloat v
 
 asOffset :: LBS.ByteString -> Maybe Natural
 asOffset str = do
