@@ -39,6 +39,7 @@ data ValidationResult =
     | TypeIndexOutOfRange
     | ResultTypeDoesntMatch
     | TypeMismatch { actual :: Arrow, expected :: Arrow }
+    | InvalidResultArity
     | InvalidConstantExpr
     | InvalidStartFunctionType
     | ImportedGlobalIsNotConst
@@ -402,7 +403,7 @@ unify (from `Arrow` to) (from' `Arrow` to') =
 getExpressionType :: [Instruction] -> Checker Arrow
 getExpressionType instrs =
     case reverse instrs of
-        [] -> return $ Any ==> Any
+        [] -> return $ empty ==> empty
         (i:rest) -> do
             arr <- getInstrType i
             go arr rest
@@ -466,15 +467,21 @@ ctxFromModule locals labels returns m@Module {types, tables, mems, globals, impo
 
 isFunctionValid :: Function -> Validator
 isFunctionValid Function {funcType, localTypes = locals, body} mod@Module {types} =
-    let FuncType params results = types !! fromIntegral funcType in
-    let r = safeHead results in
-    let ctx = ctxFromModule (params ++ locals) [r] r mod in
-    case runChecker ctx $ getExpressionType body of
-        Left err -> err
-        Right arr ->
-            if isArrowMatch arr (empty ==> results)
-            then Valid
-            else TypeMismatch arr (empty ==> results)
+    if fromIntegral funcType < length types
+    then
+        let FuncType params results = types !! fromIntegral funcType in
+        if length results > 1
+        then InvalidResultArity
+        else
+            let r = safeHead results in
+            let ctx = ctxFromModule (params ++ locals) [r] r mod in
+            case runChecker ctx $ getExpressionType body of
+                Left err -> err
+                Right arr ->
+                    if isArrowMatch arr (empty ==> results)
+                    then Valid
+                    else TypeMismatch arr (empty ==> results)
+    else TypeIndexOutOfRange
 
 functionsShouldBeValid :: Validator
 functionsShouldBeValid mod@Module {functions} =

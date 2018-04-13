@@ -1528,12 +1528,9 @@ desugarize fields =
         getTypeIndex defs (IndexedTypeUse (Named ident) Nothing) =
             fromIntegral <$> findIndex (\(TypeDef i _) -> i == Just ident) defs
         getTypeIndex defs (IndexedTypeUse (Index n) (Just funcType)) = do
-            guard $ length defs > fromIntegral n
             guard $ matchTypeFunc funcType $ defs !! fromIntegral n
             return n
-        getTypeIndex defs (IndexedTypeUse (Index n) Nothing) = do
-            guard $ length defs > fromIntegral n
-            return n
+        getTypeIndex defs (IndexedTypeUse (Index n) Nothing) = return n
         
         -- imports
         synImportToStruct :: [TypeDef] -> Import -> S.Import
@@ -1649,8 +1646,9 @@ desugarize fields =
                     IndexedTypeUse _ (Just FuncType { params }) -> params
                     AnonimousTypeUse FuncType { params } -> params
                     _ ->
-                        let TypeDef _ FuncType { params } = types mod !! fromIntegral typeIdx in
-                        params
+                        if fromIntegral typeIdx < length (types mod)
+                        then let TypeDef _ FuncType { params } = types mod !! fromIntegral typeIdx in params
+                        else []
             in
             let ctx = FunCtx mod [] locals params in
             S.Function {

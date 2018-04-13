@@ -162,11 +162,13 @@ runScript onAssertFail script = do
         getFailureString Validate.FunctionIndexOutOfRange = "unknown function"
         getFailureString Validate.GlobalIndexOutOfRange = "unknown global"
         getFailureString Validate.LabelIndexOutOfRange = "unknown label"
+        getFailureString Validate.TypeIndexOutOfRange = "unknown type"
         getFailureString Validate.MinMoreThanMaxInMemoryLimit = "size minimum must not be greater than maximum"
         getFailureString Validate.MemoryLimitExceeded = "memory size must be at most 65536 pages (4GiB)"
         getFailureString Validate.AlignmentOverflow = "alignment must not be larger than natural"
         getFailureString (Validate.DuplicatedExportNames _) = "duplicate export name"
         getFailureString Validate.InvalidConstantExpr = "constant expression required"
+        getFailureString Validate.InvalidResultArity = "invalid result arity"
         -- getFailureString Validate.ImportedGlobalIsNotConst = "global is immutable"
         getFailureString _ = "not implemented"
 
