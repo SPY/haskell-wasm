@@ -25,13 +25,19 @@ import Debug.Trace as Debug
 data ValidationResult =
     DuplicatedExportNames [String]
     | InvalidTableType
-    | InvalidMemoryLimit
+    | MinMoreThanMaxInMemoryLimit
+    | MemoryLimitExceeded
+    | AlignmentOverflow
     | MoreThanOneMemory
     | MoreThanOneTable
-    | IndexOutOfRange
+    | FunctionIndexOutOfRange
+    | TableIndexOutOfRange
+    | MemoryIndexOutOfRange
+    | LocalIndexOutOfRange
+    | GlobalIndexOutOfRange
+    | LabelIndexOutOfRange
+    | TypeIndexOutOfRange
     | ResultTypeDoesntMatch
-    | NoTableInModule
-    | NoMemoryInModule
     | TypeMismatch { actual :: Arrow, expected :: Arrow }
     | InvalidConstantExpr
     | InvalidStartFunctionType
@@ -144,9 +150,6 @@ maybeToEither :: ValidationResult -> Maybe a -> Checker a
 maybeToEither _ (Just a) = return a
 maybeToEither l Nothing = throwError l
 
-isIndexValid :: (Integral idx, Integral len) => idx -> len -> ValidationResult
-isIndexValid idx len = if fromIntegral idx < fromIntegral len then Valid else IndexOutOfRange
-
 asType :: GlobalType -> VType
 asType (Const v) = Val v
 asType (Mut v) = Val v
@@ -155,11 +158,20 @@ getLabel :: LabelIndex -> Checker (Maybe ValueType)
 getLabel lbl = do
     Ctx { labels } <- ask
     case labels !? lbl of
-        Nothing -> throwError IndexOutOfRange
+        Nothing -> throwError LabelIndexOutOfRange
         Just v -> return v
 
 withLabel :: [ValueType] -> Checker a -> Checker a
 withLabel result = withReaderT (\ctx -> ctx { labels = safeHead result : labels ctx })
+
+isMemArgValid :: Int -> MemArg -> Checker ()
+isMemArgValid sizeInBytes MemArg { align } = if 2 ^ align <= sizeInBytes then return () else throwError AlignmentOverflow
+
+checkMemoryInstr :: Int -> MemArg -> Checker ()
+checkMemoryInstr size memarg = do
+    isMemArgValid size memarg
+    Ctx { mems } <- ask 
+    if length mems < 1 then throwError MemoryIndexOutOfRange else return ()
 
 getInstrType :: Instruction -> Checker Arrow
 getInstrType Unreachable = return $ Any ==> Any
@@ -202,13 +214,13 @@ getInstrType Return = do
     return $ (Any : (map Val $ maybeToList returns)) ==> Any
 getInstrType (Call fun) = do
     Ctx { funcs } <- ask
-    maybeToEither IndexOutOfRange $ asArrow <$> funcs !? fun
+    maybeToEither FunctionIndexOutOfRange $ asArrow <$> funcs !? fun
 getInstrType (CallIndirect sign) = do
     Ctx { types, tables } <- ask
     if length tables < 1
-    then throwError NoTableInModule
+    then throwError TableIndexOutOfRange
     else do
-        Arrow from to <- maybeToEither IndexOutOfRange $ asArrow <$> types !? sign
+        Arrow from to <- maybeToEither FunctionIndexOutOfRange $ asArrow <$> types !? sign
         return $ (from ++ [Val I32]) ==> to
 getInstrType Drop = do
     var <- freshVar
@@ -218,100 +230,99 @@ getInstrType Select = do
     return $ [var, var, Val I32] ==> var
 getInstrType (GetLocal local) = do
     Ctx { locals }  <- ask
-    t <- maybeToEither IndexOutOfRange $ locals !? local
+    t <- maybeToEither LocalIndexOutOfRange $ locals !? local
     return $ empty ==> Val t
 getInstrType (SetLocal local) = do
     Ctx { locals } <- ask
-    t <- maybeToEither IndexOutOfRange $ locals !? local
+    t <- maybeToEither LocalIndexOutOfRange $ locals !? local
     return $ Val t ==> empty
 getInstrType (TeeLocal local) = do
     Ctx { locals } <- ask
-    t <- maybeToEither IndexOutOfRange $ locals !? local
+    t <- maybeToEither LocalIndexOutOfRange $ locals !? local
     return $ Val t ==> Val t
 getInstrType (GetGlobal global) = do
     Ctx { globals } <- ask
-    t <- maybeToEither IndexOutOfRange $ asType <$> globals !? global
+    t <- maybeToEither LocalIndexOutOfRange $ asType <$> globals !? global
     return $ empty ==> t
 getInstrType (SetGlobal global) = do
     Ctx { globals } <- ask
-    t <- maybeToEither IndexOutOfRange $ asType <$> globals !? global
+    t <- maybeToEither LocalIndexOutOfRange $ asType <$> globals !? global
     return $ t ==> empty
--- TODO: check memory alignment
-getInstrType (I32Load _) = do
-    Ctx { mems } <- ask
-    if length mems < 1 then throwError NoMemoryInModule else return $ I32 ==> I32
-getInstrType (I64Load _) = do
-    Ctx { mems } <- ask 
-    if length mems < 1 then throwError NoMemoryInModule else return $ I32 ==> I64
-getInstrType (F32Load _) = do
-    Ctx { mems } <- ask 
-    if length mems < 1 then throwError NoMemoryInModule else return $ I32 ==> F32
-getInstrType (F64Load _) = do
-    Ctx { mems } <- ask 
-    if length mems < 1 then throwError NoMemoryInModule else return $ I32 ==> F64
-getInstrType (I32Load8S _) = do
-    Ctx { mems } <- ask 
-    if length mems < 1 then throwError NoMemoryInModule else return $ I32 ==> I32
-getInstrType (I32Load8U _) = do
-    Ctx { mems } <- ask 
-    if length mems < 1 then throwError NoMemoryInModule else return $ I32 ==> I32
-getInstrType (I32Load16S _) = do
-    Ctx { mems } <- ask 
-    if length mems < 1 then throwError NoMemoryInModule else return $ I32 ==> I32
-getInstrType (I32Load16U _) = do
-    Ctx { mems } <- ask 
-    if length mems < 1 then throwError NoMemoryInModule else return $ I32 ==> I32
-getInstrType (I64Load8S _) = do
-    Ctx { mems } <- ask 
-    if length mems < 1 then throwError NoMemoryInModule else return $ I32 ==> I64
-getInstrType (I64Load8U _) = do
-    Ctx { mems } <- ask 
-    if length mems < 1 then throwError NoMemoryInModule else return $ I32 ==> I64
-getInstrType (I64Load16S _) = do
-    Ctx { mems } <- ask 
-    if length mems < 1 then throwError NoMemoryInModule else return $ I32 ==> I64
-getInstrType (I64Load16U _) = do
-    Ctx { mems } <- ask 
-    if length mems < 1 then throwError NoMemoryInModule else return $ I32 ==> I64
-getInstrType (I64Load32S _) = do
-    Ctx { mems } <- ask 
-    if length mems < 1 then throwError NoMemoryInModule else return $ I32 ==> I64
-getInstrType (I64Load32U _) = do
-    Ctx { mems } <- ask 
-    if length mems < 1 then throwError NoMemoryInModule else return $ I32 ==> I64
-getInstrType (I32Store _) = do
-    Ctx { mems } <- ask 
-    if length mems < 1 then throwError NoMemoryInModule else return $ [I32, I32] ==> empty
-getInstrType (I64Store _) = do
-    Ctx { mems } <- ask 
-    if length mems < 1 then throwError NoMemoryInModule else return $ [I32, I64] ==> empty
-getInstrType (F32Store _) = do
-    Ctx { mems } <- ask 
-    if length mems < 1 then throwError NoMemoryInModule else return $ [I32, F32] ==> empty
-getInstrType (F64Store _) = do
-    Ctx { mems } <- ask 
-    if length mems < 1 then throwError NoMemoryInModule else return $ [I32, F64] ==> empty
-getInstrType (I32Store8 _) = do
-    Ctx { mems } <- ask 
-    if length mems < 1 then throwError NoMemoryInModule else return $ [I32, I32] ==> empty
-getInstrType (I32Store16 _) = do
-    Ctx { mems } <- ask 
-    if length mems < 1 then throwError NoMemoryInModule else return $ [I32, I32] ==> empty
-getInstrType (I64Store8 _) = do
-    Ctx { mems } <- ask 
-    if length mems < 1 then throwError NoMemoryInModule else return $ [I32, I64] ==> empty
-getInstrType (I64Store16 _) = do
-    Ctx { mems } <- ask 
-    if length mems < 1 then throwError NoMemoryInModule else return $ [I32, I64] ==> empty
-getInstrType (I64Store32 _) = do
-    Ctx { mems } <- ask 
-    if length mems < 1 then throwError NoMemoryInModule else return $ [I32, I64] ==> empty
+getInstrType (I32Load memarg) = do
+    checkMemoryInstr 4 memarg
+    return $ I32 ==> I32
+getInstrType (I64Load memarg) = do
+    checkMemoryInstr 8 memarg
+    return $ I32 ==> I64
+getInstrType (F32Load memarg) = do
+    checkMemoryInstr 4 memarg
+    return $ I32 ==> F32
+getInstrType (F64Load memarg) = do
+    checkMemoryInstr 8 memarg
+    return $ I32 ==> F64
+getInstrType (I32Load8S memarg) = do
+    checkMemoryInstr 1 memarg
+    return $ I32 ==> I32
+getInstrType (I32Load8U memarg) = do
+    checkMemoryInstr 1 memarg
+    return $ I32 ==> I32
+getInstrType (I32Load16S memarg) = do
+    checkMemoryInstr 2 memarg
+    return $ I32 ==> I32
+getInstrType (I32Load16U memarg) = do
+    checkMemoryInstr 2 memarg
+    return $ I32 ==> I32
+getInstrType (I64Load8S memarg) = do
+    checkMemoryInstr 1 memarg
+    return $ I32 ==> I64
+getInstrType (I64Load8U memarg) = do
+    checkMemoryInstr 1 memarg
+    return $ I32 ==> I64
+getInstrType (I64Load16S memarg) = do
+    checkMemoryInstr 2 memarg
+    return $ I32 ==> I64
+getInstrType (I64Load16U memarg) = do
+    checkMemoryInstr 2 memarg
+    return $ I32 ==> I64
+getInstrType (I64Load32S memarg) = do
+    checkMemoryInstr 4 memarg
+    return $ I32 ==> I64
+getInstrType (I64Load32U memarg) = do
+    checkMemoryInstr 8 memarg
+    return $ I32 ==> I64
+getInstrType (I32Store memarg) = do
+    checkMemoryInstr 4 memarg
+    return $ [I32, I32] ==> empty
+getInstrType (I64Store memarg) = do
+    checkMemoryInstr 8 memarg
+    return $ [I32, I64] ==> empty
+getInstrType (F32Store memarg) = do
+    checkMemoryInstr 4 memarg
+    return $ [I32, F32] ==> empty
+getInstrType (F64Store memarg) = do
+    checkMemoryInstr 8 memarg
+    return $ [I32, F64] ==> empty
+getInstrType (I32Store8 memarg) = do
+    checkMemoryInstr 1 memarg
+    return $ [I32, I32] ==> empty
+getInstrType (I32Store16 memarg) = do
+    checkMemoryInstr 2 memarg
+    return $ [I32, I32] ==> empty
+getInstrType (I64Store8 memarg) = do
+    checkMemoryInstr 1 memarg
+    return $ [I32, I64] ==> empty
+getInstrType (I64Store16 memarg) = do
+    checkMemoryInstr 2 memarg
+    return $ [I32, I64] ==> empty
+getInstrType (I64Store32 memarg) = do
+    checkMemoryInstr 4 memarg
+    return $ [I32, I64] ==> empty
 getInstrType CurrentMemory = do
     Ctx { mems } <- ask 
-    if length mems < 1 then throwError NoMemoryInModule else return $ empty ==> I32
+    if length mems < 1 then throwError MemoryIndexOutOfRange else return $ empty ==> I32
 getInstrType GrowMemory = do
     Ctx { mems } <- ask 
-    if length mems < 1 then throwError NoMemoryInModule else return $ I32 ==> I32
+    if length mems < 1 then throwError MemoryIndexOutOfRange else return $ I32 ==> I32
 getInstrType (I32Const _) = return $ empty ==> I32
 getInstrType (I64Const _) = return $ empty ==> I64
 getInstrType (F32Const _) = return $ empty ==> F32
@@ -494,7 +505,10 @@ memoryShouldBeValid Module { imports, mems } =
         else MoreThanOneMemory
     where
         isValidLimit :: Limit -> ValidationResult
-        isValidLimit (Limit min max) = if min <= fromMaybe min max then Valid else InvalidMemoryLimit
+        isValidLimit (Limit min max) =
+            let minMax = if min <= fromMaybe min max then Valid else MinMoreThanMaxInMemoryLimit in
+            let maxLim = if fromMaybe min max <= 65536 then Valid else MemoryLimitExceeded in
+            minMax <> maxLim
 
 globalsShouldBeValid :: Validator
 globalsShouldBeValid m@Module { imports, globals } =
@@ -537,11 +551,11 @@ elemsShouldBeValid m@Module { elems, functions, tables, imports } =
             let isTableIndexValid =
                     if tableIdx < (fromIntegral $ length tableImports + length tables)
                     then Valid
-                    else IndexOutOfRange
+                    else TableIndexOutOfRange
             in
             let funImports = filter isFuncImport imports in
             let funsLength = fromIntegral $ length functions + length funImports in
-            let isFunsValid = foldMap (\i -> if i < funsLength then Valid else IndexOutOfRange) funs in
+            let isFunsValid = foldMap (\i -> if i < funsLength then Valid else FunctionIndexOutOfRange) funs in
             isIniterValid <> isFunsValid <> isTableIndexValid
 
 datasShouldBeValid :: Validator
@@ -563,7 +577,7 @@ datasShouldBeValid m@Module { datas, mems, imports } =
             let memImports = filter isMemImport imports in
             if memIdx < (fromIntegral $ length memImports + length mems)
             then isOffsetValid
-            else IndexOutOfRange
+            else MemoryIndexOutOfRange
 
 startShouldBeValid :: Validator
 startShouldBeValid Module { start = Nothing } = Valid
@@ -572,7 +586,7 @@ startShouldBeValid m@Module { start = Just (StartFunction idx) } =
     let i = fromIntegral idx in
     if length types > i
     then if FuncType [] [] == types !! i then Valid else InvalidStartFunctionType
-    else IndexOutOfRange
+    else TableIndexOutOfRange
 
 exportsShouldBeValid :: Validator
 exportsShouldBeValid Module { exports, imports, functions, mems, tables, globals } =
@@ -585,13 +599,13 @@ exportsShouldBeValid Module { exports, imports, functions, mems, tables, globals
 
         isExportValid :: Export -> ValidationResult
         isExportValid (Export _ (ExportFunc funIdx)) =
-            isIndexValid funIdx $ length funcImports + length functions
+            if fromIntegral funIdx < length funcImports + length functions then Valid else FunctionIndexOutOfRange
         isExportValid (Export _ (ExportTable tableIdx)) =
-            isIndexValid tableIdx $ length tableImports + length tables
+            if fromIntegral tableIdx < length tableImports + length tables then Valid else TableIndexOutOfRange
         isExportValid (Export _ (ExportMemory memIdx)) =
-            isIndexValid memIdx $ length memImports + length mems
+            if fromIntegral memIdx < length memImports + length mems then Valid else MemoryIndexOutOfRange
         isExportValid (Export _ (ExportGlobal globalIdx)) =
-            isIndexValid globalIdx $ length globalImports + length globals
+            if fromIntegral globalIdx < length globalImports + length globals then Valid else GlobalIndexOutOfRange
 
         areExportNamesUnique :: ValidationResult
         areExportNamesUnique =
@@ -610,7 +624,7 @@ importsShouldBeValid Module { imports, types } =
     foldMap isImportValid imports
     where
         isImportValid :: Import -> ValidationResult
-        isImportValid (Import _ _ (ImportFunc typeIdx)) = isIndexValid typeIdx $ length types
+        isImportValid (Import _ _ (ImportFunc typeIdx)) = if fromIntegral typeIdx < length types then Valid else TypeIndexOutOfRange
         isImportValid (Import _ _ (ImportTable _)) = Valid -- checked in tables section
         isImportValid (Import _ _ (ImportMemory _)) = Valid -- checked in mems section
         isImportValid (Import _ _ (ImportGlobal (Const _))) = Valid

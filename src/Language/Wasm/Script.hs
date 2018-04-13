@@ -139,6 +139,36 @@ runScript onAssertFail script = do
                     then return ()
                     else onAssertFail ("Expected NaN, but action returned " ++ show v) assert
                 _ -> onAssertFail ("Expected NaN, but action returned " ++ show result) assert
+        
+        buildModule :: ModuleDef -> (Maybe Ident, Struct.Module)
+        buildModule (RawModDef ident m) = (ident, m)
+        buildModule (TextModDef ident textRep) =
+            let Right m = Parser.parseModule <$> Lexer.scanner (TLEncoding.encodeUtf8 textRep) in
+            (ident, m)
+        buildModule (BinaryModDef ident binaryRep) =
+            let Right m = Binary.decodeModuleLazy binaryRep in
+            (ident, m)
+
+        checkModuleInvalid :: Struct.Module -> IO ()
+        checkModuleInvalid _ = return ()
+
+        getFailureString :: Validate.ValidationResult -> TL.Text
+        getFailureString (Validate.TypeMismatch _ _) = "type mismatch"
+        getFailureString Validate.MoreThanOneMemory = "multiple memories"
+        getFailureString Validate.MoreThanOneTable = "multiple tables"
+        getFailureString Validate.LocalIndexOutOfRange = "unknown local"
+        getFailureString Validate.MemoryIndexOutOfRange = "unknown memory"
+        getFailureString Validate.TableIndexOutOfRange = "unknown table"
+        getFailureString Validate.FunctionIndexOutOfRange = "unknown function"
+        getFailureString Validate.GlobalIndexOutOfRange = "unknown global"
+        getFailureString Validate.LabelIndexOutOfRange = "unknown label"
+        getFailureString Validate.MinMoreThanMaxInMemoryLimit = "size minimum must not be greater than maximum"
+        getFailureString Validate.MemoryLimitExceeded = "memory size must be at most 65536 pages (4GiB)"
+        getFailureString Validate.AlignmentOverflow = "alignment must not be larger than natural"
+        getFailureString (Validate.DuplicatedExportNames _) = "duplicate export name"
+        getFailureString Validate.InvalidConstantExpr = "constant expression required"
+        -- getFailureString Validate.ImportedGlobalIsNotConst = "global is immutable"
+        getFailureString _ = "not implemented"
 
         runAssert :: ScriptState -> Assertion -> IO ()
         runAssert st assert@(AssertReturn action expected) = do
@@ -148,15 +178,24 @@ runScript onAssertFail script = do
             else onAssertFail ("Expected " ++ show (map asArg expected) ++ ", but action returned " ++ show result) assert
         runAssert st assert@(AssertReturnCanonicalNaN action) = isNaNReturned st action assert
         runAssert st assert@(AssertReturnArithmeticNaN action) = isNaNReturned st action assert
+        runAssert st assert@(AssertInvalid moduleDef failureString) =
+            let (_, m) = buildModule moduleDef in
+            case Validate.validate m of
+                Validate.Valid -> onAssertFail "Invalid module pass validation" assert
+                reason ->
+                    if getFailureString reason == failureString
+                    then return ()
+                    else
+                        let msg = "Module invalid for other reason. Expected "
+                                ++ show failureString
+                                ++ ", but actual is "
+                                ++ show (getFailureString reason)
+                        in onAssertFail msg assert
         runAssert _ _ = return ()
 
         runCommand :: ScriptState -> Command -> IO ScriptState
-        runCommand st (ModuleDef (RawModDef ident m)) = addModule ident m st
-        runCommand st (ModuleDef (TextModDef ident textRep)) =
-            let Right m = Parser.parseModule <$> Lexer.scanner (TLEncoding.encodeUtf8 textRep) in
-            addModule ident m st
-        runCommand st (ModuleDef (BinaryModDef ident binaryRep)) =
-            let Right m = Binary.decodeModuleLazy binaryRep in
+        runCommand st (ModuleDef moduleDef) =
+            let (ident, m) = buildModule moduleDef in
             addModule ident m st
         runCommand st (Register name i) = return $ addToRegistery name i st
         runCommand st (Action action) = runAction st action >> return st

@@ -614,16 +614,16 @@ paramsresulttypeuse :: { FuncType }
     | 'result' list(valtype) ')' { FuncType [] $2 }
 
 memarg1 :: { MemArg }
-    : opt(offset) opt(align) { MemArg (fromMaybe 0 $1) (fromMaybe 1 $2) }
+    : opt(offset) opt(align) { MemArg (fromMaybe 0 $1) (unpackAlign 1 $2) }
 
 memarg2 :: { MemArg }
-    : opt(offset) opt(align) { MemArg (fromMaybe 0 $1) (fromMaybe 2 $2) }
+    : opt(offset) opt(align) { MemArg (fromMaybe 0 $1) (unpackAlign 2 $2) }
 
 memarg4 :: { MemArg }
-    : opt(offset) opt(align) { MemArg (fromMaybe 0 $1) (fromMaybe 4 $2) }
+    : opt(offset) opt(align) { MemArg (fromMaybe 0 $1) (unpackAlign 4 $2) }
 
 memarg8 :: { MemArg }
-    : opt(offset) opt(align) { MemArg (fromMaybe 0 $1) (fromMaybe 8 $2) }
+    : opt(offset) opt(align) { MemArg (fromMaybe 0 $1) (unpackAlign 8 $2) }
 
 instruction :: { [Instruction] }
     : raw_instr { $1 }
@@ -1115,6 +1115,9 @@ asAlign :: LBS.ByteString -> Maybe Natural
 asAlign str = do
     num <- TL.stripPrefix "align=" $ TLEncoding.decodeUtf8 str
     fromIntegral . fst <$> eitherToMaybe (TLRead.decimal num)
+
+unpackAlign :: Natural -> (Maybe Natural) -> Natural
+unpackAlign def = fromIntegral . round . logBase 2 . fromIntegral . fromMaybe def
 
 -- TODO: check name conditions.
 -- Presuming the source text is itself encoded correctly,
@@ -1673,10 +1676,7 @@ desugarize fields =
                 Nothing ->
                     let isIdent (LocalType ident _) = ident == Just id in
                     fromIntegral . (+ length ctxParams) <$> findIndex isIdent ctxLocals
-        getLocalIndex FunCtx {ctxParams, ctxLocals} (Index idx) =
-            if (length ctxParams + length ctxLocals > fromIntegral idx)
-            then Just idx
-            else Nothing
+        getLocalIndex FunCtx {ctxParams, ctxLocals} (Index idx) = Just idx
         
         isFuncImport :: Import -> Bool
         isFuncImport Import { desc = ImportFunc _ _ } = True
@@ -1690,11 +1690,7 @@ desugarize fields =
                 Nothing ->
                     let isIdent (Function { ident }) = ident == Just id in
                     fromIntegral . (+ length funImports) <$> findIndex isIdent functions
-        getFuncIndex Module { imports, functions } (Index idx) =
-            let funImports = filter isFuncImport imports in
-            if length funImports + length functions > fromIntegral idx
-            then Just idx
-            else Nothing
+        getFuncIndex Module { imports, functions } (Index idx) = Just idx
 
         -- tables
         synTableToStruct :: Table -> S.Table
@@ -1716,11 +1712,7 @@ desugarize fields =
                 Nothing ->
                     let isIdent (Table (Just id) _) = True in
                     fromIntegral . (+ length tableImports) <$> findIndex isIdent tables
-        getTableIndex Module { imports, tables } (Index idx) =
-            let tableImports = filter isTableImport imports in
-            if length tableImports + length tables > fromIntegral idx
-            then Just idx
-            else Nothing
+        getTableIndex Module { imports, tables } (Index idx) = Just idx
 
         -- memory
         synMemoryToStruct :: Memory -> S.Memory
@@ -1742,11 +1734,7 @@ desugarize fields =
                 Nothing ->
                     let isIdent (Memory (Just id) _) = True in
                     fromIntegral . (+ length memImports) <$> findIndex isIdent mems
-        getMemIndex Module { imports, mems } (Index idx) =
-            let memImports = filter isMemImport imports in
-            if length memImports + length mems > fromIntegral idx
-            then Just idx
-            else Nothing
+        getMemIndex Module { imports, mems } (Index idx) = Just idx
 
         -- global
         synGlobalToStruct :: Module -> Global -> S.Global
@@ -1770,11 +1758,7 @@ desugarize fields =
                 Nothing ->
                     let isIdent (Global { ident }) = ident == Just id in
                     fromIntegral . (+ length globalImports) <$> findIndex isIdent globals
-        getGlobalIndex Module { imports, globals } (Index idx) =
-            let globalImports = filter isGlobalImport imports in
-            if length globalImports + length globals > fromIntegral idx
-            then Just idx
-            else Nothing
+        getGlobalIndex Module { imports, globals } (Index idx) = Just idx
 
         -- elem segment
         synElemToStruct :: Module -> ElemSegment -> S.ElemSegment
