@@ -198,7 +198,7 @@ getInstrType (Br lbl) = do
     return $ (Any : r) ==> Any
 getInstrType (BrIf lbl) = do
     r <- map Val . maybeToList <$> getLabel lbl
-    return $ ([Val I32]) ==> empty
+    return $ (r ++ [Val I32]) ==> r
 getInstrType (BrTable lbls lbl) = do
     r <- getLabel lbl
     rs <- mapM getLabel lbls
