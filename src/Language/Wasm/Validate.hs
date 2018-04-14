@@ -16,7 +16,7 @@ import Data.Maybe (fromMaybe, maybeToList, catMaybes, isNothing)
 import Data.Monoid ((<>))
 import Numeric.Natural (Natural)
 
-import Control.Monad.State.Lazy (StateT, evalStateT, get, put)
+import Control.Monad (foldM)
 import Control.Monad.Reader (ReaderT, runReaderT, withReaderT, ask)
 import Control.Monad.Except (Except, runExcept, throwError)
 
@@ -60,7 +60,7 @@ type Validator = Module -> ValidationResult
 
 data VType =
     Val ValueType
-    | Var Int
+    | Var
     | Any
     deriving (Show, Eq)
 
@@ -105,11 +105,11 @@ isArrowMatch (f `Arrow` t) ( f' `Arrow` t') = isEndMatch f f' && isEndMatch t t'
         isEndMatch l (Any:r) =
             let (leftTail, rightTail) = unzip $ zip (takeWhile (/= Any) $ reverse l) (takeWhile (/= Any) $ reverse r) in
             isEndMatch (reverse leftTail) (reverse rightTail)
-        isEndMatch (Var v:l) (x:r) =
-            let subst = replace (Var v) x in
+        isEndMatch (Var:l) (x:r) =
+            let subst = replace Var x in
             isEndMatch (subst l) (subst r)
-        isEndMatch (x:l) (Var v:r) =
-            let subst = replace (Var v) x in
+        isEndMatch (x:l) (Var:r) =
+            let subst = replace Var x in
             isEndMatch (subst l) (subst r)
         isEndMatch (Val v:l) (Val v':r) = v == v' && isEndMatch l r
         isEndMatch [] [] = True
@@ -127,16 +127,13 @@ data Ctx = Ctx {
     importedGlobals :: Natural
 } deriving (Show, Eq)
 
-type Checker = ReaderT Ctx (StateT Int (Except ValidationResult))
+type Checker = ReaderT Ctx (Except ValidationResult)
 
 freshVar :: Checker VType
-freshVar = do
-    i <- get
-    put (i + 1)
-    return $ Var i
+freshVar = return Var
 
 runChecker :: Ctx -> Checker a -> Either ValidationResult a
-runChecker ctx = runExcept . flip evalStateT 0 . flip runReaderT ctx
+runChecker ctx = runExcept . flip runReaderT ctx
 
 (!?) :: [a] -> Natural -> Maybe a
 (!?) (x:_) 0 = Just x
@@ -185,7 +182,7 @@ getInstrType Block { result, body } = do
     else throwError $ TypeMismatch t blockType
 getInstrType Loop { result, body } = do
     let blockType = empty ==> result
-    t <- withLabel result $ getExpressionType body
+    t <- withLabel [] $ getExpressionType body
     if isArrowMatch t blockType
     then return $ empty ==> result
     else throwError $ TypeMismatch t blockType
@@ -207,7 +204,7 @@ getInstrType (BrTable lbls lbl) = do
     rs <- mapM getLabel lbls
     -- this check for equality doesn't match the spec,
     -- but a reference compiler does the same
-    if all (\r' -> r' == r || isNothing r' || isNothing r) rs
+    if all (\r' -> (isNothing r && isNothing r') || r' == r || isNothing r') rs
     then return $ ([Any] ++ (map Val $ maybeToList r) ++ [Val I32]) ==> Any
     else throwError ResultTypeDoesntMatch
 getInstrType Return = do
@@ -373,47 +370,27 @@ replace :: (Eq a) => a -> a -> [a] -> [a]
 replace _ _ [] = []
 replace x y (v:r) = (if x == v then y else v) : replace x y r
 
-unify :: Arrow -> Arrow -> Checker Arrow
-unify (from `Arrow` to) (from' `Arrow` to') =
-    unify' (from `Arrow` reverse to) (reverse from' `Arrow` to')
-    where
-        unify' :: Arrow -> Arrow -> Checker Arrow
-        unify' (f `Arrow` []) (f' `Arrow` t') =
-            return $ (reverse f' ++ f) `Arrow` t'
-        unify' (f `Arrow` t) ([] `Arrow` t') =
-            return $ f `Arrow` (reverse t ++ t')
-        unify' (f `Arrow` (Val v':t)) ((Val v:f') `Arrow` t') =
-            if v == v'
-            then unify' (f `Arrow` t) (f' `Arrow` t')
-            else throwError $ TypeMismatch (from `Arrow` to) (from' `Arrow` to')
-        unify' (f `Arrow` (Var r:t)) ((Val v:f') `Arrow` t') =
-            let subst = replace (Var r) (Val v) in
-            unify' (subst f `Arrow` subst t) (f' `Arrow` t')
-        unify' (f `Arrow` (Val v:t)) ((Var r:f') `Arrow` t') =
-            let subst = replace (Var r) (Val v) in
-            unify' (f `Arrow` t) (subst f' `Arrow` subst t')
-        unify' (f `Arrow` (Var r:t)) ((Var r':f') `Arrow` t') =
-            let subst = replace (Var r') (Var r) in
-            unify' (f `Arrow` t) (subst f' `Arrow` subst t')
-        unify' (f `Arrow` (Any:_)) (_ `Arrow` t') =
-            return $ f `Arrow` (Any : t')
-        unify' (f `Arrow` _) (f'@(Any:_) `Arrow` t') =
-            return $ (f' ++ f) `Arrow` t'
-
 getExpressionType :: [Instruction] -> Checker Arrow
-getExpressionType instrs =
-    case reverse instrs of
-        [] -> return $ empty ==> empty
-        (i:rest) -> do
-            arr <- getInstrType i
-            go arr rest
+getExpressionType = fmap ([] `Arrow`) . foldM go []
     where
-        go :: Arrow -> [Instruction] -> Checker Arrow
-        go arr [] = return arr
-        go arr (i:rest) = do
-            a <- getInstrType i
-            arr' <- unify a arr
-            go arr' rest
+        go :: [VType] -> Instruction -> Checker [VType]
+        go stack instr = do
+            (f `Arrow` t) <- getInstrType instr
+            matchStack stack (reverse f) t
+        
+        matchStack :: [VType] -> [VType] -> [VType] -> Checker [VType]
+        matchStack stack@(Any:_) _arg res = return $ res ++ stack
+        matchStack (Val v:stack) (Val v':args) res =
+            if v == v'
+            then matchStack stack args res
+            else throwError $ TypeMismatch ((reverse $ Val v':args) `Arrow` res) ([] `Arrow` (Val v:stack))
+        matchStack _ (Any:_) res = return $ res
+        matchStack (Val v:stack) (Var:args) res =
+            let subst = replace Var (Val v) in
+            matchStack stack (subst args) (subst res)
+        matchStack stack [] res = return $ res ++ stack
+        matchStack [] args res = throwError $ TypeMismatch ((reverse args) `Arrow` res) ([] `Arrow` [])
+        matchStack _ _ _ = error "inconsistent checker state"
 
 isConstExpression :: [Instruction] -> Checker ()
 isConstExpression [] = return ()
@@ -637,11 +614,18 @@ importsShouldBeValid Module { imports, types } =
         isImportValid (Import _ _ (ImportGlobal (Const _))) = Valid
         isImportValid (Import _ _ (ImportGlobal (Mut _))) = ImportedGlobalIsNotConst
 
+typesShouldBeValid :: Validator
+typesShouldBeValid Module { types } = foldMap isTypeValid types
+    where
+        isTypeValid :: FuncType -> ValidationResult
+        isTypeValid FuncType { results } = if length results <= 1 then Valid else InvalidResultArity
+
 validate :: Validator
 validate mod = foldMap ($ mod) validators
     where
         validators :: [Validator]
         validators = [
+                typesShouldBeValid,
                 functionsShouldBeValid,
                 tablesShouldBeValid,
                 memoryShouldBeValid,

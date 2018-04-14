@@ -154,6 +154,7 @@ runScript onAssertFail script = do
 
         getFailureString :: Validate.ValidationResult -> TL.Text
         getFailureString (Validate.TypeMismatch _ _) = "type mismatch"
+        getFailureString Validate.ResultTypeDoesntMatch = "type mismatch"
         getFailureString Validate.MoreThanOneMemory = "multiple memories"
         getFailureString Validate.MoreThanOneTable = "multiple tables"
         getFailureString Validate.LocalIndexOutOfRange = "unknown local"
