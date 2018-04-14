@@ -32,7 +32,7 @@
   ;; (func (import "spectest" "print_i64") (param i64))
   (import "spectest" "print_i32" (func $print_i32 (param i32)))
   ;; JavaScript can't handle i64 yet.
-  (import "spectest" "print_i64" (func $print_i64 (param i64)))
+  ;; (import "spectest" "print_i64" (func $print_i64 (param i64)))
   (import "spectest" "print_f32" (func $print_f32 (param f32)))
   (import "spectest" "print_f64" (func $print_f64 (param f64)))
   (import "spectest" "print_i32_f32" (func $print_i32_f32 (param i32 f32)))
@@ -86,6 +86,14 @@
 
 (assert_return (invoke "print32" (i32.const 13)))
 (assert_return (invoke "print64" (i64.const 24)))
+
+(assert_invalid
+  (module 
+    (type (func (result i32)))
+    (import "test" "func" (func (type 1)))
+  )
+  "unknown type"
+)
 
 (module (import "test" "func" (func)))
 (module (import "test" "func-i32" (func (param i32))))
@@ -478,7 +486,7 @@
 
 (module
   (import "spectest" "memory" (memory 0 3))  ;; actual has max size 2
-  (func (export "grow") (param i32) (result i32) (grow_memory (get_local 0)))
+  (func (export "grow") (param i32) (result i32) (memory.grow (get_local 0)))
 )
 (assert_return (invoke "grow" (i32.const 0)) (i32.const 1))
 (assert_return (invoke "grow" (i32.const 1)) (i32.const 1))
