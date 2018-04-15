@@ -152,26 +152,29 @@ runScript onAssertFail script = do
         checkModuleInvalid :: Struct.Module -> IO ()
         checkModuleInvalid _ = return ()
 
-        getFailureString :: Validate.ValidationResult -> TL.Text
-        getFailureString (Validate.TypeMismatch _ _) = "type mismatch"
-        getFailureString Validate.ResultTypeDoesntMatch = "type mismatch"
-        getFailureString Validate.MoreThanOneMemory = "multiple memories"
-        getFailureString Validate.MoreThanOneTable = "multiple tables"
-        getFailureString Validate.LocalIndexOutOfRange = "unknown local"
-        getFailureString Validate.MemoryIndexOutOfRange = "unknown memory"
-        getFailureString Validate.TableIndexOutOfRange = "unknown table"
-        getFailureString Validate.FunctionIndexOutOfRange = "unknown function"
-        getFailureString Validate.GlobalIndexOutOfRange = "unknown global"
-        getFailureString Validate.LabelIndexOutOfRange = "unknown label"
-        getFailureString Validate.TypeIndexOutOfRange = "unknown type"
-        getFailureString Validate.MinMoreThanMaxInMemoryLimit = "size minimum must not be greater than maximum"
-        getFailureString Validate.MemoryLimitExceeded = "memory size must be at most 65536 pages (4GiB)"
-        getFailureString Validate.AlignmentOverflow = "alignment must not be larger than natural"
-        getFailureString (Validate.DuplicatedExportNames _) = "duplicate export name"
-        getFailureString Validate.InvalidConstantExpr = "constant expression required"
-        getFailureString Validate.InvalidResultArity = "invalid result arity"
-        -- getFailureString Validate.ImportedGlobalIsNotConst = "global is immutable"
-        getFailureString _ = "not implemented"
+        getFailureString :: Validate.ValidationResult -> [TL.Text]
+        getFailureString (Validate.TypeMismatch _ _) = ["type mismatch"]
+        getFailureString Validate.ResultTypeDoesntMatch = ["type mismatch"]
+        getFailureString Validate.MoreThanOneMemory = ["multiple memories"]
+        getFailureString Validate.MoreThanOneTable = ["multiple tables"]
+        getFailureString Validate.LocalIndexOutOfRange = ["unknown local"]
+        getFailureString Validate.MemoryIndexOutOfRange = ["unknown memory", "unknown memory 0"]
+        getFailureString Validate.TableIndexOutOfRange = ["unknown table", "unknown table 0"]
+        getFailureString Validate.FunctionIndexOutOfRange = ["unknown function", "unknown function 0"]
+        getFailureString Validate.GlobalIndexOutOfRange = ["unknown global"]
+        getFailureString Validate.LabelIndexOutOfRange = ["unknown label"]
+        getFailureString Validate.TypeIndexOutOfRange = ["unknown type"]
+        getFailureString Validate.MinMoreThanMaxInMemoryLimit = ["size minimum must not be greater than maximum"]
+        getFailureString Validate.MemoryLimitExceeded = ["memory size must be at most 65536 pages (4GiB)"]
+        getFailureString Validate.AlignmentOverflow = ["alignment", "alignment must not be larger than natural"]
+        getFailureString (Validate.DuplicatedExportNames _) = ["duplicate export name"]
+        getFailureString Validate.InvalidConstantExpr = ["constant expression required"]
+        getFailureString Validate.InvalidResultArity = ["invalid result arity"]
+        getFailureString Validate.GlobalIsImmutable = ["global is immutable"]
+        getFailureString Validate.ImportedGlobalIsNotConst = ["mutable globals cannot be imported"]
+        getFailureString Validate.ExportedGlobalIsNotConst = ["mutable globals cannot be exported"]
+        getFailureString Validate.InvalidStartFunctionType = ["start function"]
+        getFailureString r = [TL.concat ["not implemented ", (TL.pack $ show r)]]
 
         runAssert :: ScriptState -> Assertion -> IO ()
         runAssert st assert@(AssertReturn action expected) = do
@@ -186,7 +189,7 @@ runScript onAssertFail script = do
             case Validate.validate m of
                 Validate.Valid -> onAssertFail "Invalid module pass validation" assert
                 reason ->
-                    if getFailureString reason == failureString
+                    if failureString `elem` getFailureString reason
                     then return ()
                     else
                         let msg = "Module invalid for other reason. Expected "

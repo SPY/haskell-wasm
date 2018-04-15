@@ -12,7 +12,7 @@ import Language.Wasm.Structure
 import qualified Data.Set as Set
 import Data.List (foldl')
 import qualified Data.Text.Lazy as TL
-import Data.Maybe (fromMaybe, maybeToList, catMaybes, isNothing)
+import Data.Maybe (fromMaybe, maybeToList, catMaybes)
 import Data.Monoid ((<>))
 import Numeric.Natural (Natural)
 
@@ -43,6 +43,8 @@ data ValidationResult =
     | InvalidConstantExpr
     | InvalidStartFunctionType
     | ImportedGlobalIsNotConst
+    | ExportedGlobalIsNotConst
+    | GlobalIsImmutable
     | Valid
     deriving (Show, Eq)
 
@@ -152,6 +154,10 @@ asType :: GlobalType -> VType
 asType (Const v) = Val v
 asType (Mut v) = Val v
 
+shouldBeMut :: GlobalType -> Checker ()
+shouldBeMut (Mut _) = return ()
+shouldBeMut (Const v) = throwError GlobalIsImmutable
+
 getLabel :: LabelIndex -> Checker (Maybe ValueType)
 getLabel lbl = do
     Ctx { labels } <- ask
@@ -202,9 +208,7 @@ getInstrType (BrIf lbl) = do
 getInstrType (BrTable lbls lbl) = do
     r <- getLabel lbl
     rs <- mapM getLabel lbls
-    -- this check for equality doesn't match the spec,
-    -- but a reference compiler does the same
-    if all (\r' -> (isNothing r && isNothing r') || r' == r || isNothing r') rs
+    if all (== r) rs
     then return $ ([Any] ++ (map Val $ maybeToList r) ++ [Val I32]) ==> Any
     else throwError ResultTypeDoesntMatch
 getInstrType Return = do
@@ -218,7 +222,7 @@ getInstrType (CallIndirect sign) = do
     if length tables < 1
     then throwError TableIndexOutOfRange
     else do
-        Arrow from to <- maybeToEither FunctionIndexOutOfRange $ asArrow <$> types !? sign
+        Arrow from to <- maybeToEither TypeIndexOutOfRange $ asArrow <$> types !? sign
         return $ (from ++ [Val I32]) ==> to
 getInstrType Drop = do
     var <- freshVar
@@ -240,11 +244,12 @@ getInstrType (TeeLocal local) = do
     return $ Val t ==> Val t
 getInstrType (GetGlobal global) = do
     Ctx { globals } <- ask
-    t <- maybeToEither LocalIndexOutOfRange $ asType <$> globals !? global
+    t <- maybeToEither GlobalIndexOutOfRange $ asType <$> globals !? global
     return $ empty ==> t
 getInstrType (SetGlobal global) = do
     Ctx { globals } <- ask
-    t <- maybeToEither LocalIndexOutOfRange $ asType <$> globals !? global
+    t <- maybeToEither GlobalIndexOutOfRange $ asType <$> globals !? global
+    shouldBeMut $ globals !! fromIntegral global
     return $ t ==> empty
 getInstrType (I32Load memarg) = do
     checkMemoryInstr 4 memarg
@@ -401,7 +406,7 @@ isConstExpression ((F64Const _):rest) = isConstExpression rest
 isConstExpression ((GetGlobal idx):rest) = do
     Ctx {globals, importedGlobals} <- ask
     if importedGlobals <= idx
-        then throwError InvalidConstantExpr
+        then throwError GlobalIndexOutOfRange
         else return ()
     case globals !! fromIntegral idx of
         Const _ -> isConstExpression rest
@@ -570,7 +575,7 @@ startShouldBeValid m@Module { start = Just (StartFunction idx) } =
     let i = fromIntegral idx in
     if length types > i
     then if FuncType [] [] == types !! i then Valid else InvalidStartFunctionType
-    else TableIndexOutOfRange
+    else FunctionIndexOutOfRange
 
 exportsShouldBeValid :: Validator
 exportsShouldBeValid Module { exports, imports, functions, mems, tables, globals } =
@@ -589,7 +594,17 @@ exportsShouldBeValid Module { exports, imports, functions, mems, tables, globals
         isExportValid (Export _ (ExportMemory memIdx)) =
             if fromIntegral memIdx < length memImports + length mems then Valid else MemoryIndexOutOfRange
         isExportValid (Export _ (ExportGlobal globalIdx)) =
-            if fromIntegral globalIdx < length globalImports + length globals then Valid else GlobalIndexOutOfRange
+            if fromIntegral globalIdx < length globalImports + length globals
+            then (
+                if fromIntegral globalIdx >= length globalImports
+                then (
+                    case globals !! (fromIntegral globalIdx - length globalImports) of
+                        (Global (Mut _) _) -> ExportedGlobalIsNotConst
+                        _ -> Valid
+                )
+                else Valid
+            )
+            else GlobalIndexOutOfRange
 
         areExportNamesUnique :: ValidationResult
         areExportNamesUnique =
