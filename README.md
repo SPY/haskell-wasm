@@ -20,3 +20,9 @@
   * [ ] Compile Core Tests to Tasty test cases and pass all tests
   * [ ] Command line tool for calling interpreter/compiler/validator
   * [ ] Codegen interface for type enforced generating valid WASM code
+
+## Development
+Clond sources to directory and use `stack` for running tests:
+```
+stack && stack test
+```

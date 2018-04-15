@@ -3,6 +3,8 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass #-}
 
 module Language.Wasm.Parser (
     parseModule,
@@ -73,6 +75,8 @@ import Data.Word (Word32, Word64)
 import Data.Bits ((.|.))
 import Numeric.IEEE (infinity, nan)
 import Language.Wasm.FloatUtils (doubleToFloat)
+import Control.DeepSeq (NFData)
+import GHC.Generics (Generic)
 
 import Language.Wasm.Lexer (
         Token (
@@ -1143,7 +1147,7 @@ integerToWord64 i
     | i < 0 && i >= -(2 ^ 63) = 0xFFFFFFFFFFFFFFFF - (fromIntegral (abs i)) + 1
     | otherwise = error "I64 is out of bounds."
 
-data FuncType = FuncType { params :: [ParamType], results :: [ValueType] } deriving (Show, Eq)
+data FuncType = FuncType { params :: [ParamType], results :: [ValueType] } deriving (Show, Eq, Generic, NFData)
 
 emptyFuncType :: FuncType
 emptyFuncType = FuncType [] []
@@ -1151,11 +1155,11 @@ emptyFuncType = FuncType [] []
 data ParamType = ParamType {
         ident :: Maybe Ident,
         paramType :: ValueType
-    } deriving (Show, Eq)
+    } deriving (Show, Eq, Generic, NFData)
 
-newtype Ident = Ident TL.Text deriving (Show, Eq)
+newtype Ident = Ident TL.Text deriving (Show, Eq, Generic, NFData)
 
-data Index = Named Ident | Index Natural deriving (Show, Eq)
+data Index = Named Ident | Index Natural deriving (Show, Eq, Generic, NFData)
 
 type LabelIndex = Index
 type FuncIndex = Index
@@ -1234,14 +1238,14 @@ data PlainInstr =
     | F64PromoteF32
     | IReinterpretF BitSize
     | FReinterpretI BitSize
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic, NFData)
 
-data TypeDef = TypeDef (Maybe Ident) FuncType deriving (Show, Eq)
+data TypeDef = TypeDef (Maybe Ident) FuncType deriving (Show, Eq, Generic, NFData)
 
 data TypeUse =
     IndexedTypeUse TypeIndex (Maybe FuncType)
     | AnonimousTypeUse FuncType
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic, NFData)
 
 data Instruction =
     PlainInstr PlainInstr
@@ -1261,25 +1265,25 @@ data Instruction =
         trueBranch :: [Instruction],
         falseBranch :: [Instruction]
     }
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic, NFData)
 
 data Import = Import {
         sourceModule :: TL.Text,
         name :: TL.Text,
         desc :: ImportDesc
-    } deriving (Show, Eq)
+    } deriving (Show, Eq, Generic, NFData)
 
 data ImportDesc =
     ImportFunc (Maybe Ident) TypeUse
     | ImportTable (Maybe Ident) TableType
     | ImportMemory (Maybe Ident) Limit
     | ImportGlobal (Maybe Ident) GlobalType
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic, NFData)
 
 data LocalType = LocalType {
         ident :: Maybe Ident,
         localType :: ValueType
-    } deriving (Show, Eq)
+    } deriving (Show, Eq, Generic, NFData)
 
 data Function = Function {
         ident :: Maybe Ident,
@@ -1287,7 +1291,7 @@ data Function = Function {
         locals :: [LocalType],
         body :: [Instruction]
     }
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic, NFData)
 
 emptyFunction :: Function
 emptyFunction =
@@ -1303,40 +1307,40 @@ data Global = Global {
         globalType :: GlobalType,
         initializer :: [Instruction]
     }
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic, NFData)
 
-data Memory = Memory (Maybe Ident) Limit deriving (Show, Eq)
+data Memory = Memory (Maybe Ident) Limit deriving (Show, Eq, Generic, NFData)
 
-data Table = Table (Maybe Ident) TableType deriving (Show, Eq)
+data Table = Table (Maybe Ident) TableType deriving (Show, Eq, Generic, NFData)
 
 data ExportDesc =
     ExportFunc (Maybe FuncIndex)
     | ExportTable (Maybe TableIndex)
     | ExportMemory (Maybe MemoryIndex)
     | ExportGlobal (Maybe GlobalIndex)
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic, NFData)
 
 data Export = Export {
         name :: TL.Text,
         desc :: ExportDesc
     }
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic, NFData)
 
-data StartFunction = StartFunction FuncIndex deriving (Show, Eq)
+data StartFunction = StartFunction FuncIndex deriving (Show, Eq, Generic, NFData)
 
 data ElemSegment = ElemSegment {
         tableIndex :: TableIndex,
         offset :: [Instruction],
         funcIndexes :: [FuncIndex]
     }
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic, NFData)
 
 data DataSegment = DataSegment {
         memIndex :: MemoryIndex,
         offset :: [Instruction],
         datastring :: TL.Text
     }
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic, NFData)
 
 data ModuleField =
     MFType TypeDef
@@ -1349,7 +1353,7 @@ data ModuleField =
     | MFStart StartFunction
     | MFElem ElemSegment
     | MFData DataSegment
-    deriving(Show, Eq)
+    deriving(Show, Eq, Generic, NFData)
 
 happyError (Lexeme _ EOF : []) = error $ "Error occuried during parsing phase at the end of file"
 happyError (Lexeme (AlexPn abs line col) tok : tokens) = error $

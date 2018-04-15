@@ -1,4 +1,6 @@
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass #-}
 
 module Language.Wasm.Structure (
     Module(..),
@@ -44,10 +46,12 @@ import Numeric.Natural (Natural)
 import Data.Word (Word32, Word64)
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Text.Lazy as TL
+import Control.DeepSeq (NFData)
+import GHC.Generics (Generic)
 
-data BitSize = BS32 | BS64 deriving (Show, Eq)
+data BitSize = BS32 | BS64 deriving (Show, Eq, Generic, NFData)
 
-data IUnOp = IClz | ICtz | IPopcnt deriving (Show, Eq)
+data IUnOp = IClz | ICtz | IPopcnt deriving (Show, Eq, Generic, NFData)
 
 data IBinOp =
     IAdd
@@ -65,17 +69,17 @@ data IBinOp =
     | IShrS
     | IRotl
     | IRotr
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic, NFData)
 
-data IRelOp = IEq | INe | ILtU | ILtS | IGtU | IGtS | ILeU | ILeS | IGeU | IGeS deriving (Show, Eq)
+data IRelOp = IEq | INe | ILtU | ILtS | IGtU | IGtS | ILeU | ILeS | IGeU | IGeS deriving (Show, Eq, Generic, NFData)
 
-data FUnOp = FAbs | FNeg | FCeil | FFloor | FTrunc | FNearest | FSqrt deriving (Show, Eq)
+data FUnOp = FAbs | FNeg | FCeil | FFloor | FTrunc | FNearest | FSqrt deriving (Show, Eq, Generic, NFData)
 
-data FBinOp = FAdd | FSub | FMul | FDiv | FMin | FMax | FCopySign deriving (Show, Eq)
+data FBinOp = FAdd | FSub | FMul | FDiv | FMin | FMax | FCopySign deriving (Show, Eq, Generic, NFData)
 
-data FRelOp = FEq | FNe | FLt | FGt | FLe | FGe deriving (Show, Eq)
+data FRelOp = FEq | FNe | FLt | FGt | FLe | FGe deriving (Show, Eq, Generic, NFData)
 
-data MemArg = MemArg { offset :: Natural, align :: Natural } deriving (Show, Eq)
+data MemArg = MemArg { offset :: Natural, align :: Natural } deriving (Show, Eq, Generic, NFData)
 
 type LabelIndex = Natural
 type FuncIndex = Natural
@@ -90,13 +94,13 @@ data ValueType =
     | I64
     | F32
     | F64
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic, NFData)
 
 type ResultType = [ValueType]
 type ParamsType = [ValueType]
 type LocalsType = [ValueType]
 
-data FuncType = FuncType { params :: ParamsType, results :: ResultType } deriving (Show, Eq)
+data FuncType = FuncType { params :: ParamsType, results :: ResultType } deriving (Show, Eq, Generic, NFData)
 
 data Instruction =
     -- Control instructions
@@ -170,7 +174,7 @@ data Instruction =
     | F64PromoteF32
     | IReinterpretF BitSize
     | FReinterpretI BitSize
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic, NFData)
 
 type Expression = [Instruction]
 
@@ -178,63 +182,63 @@ data Function = Function {
     funcType :: TypeIndex,
     localTypes :: LocalsType,
     body :: Expression
-} deriving (Show, Eq)
+} deriving (Show, Eq, Generic, NFData)
 
-data Limit = Limit Natural (Maybe Natural) deriving (Show, Eq)
+data Limit = Limit Natural (Maybe Natural) deriving (Show, Eq, Generic, NFData)
 
-data ElemType = AnyFunc deriving (Show, Eq)
+data ElemType = AnyFunc deriving (Show, Eq, Generic, NFData)
 
-data TableType = TableType Limit ElemType deriving (Show, Eq)
+data TableType = TableType Limit ElemType deriving (Show, Eq, Generic, NFData)
 
-data Table = Table TableType deriving (Show, Eq)
+data Table = Table TableType deriving (Show, Eq, Generic, NFData)
 
-data Memory = Memory Limit deriving (Show, Eq)
+data Memory = Memory Limit deriving (Show, Eq, Generic, NFData)
 
-data GlobalType = Const ValueType | Mut ValueType deriving (Show, Eq)
+data GlobalType = Const ValueType | Mut ValueType deriving (Show, Eq, Generic, NFData)
 
 data Global = Global {
     globalType :: GlobalType,
     initializer :: Expression
-} deriving (Show, Eq)
+} deriving (Show, Eq, Generic, NFData)
 
 data ElemSegment = ElemSegment {
     tableIndex :: TableIndex,
     offset :: [Instruction],
     funcIndexes :: [FuncIndex]
-} deriving (Show, Eq)
+} deriving (Show, Eq, Generic, NFData)
 
 data DataSegment = DataSegment {
     memIndex :: MemoryIndex,
     offset :: Expression,
     chunk :: LBS.ByteString
-} deriving (Show, Eq)
+} deriving (Show, Eq, Generic, NFData)
 
-data StartFunction = StartFunction FuncIndex deriving (Show, Eq)
+data StartFunction = StartFunction FuncIndex deriving (Show, Eq, Generic, NFData)
 
 data ExportDesc =
     ExportFunc FuncIndex
     | ExportTable TableIndex
     | ExportMemory MemoryIndex
     | ExportGlobal GlobalIndex
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic, NFData)
 
 data Export = Export {
     name :: TL.Text,
     desc :: ExportDesc
-} deriving (Show, Eq)
+} deriving (Show, Eq, Generic, NFData)
 
 data ImportDesc =
     ImportFunc TypeIndex
     | ImportTable TableType
     | ImportMemory Limit
     | ImportGlobal GlobalType
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic, NFData)
 
 data Import = Import {
     sourceModule :: TL.Text,
     name :: TL.Text,
     desc :: ImportDesc
-} deriving (Show, Eq)
+} deriving (Show, Eq, Generic, NFData)
 
 isFuncImport :: Import -> Bool
 isFuncImport (Import _ _ (ImportFunc _)) = True
@@ -263,7 +267,7 @@ data Module = Module {
     start :: Maybe StartFunction,
     imports :: [Import],
     exports :: [Export]
-} deriving (Show, Eq)
+} deriving (Show, Eq, Generic, NFData)
 
 emptyModule :: Module
 emptyModule = Module {

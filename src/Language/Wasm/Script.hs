@@ -9,6 +9,7 @@ import qualified Data.Vector as Vector
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TLEncoding
 import Numeric.IEEE (identicalIEEE)
+import qualified Control.DeepSeq as DeepSeq
 
 import Language.Wasm.Parser (
         Ident(..),
@@ -197,6 +198,14 @@ runScript onAssertFail script = do
                                 ++ ", but actual is "
                                 ++ show (getFailureString reason)
                         in onAssertFail msg assert
+        runAssert st assert@(AssertMalformed (TextModDef _ textRep) failureString) =
+            case DeepSeq.force $ Parser.parseModule <$> Lexer.scanner (TLEncoding.encodeUtf8 textRep) of
+                Right _ -> onAssertFail ("Module parsing should fail with failure string " ++ show failureString) assert
+                Left _ -> return ()
+        runAssert st assert@(AssertMalformed (BinaryModDef ident binaryRep) failureString) =
+            case Binary.decodeModuleLazy binaryRep of
+                Right _ -> onAssertFail ("Module decoding should fail with failure string " ++ show failureString) assert
+                Left _ -> return ()
         runAssert _ _ = return ()
 
         runCommand :: ScriptState -> Command -> IO ScriptState

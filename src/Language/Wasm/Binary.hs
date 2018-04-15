@@ -96,8 +96,10 @@ skipCustomSection :: Get ()
 skipCustomSection = do
     byteGuard 0x00
     size <- getULEB128
-    getByteString size
-    return ()
+    content <- getByteString size
+    case runGet getName content of
+        Right _name -> return ()
+        Left _ -> fail "invalid UTF-8 encoding"
 
 getSection :: SectionType -> Get a -> a -> Get a
 getSection sectionType parser def = do
@@ -111,6 +113,7 @@ getSection sectionType parser def = do
         parseSection op
             | op == 0 = skipCustomSection >> getSection sectionType parser def
             | op == fromEnum sectionType = getWord8 >> (getULEB128 :: Get Natural) >> parser
+            | op > fromEnum DataSection = fail "invalid section id"
             | op > fromEnum sectionType = return def
             | otherwise =
                 fail $ "Incorrect order of sections. Expected " ++ show sectionType
@@ -126,7 +129,9 @@ getName :: Get TL.Text
 getName = do
     len <- getULEB128
     bytes <- getLazyByteString len
-    return $ TLEncoding.decodeUtf8 bytes
+    case TLEncoding.decodeUtf8' bytes of
+        Right name -> return name
+        Left _ -> fail "invalid UTF-8 encoding"
 
 putResultType :: ResultType -> Put
 putResultType [] = putWord8 0x40
@@ -230,7 +235,7 @@ instance Serialize GlobalType where
         case op of
             0x00 -> return $ Const valType
             0x01 -> return $ Mut valType
-            _ -> fail "Unexpected byte in place of Global type opcode"
+            _ -> fail "invalid mutability"
 
 instance Serialize ImportDesc where
     put (ImportFunc typeIdx) = putWord8 0x00 >> putULEB128 typeIdx
@@ -770,10 +775,10 @@ instance Serialize Module where
         putSection DataSection $ putVec $ datas mod
         
     get = do
-        -- magic
-        mapM_ byteGuard [0x00, 0x61, 0x73, 0x6D]
-        -- version
-        mapM_ byteGuard [0x01, 0x00, 0x00, 0x00]
+        magic <- getWord32be
+        if magic == 0x0061736D then return () else fail "magic header not detected"
+        version <- getWord32be
+        if version == 0x01000000 then return () else fail "unknown binary version"
         types <- getSection TypeSection getVec []
         imports <- getSection ImportSection getVec []
         funcTypes <- getSection FunctionSection getVec []
