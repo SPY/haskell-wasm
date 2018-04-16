@@ -68,7 +68,7 @@ import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Lazy.Char8 as LBSChar8
 import Data.Maybe (fromMaybe, fromJust, isNothing)
 import Data.List (foldl', findIndex, find)
-import Control.Monad (guard)
+import Control.Monad (guard, foldM)
 
 import Numeric.Natural (Natural)
 import Data.Word (Word32, Word64)
@@ -1494,6 +1494,7 @@ constInstructionToValue _ = error "Only const instructions supported as argument
 
 desugarize :: [ModuleField] -> Either String S.Module
 desugarize fields = do
+    checkImportsOrder fields
     let mod = Module {
         types = reverse $ foldl' extractTypeDef (reverse $ explicitTypeDefs fields) fields,
         functions = extract extractFunction fields,
@@ -1538,6 +1539,19 @@ desugarize fields = do
                 isTypeDef (MFType _) = True
                 isTypeDef _ = False
         
+        checkImportsOrder :: [ModuleField] -> Either String ()
+        checkImportsOrder fields = foldM checkDef False fields >> return ()
+            where
+                checkDef nonImportOccured (MFImport _) =
+                    if nonImportOccured
+                    then Left "Import sections have to be before any definition"
+                    else Right False
+                checkDef _ (MFFunc _ _) = return True
+                checkDef _ (MFGlobal _) = return True
+                checkDef _ (MFMem _) = return True
+                checkDef _ (MFTable _) = return True
+                checkDef nonImportOccured _ = return nonImportOccured
+
         extractTypeDef :: [TypeDef] -> ModuleField -> [TypeDef]
         extractTypeDef defs (MFType _) = defs -- should be extracted before implicit defs
         extractTypeDef defs (MFImport Import { desc = ImportFunc _ typeUse }) =
