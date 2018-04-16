@@ -101,6 +101,7 @@ import Debug.Trace as Debug
 %name parseModule mod
 %name parseModuleFields modAsFields
 %name parseScript script
+%monad { Either String }
 %tokentype { Lexeme }
 
 %token
@@ -1355,8 +1356,8 @@ data ModuleField =
     | MFData DataSegment
     deriving(Show, Eq, Generic, NFData)
 
-happyError (Lexeme _ EOF : []) = error $ "Error occuried during parsing phase at the end of file"
-happyError (Lexeme (AlexPn abs line col) tok : tokens) = error $
+happyError (Lexeme _ EOF : []) = Left $ "Error occuried during parsing phase at the end of file"
+happyError (Lexeme (AlexPn abs line col) tok : tokens) = Left $
     "Error occuried during parsing phase. " ++
     "Line " ++ show line ++ ", " ++
     "Column " ++ show col ++ ", " ++

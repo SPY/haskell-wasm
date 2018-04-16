@@ -27,7 +27,7 @@ isRight _         = False
 compile :: String -> IO ()
 compile file = do
   content <- LBS.readFile $ "tests/samples/" ++ file
-  let Right mod = Parser.parseModule <$> Lexer.scanner content
+  let Right mod = Lexer.scanner content >>= Parser.parseModule
   LBS.writeFile ("tests/runnable/" ++ file) $ Binary.dumpModuleLazy mod
   -- to run: python -m SimpleHTTPServer 8081 && open http://localhost:8081/tests/runnable
 
@@ -37,7 +37,7 @@ main = do
   -- let files = ["data.wast"]
   scriptTestCases <- (`mapM` files) $ \file -> do
     content <- LBS.readFile $ "tests/samples/" ++ file
-    let Right script = Parser.parseScript <$> Lexer.scanner content
+    let Right script = Lexer.scanner content >>= Parser.parseScript
     return $ testCase file $ do
       Script.runScript (\msg assert -> assertFailure ("Failed assert: " ++ msg ++ ". Assert " ++ show assert)) script
   defaultMain $ testGroup "Wasm Core Test Suit" scriptTestCases

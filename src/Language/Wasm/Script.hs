@@ -144,7 +144,7 @@ runScript onAssertFail script = do
         buildModule :: ModuleDef -> (Maybe Ident, Struct.Module)
         buildModule (RawModDef ident m) = (ident, m)
         buildModule (TextModDef ident textRep) =
-            let Right m = Parser.parseModule <$> Lexer.scanner (TLEncoding.encodeUtf8 textRep) in
+            let Right m = Lexer.scanner (TLEncoding.encodeUtf8 textRep) >>= Parser.parseModule in
             (ident, m)
         buildModule (BinaryModDef ident binaryRep) =
             let Right m = Binary.decodeModuleLazy binaryRep in
@@ -199,7 +199,7 @@ runScript onAssertFail script = do
                                 ++ show (getFailureString reason)
                         in onAssertFail msg assert
         runAssert st assert@(AssertMalformed (TextModDef _ textRep) failureString) =
-            case DeepSeq.force $ Parser.parseModule <$> Lexer.scanner (TLEncoding.encodeUtf8 textRep) of
+            case DeepSeq.force $ Lexer.scanner (TLEncoding.encodeUtf8 textRep) >>= Parser.parseModule of
                 Right _ -> onAssertFail ("Module parsing should fail with failure string " ++ show failureString) assert
                 Left _ -> return ()
         runAssert st assert@(AssertMalformed (BinaryModDef ident binaryRep) failureString) =
