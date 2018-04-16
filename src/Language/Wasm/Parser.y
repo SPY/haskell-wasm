@@ -66,7 +66,7 @@ import qualified Data.Text.Lazy.Read as TLRead
 
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Lazy.Char8 as LBSChar8
-import Data.Maybe (fromMaybe, fromJust)
+import Data.Maybe (fromMaybe, fromJust, isNothing)
 import Data.List (foldl', findIndex, find)
 import Control.Monad (guard)
 
@@ -323,10 +323,7 @@ import Debug.Trace as Debug
 'output'              { Lexeme _ (TKeyword "output") }
 -- script extension end
 id                    { Lexeme _ (TId $$) }
-u32                   { Lexeme _ (TIntLit (asUInt32 -> Just $$)) }
-i32                   { Lexeme _ (TIntLit (asInt32 -> Just $$)) }
-i64                   { Lexeme _ (TIntLit (asInt64 -> Just $$)) }
-unrestricted_int      { Lexeme _ (TIntLit $$) }
+int                   { Lexeme _ (TIntLit $$) }
 f64                   { Lexeme _ (TFloatLit $$) }
 offset                { Lexeme _ (TKeyword (asOffset -> Just $$)) }
 align                 { Lexeme _ (TKeyword (asAlign -> Just $$)) }
@@ -383,26 +380,32 @@ memidx :: { MemoryIndex }
     | ident { Named $1 }
 
 int32 :: { Integer }
-    : u32 { fromIntegral $1 }
-    | i32 { $1 }
+    : int {%
+        if $1 >= -(2^31) && $1 < 2^32
+        then Right $1
+        else Left ("Int literal value is out of signed int32 boundaries: " ++ show $1)
+    }
+
+u32 :: { Natural }
+    : int {%
+        if $1 >= 0 && $1 < 2^32
+        then Right (fromIntegral $1)
+        else Left ("Int literal value is out of unsigned int32 boundaries: " ++ show $1)
+    }
 
 int64 :: { Integer }
-    : u32 { fromIntegral $1 }
-    | i32 { $1 }
-    | i64 { $1 }
+    : int {%
+        if $1 >= -(2^63) && $1 < 2^64
+        then Right $1
+        else Left ("Int literal value is out of signed int64 boundaries: " ++ show $1)
+    }
 
 float32 :: { Float }
-    : u32 { fromIntegral $1 }
-    | i32 { fromIntegral $1 }
-    | i64 { fromIntegral $1 }
-    | unrestricted_int { fromIntegral $1 }
+    : int { fromIntegral $1 }
     | f64 { asFloat32 $1 }
 
 float64 :: { Double }
-    : u32 { fromIntegral $1 }
-    | i32 { fromIntegral $1 }
-    | i64 { fromIntegral $1 }
-    | unrestricted_int { fromIntegral $1 }
+    : int { fromIntegral $1 }
     | f64 { $1 }
 
 plaininstr :: { PlainInstr }
@@ -644,56 +647,104 @@ instruction :: { [Instruction] }
 raw_instr :: { [Instruction] }
     : plaininstr { [PlainInstr $1] }
     | 'call_indirect' raw_call_indirect { $2 }
-    | 'block' opt(ident) raw_block { [$3 $2] }
-    | 'loop' opt(ident) raw_loop { [$3 $2] }
-    | 'if' opt(ident) raw_if_result { $3 $2 }
+    | 'block' opt(ident) raw_block {% (: []) `fmap` $3 $2 }
+    | 'loop' opt(ident) raw_loop {% (: []) `fmap` $3 $2 }
+    | 'if' opt(ident) raw_if_result {% $3 $2 }
 
-raw_block :: { Maybe Ident -> Instruction }
-    : 'end' opt(ident) { \ident -> BlockInstr ident [] [] }
-    | raw_instr list(instruction) 'end' opt(ident) { \ident -> BlockInstr ident [] ($1 ++ concat $2) }
+raw_block :: { Maybe Ident -> Either String Instruction }
+    : 'end' opt(ident) {
+        \ident ->
+            if ident == $2 || isNothing $2
+            then Right $ BlockInstr ident [] []
+            else Left "Block labels have to match"
+    }
+    | raw_instr list(instruction) 'end' opt(ident) {
+        \ident ->
+            if ident == $4 || isNothing $4
+            then Right $ BlockInstr ident [] ($1 ++ concat $2)
+            else Left "Block labels have to match"
+    }
     | '(' raw_block1 { $2 }
 
-raw_block1 :: { Maybe Ident -> Instruction }
+raw_block1 :: { Maybe Ident -> Either String Instruction }
     : 'result' valtype ')' list(instruction) 'end' opt(ident) {
-        \ident -> BlockInstr ident [$2] (concat $4)
+        \ident ->
+            if ident == $6 || isNothing $6
+            then Right $ BlockInstr ident [$2] (concat $4)
+            else Left "Block labels have to match"
     }
     | foldedinstr1 list(instruction) 'end' opt(ident) {
-        \ident -> BlockInstr ident [] ($1 ++ concat $2)
+        \ident ->
+            if ident == $4 || isNothing $4
+            then Right $ BlockInstr ident [] ($1 ++ concat $2)
+            else Left "Block labels have to match"
     }
 
-raw_loop :: { Maybe Ident -> Instruction }
-    : 'end' opt(ident) { \ident -> LoopInstr ident [] [] }
+raw_loop :: { Maybe Ident -> Either String Instruction }
+    : 'end' opt(ident) {
+        \ident ->
+            if ident == $2 || isNothing $2
+            then Right $ LoopInstr ident [] []
+            else Left "Loop labels have to match"
+    }
     | raw_instr list(instruction) 'end' opt(ident) {
-        \ident -> LoopInstr ident [] ($1 ++ concat $2)
+        \ident ->
+            if ident == $4 || isNothing $4
+            then Right $ LoopInstr ident [] ($1 ++ concat $2)
+            else Left "Loop labels have to match"
     }
     | '(' raw_loop1 { $2 }
 
-raw_loop1 :: { Maybe Ident -> Instruction }
+raw_loop1 :: { Maybe Ident -> Either String Instruction }
     : 'result' valtype ')' list(instruction) 'end' opt(ident) {
-        \ident -> LoopInstr ident [$2] (concat $4)
+        \ident ->
+            if ident == $6 || isNothing $6
+            then Right $ LoopInstr ident [$2] (concat $4)
+            else Left "Loop labels have to match"
     }
     | foldedinstr1 list(instruction) 'end' opt(ident) {
-        \ident -> LoopInstr ident [] ($1 ++ concat $2)
+        \ident ->
+            if ident == $4 || isNothing $4
+            then Right $ LoopInstr ident [] ($1 ++ concat $2)
+            else Left "Loop labels have to match"
     }
 
-raw_if_result :: { Maybe Ident -> [Instruction] }
-    : raw_else { \ident ->  [IfInstr ident [] [] $1] }
+raw_if_result :: { Maybe Ident -> Either String [Instruction] }
+    : raw_else {
+        \ident ->
+            if ident == (snd $1) || isNothing (snd $1)
+            then Right [IfInstr ident [] [] $ fst $1]
+            else Left "If labels have to match"
+    }
     | raw_instr list(instruction) raw_else {
-        \ident ->  [IfInstr ident [] ($1 ++ concat $2) $3]
+        \ident ->
+            if ident == (snd $3) || isNothing (snd $3)
+            then Right [IfInstr ident [] ($1 ++ concat $2) $ fst $3]
+            else Left "If labels have to match"
     }
     | '(' raw_if_result1 { $2 }
 
-raw_if_result1 :: { Maybe Ident -> [Instruction] }
+raw_if_result1 :: { Maybe Ident -> Either String [Instruction] }
     : 'result' valtype ')' list(instruction) raw_else {
-        \ident -> [IfInstr ident [$2] (concat $4) $5]
+        \ident ->
+            if ident == (snd $5) || isNothing (snd $5)
+            then Right [IfInstr ident [$2] (concat $4) $ fst $5]
+            else Left "If labels have to match"
     }
     | foldedinstr1 list(instruction) raw_else {
-        \ident -> [IfInstr ident [] ($1 ++ concat $2) $3]
+        \ident ->
+            if ident == (snd $3) || isNothing (snd $3)
+            then Right [IfInstr ident [] ($1 ++ concat $2) $ fst $3]
+            else Left "If labels have to match"
     }
 
-raw_else :: { [Instruction] }
-    : 'end' opt(ident) { [] }
-    | 'else' opt(ident) list(instruction) 'end' opt(ident) { concat $3 }
+raw_else :: { ([Instruction], Maybe Ident) }
+    : 'end' opt(ident) { ([], $2) }
+    | 'else' opt(ident) list(instruction) 'end' opt(ident) {%
+        if matchIdents $2 $5
+        then Right (concat $3, if isNothing $2 then $5 else $2)
+        else Left "If labels have to match"
+    }
 
 raw_call_indirect :: { [Instruction] }
     : '(' raw_call_indirect_typeuse { (PlainInstr $ CallIndirect $ fst $2) : snd $2 }
@@ -1100,20 +1151,10 @@ prependFuncResults prep f@(Function { funcType = AnonimousTypeUse ft }) =
 mergeFuncType :: FuncType -> FuncType -> FuncType
 mergeFuncType (FuncType lps lrs) (FuncType rps rrs) = FuncType (lps ++ rps) (lrs ++ rrs)
 
-asUInt32 :: Integer -> Maybe Natural
-asUInt32 val
-    | val >= 0, val < 2 ^ 32 = Just $ fromIntegral val
-    | otherwise = Nothing
-
-asInt32 :: Integer -> Maybe Integer
-asInt32 val
-    | val >= -2 ^ 31, val < 2 ^ 32 = Just $ fromIntegral val
-    | otherwise = Nothing
-
-asInt64 :: Integer -> Maybe Integer
-asInt64 val
-    | val >= -2 ^ 63, val < 2 ^ 64 = Just $ fromIntegral val
-    | otherwise = Nothing
+matchIdents :: Maybe Ident -> Maybe Ident -> Bool
+matchIdents Nothing _ = True
+matchIdents _ Nothing = True
+matchIdents a b = a == b
 
 asFloat32 :: Double -> Float
 asFloat32 v = doubleToFloat v
@@ -1372,7 +1413,8 @@ data ModuleField =
     deriving(Show, Eq, Generic, NFData)
 
 happyError (Lexeme _ EOF : []) = Left $ "Error occuried during parsing phase at the end of file"
-happyError (Lexeme (AlexPn abs line col) tok : tokens) = Left $
+happyError (Lexeme Nothing tok : tokens) = Left $ "Error occuried during parsing phase at the end of file"
+happyError (Lexeme (Just (AlexPn abs line col)) tok : tokens) = Left $
     "Error occuried during parsing phase. " ++
     "Line " ++ show line ++ ", " ++
     "Column " ++ show col ++ ", " ++

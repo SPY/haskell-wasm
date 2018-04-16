@@ -124,31 +124,31 @@ parseHexalSignedInt :: AlexAction Lexeme
 parseHexalSignedInt = token $ \(pos, _, s, _) len -> 
     let (sign, slen) = parseSign s in
     let num = readHexFromPrefix (len - 2 - slen) $ LBSUtf8.drop (2 + slen) s in
-    Lexeme pos $ TIntLit $ sign num
+    Lexeme (Just pos) $ TIntLit $ sign num
 
 parseNanSigned :: AlexAction Lexeme
 parseNanSigned = token $ \(pos, _, s, _) len -> 
     let (sign, slen) = parseSign s in
     let num = readHexFromPrefix (len - 6 - slen) $ LBSUtf8.drop (6 + slen) s in
-    Lexeme pos $ TFloatLit $ sign $ makeNaN $ fromIntegral num
+    Lexeme (Just pos) $ TFloatLit $ sign $ makeNaN $ fromIntegral num
 
 parseDecimalSignedInt :: AlexAction Lexeme
 parseDecimalSignedInt = token $ \(pos, _, s, _) len ->
     let (sign, slen) = parseSign s in
     let num = readDecFromPrefix (len - slen) $ LBSUtf8.drop slen s in
-    Lexeme pos $ TIntLit $ sign num
+    Lexeme (Just pos) $ TIntLit $ sign num
 
 parseDecFloat :: AlexAction Lexeme
 parseDecFloat = token $ \(pos, _, s, _) len ->
     let (sign, slen) = parseSign s in
     let str = filter (/= '_') $ takeChars (len - slen) $ LBSUtf8.drop slen s in
-    Lexeme pos $ TFloatLit $ sign $ readDecFloat str
+    Lexeme (Just pos) $ TFloatLit $ sign $ readDecFloat str
 
 parseHexFloat :: AlexAction Lexeme
 parseHexFloat = token $ \(pos, _, s, _) len ->
     let (sign, slen) = parseSign s in
     let ('0' : 'x' : str) = filter (/= '_') $ takeChars (len - slen) $ LBS.drop slen s in
-    Lexeme pos $ TFloatLit $ sign $ readHexFloat str
+    Lexeme (Just pos) $ TFloatLit $ sign $ readHexFloat str
 
 startBlockComment :: AlexAction Lexeme
 startBlockComment _inp _len = do
@@ -212,13 +212,13 @@ endStringLiteral (pos, _, _inp, _) _len = do
     setLexerStringFlag False
     str <- LBS.pack . reverse <$> getLexerStringValue
     setLexerStringValue []
-    return $ Lexeme pos $ TStringLit str
+    return $ Lexeme (Just pos) $ TStringLit str
 
 tokenStr :: (LBS.ByteString -> Token) -> AlexAction Lexeme
-tokenStr f = token $ \(pos, _, s, _) len -> (Lexeme pos $ f $ LBS.take len s)
+tokenStr f = token $ \(pos, _, s, _) len -> (Lexeme (Just pos) $ f $ LBS.take len s)
 
 constToken :: Token -> AlexAction Lexeme
-constToken tok = token $ \(pos, _, _, _) _len -> (Lexeme pos tok)
+constToken tok = token $ \(pos, _, _, _) _len -> (Lexeme (Just pos) tok)
 
 {- End Lexem Helpers -}
 
@@ -233,7 +233,7 @@ data Token = TKeyword LBS.ByteString
     | EOF
     deriving (Show, Eq)
 
-data Lexeme = Lexeme { pos :: AlexPosn, tok :: Token } deriving (Show, Eq)
+data Lexeme = Lexeme { pos :: Maybe AlexPosn, tok :: Token } deriving (Show, Eq)
 
 data AlexUserState = AlexUserState {
         lexerCommentDepth :: Int,
@@ -280,7 +280,7 @@ addCharCodeToLexerStringValue c = Alex $ \s ->
     let ust = alex_ust s in
     Right (s{ alex_ust = ust{ lexerStringValue = c : lexerStringValue ust } }, ())
 
-alexEOF = return $ Lexeme (error "Trying to read EOF position") EOF
+alexEOF = return $ Lexeme Nothing EOF
 
 takeChars :: Int64 -> LBS.ByteString -> String
 takeChars n str = reverse $ go n str []
