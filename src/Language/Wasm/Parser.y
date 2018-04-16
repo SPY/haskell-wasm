@@ -330,10 +330,17 @@ unrestricted_int      { Lexeme _ (TIntLit $$) }
 f64                   { Lexeme _ (TFloatLit $$) }
 offset                { Lexeme _ (TKeyword (asOffset -> Just $$)) }
 align                 { Lexeme _ (TKeyword (asAlign -> Just $$)) }
-string                { Lexeme _ (TStringLit (asString -> Just $$)) }
+str                   { Lexeme _ (TStringLit $$) }
 EOF                   { Lexeme _ EOF }
 
 %%
+
+string :: { TL.Text }
+    : str {%
+        case TLEncoding.decodeUtf8' $1 of
+            Right t -> Right t
+            Left err -> Left "invalid utf8 string"
+    }
 
 name :: { TL.Text }
     : string { $1 }
@@ -619,40 +626,16 @@ paramsresulttypeuse :: { FuncType }
     | 'result' list(valtype) ')' { FuncType [] $2 }
 
 memarg1 :: { MemArg }
-    : opt(offset) opt(align) {%
-        let offset = fromMaybe 0 $1 in
-        let align = unpackAlign 1 $2 in
-        if offset >= 2 ^ 32 || align >= 2 ^ 32
-        then Left "u32 is out of boundaries"
-        else return $ MemArg offset align
-    }
+    : opt(offset) opt(align) {% parseMemArg 1 $1 $2 }
 
 memarg2 :: { MemArg }
-    : opt(offset) opt(align) {%
-        let offset = fromMaybe 0 $1 in
-        let align = unpackAlign 2 $2 in
-        if offset >= 2 ^ 32 || align >= 2 ^ 32
-        then Left "u32 is out of boundaries"
-        else return $ MemArg offset align
-    }
+    : opt(offset) opt(align) {% parseMemArg 2 $1 $2 }
 
 memarg4 :: { MemArg }
-    : opt(offset) opt(align) {%
-        let offset = fromMaybe 0 $1 in
-        let align = unpackAlign 4 $2 in
-        if offset >= 2 ^ 32 || align >= 2 ^ 32
-        then Left "u32 is out of boundaries"
-        else return $ MemArg offset align
-    }
+    : opt(offset) opt(align) {% parseMemArg 4 $1 $2 }
 
 memarg8 :: { MemArg }
-    : opt(offset) opt(align) {%
-        let offset = fromMaybe 0 $1 in
-        let align = unpackAlign 8 $2 in
-        if offset >= 2 ^ 32 || align >= 2 ^ 32
-        then Left "u32 is out of boundaries"
-        else return $ MemArg offset align
-    }
+    : opt(offset) opt(align) {% parseMemArg 8 $1 $2 }
 
 instruction :: { [Instruction] }
     : raw_instr { $1 }
@@ -932,8 +915,8 @@ memory_limits_export_import :: { Maybe Ident -> [ModuleField] }
     : memory_limits { $1 }
     | '(' memory_limits_export_import1 { $2 }
 
-datastring :: { TL.Text }
-    : list(string) { TL.concat $1 }
+datastring :: { LBS.ByteString }
+    : list(str) { LBS.concat $1 }
 
 memory_limits_export_import1 :: { Maybe Ident -> [ModuleField] }
     : 'export' name ')' memory_limits_export_import {
@@ -944,7 +927,7 @@ memory_limits_export_import1 :: { Maybe Ident -> [ModuleField] }
     }
     | 'data' datastring ')' ')' {
         \ident ->
-            let m = fromIntegral $ TL.length $2 in
+            let m = fromIntegral $ LBS.length $2 in
             [
                 MFMem $ Memory ident $ Limit m $ Just m,
                 MFData $ DataSegment (fromMaybe (Index 0) $ Named `fmap` ident) [PlainInstr $ I32Const 0] $2
@@ -1058,7 +1041,7 @@ command1 :: { Command }
     | meta1 { Meta $1 }
 
 module1 :: { ModuleDef }
-    : 'module' opt(ident) 'binary' list(string) ')' { BinaryModDef $2 (LBSChar8.pack $ TL.unpack $ TL.concat $4) }
+    : 'module' opt(ident) 'binary' datastring ')' { BinaryModDef $2 $4 }
     | 'module' opt(ident) 'quote' list(string) ')' { TextModDef $2 (TL.concat $4) }
     | 'module' opt(ident) list(modulefield) ')' { RawModDef $2 (desugarize $ concat $3) }
     | modulefield1 list(modulefield) { RawModDef Nothing (desugarize $ $1 ++ concat $2) }
@@ -1145,8 +1128,13 @@ asAlign str = do
     num <- TL.stripPrefix "align=" $ TLEncoding.decodeUtf8 str
     fromIntegral . fst <$> eitherToMaybe (TLRead.decimal num)
 
-unpackAlign :: Natural -> (Maybe Natural) -> Natural
-unpackAlign def = fromIntegral . round . logBase 2 . fromIntegral . fromMaybe def
+parseMemArg :: Natural -> Maybe Natural -> Maybe Natural -> Either String MemArg
+parseMemArg defAlign optOffset optAlign =
+    let offset = fromMaybe 0 optOffset in
+    let align = fromIntegral $ round $ logBase 2 $ fromIntegral $ fromMaybe defAlign optAlign in
+    if offset >= 2 ^ 32 || align >= 2 ^ 32
+    then Left "u32 is out of boundaries"
+    else return $ MemArg offset align
 
 -- TODO: check name conditions.
 -- Presuming the source text is itself encoded correctly,
@@ -1155,7 +1143,10 @@ asName :: LBS.ByteString -> Maybe TL.Text
 asName = Just . TLEncoding.decodeUtf8
 
 asString :: LBS.ByteString -> Maybe TL.Text
-asString = Just . TLEncoding.decodeUtf8
+asString bs =
+    case TLEncoding.decodeUtf8' bs of
+        Right t ->  Just t
+        Left err -> Nothing
 
 eitherToMaybe :: Either left right -> Maybe right
 eitherToMaybe = either (const Nothing) Just
@@ -1363,7 +1354,7 @@ data ElemSegment = ElemSegment {
 data DataSegment = DataSegment {
         memIndex :: MemoryIndex,
         offset :: [Instruction],
-        datastring :: TL.Text
+        datastring :: LBS.ByteString
     }
     deriving (Show, Eq, Generic, NFData)
 
@@ -1806,7 +1797,7 @@ desugarize fields =
             let ctx = FunCtx mod [] [] [] in
             let offsetInstrs = map (synInstrToStruct ctx) offset in
             let idx = fromJust $ getMemIndex mod memIndex in
-            S.DataSegment idx offsetInstrs $ LBSChar8.pack $ TL.unpack datastring
+            S.DataSegment idx offsetInstrs datastring
 
         extractDataSegment :: [DataSegment] -> ModuleField -> [DataSegment]
         extractDataSegment datas (MFData dataSegment) = dataSegment : datas

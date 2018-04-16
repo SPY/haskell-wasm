@@ -15,6 +15,7 @@ import Control.Applicative ((<$>))
 import Control.Monad (when)
 import Numeric.IEEE (infinity, nan)
 import Language.Wasm.FloatUtils (makeNaN)
+import Data.Word (Word8)
 
 import qualified Debug.Trace as Debug
 
@@ -190,7 +191,7 @@ appendFromHead (_pos, _rest, inp, _) _len = do
 
 appendDoubleHexChar :: AlexAction Lexeme
 appendDoubleHexChar (_pos, _rest, inp, _) _len = do
-    addCharToLexerStringValue $ Char.chr $ fromIntegral $ readHexFromPrefix 2 $ LBSUtf8.drop 1 inp
+    addCharCodeToLexerStringValue $ fromIntegral $ readHexFromPrefix 2 $ LBSUtf8.drop 1 inp
     alexMonadScan
 
 -- TODO: add a predicate with code ranges check
@@ -209,8 +210,8 @@ endStringLiteral :: AlexAction Lexeme
 endStringLiteral (pos, _, _inp, _) _len = do
     alexSetStartCode defaultStartCode
     setLexerStringFlag False
-    str <- LBSUtf8.fromString . reverse <$> getLexerStringValue
-    setLexerStringValue ""
+    str <- LBS.pack . reverse <$> getLexerStringValue
+    setLexerStringValue []
     return $ Lexeme pos $ TStringLit str
 
 tokenStr :: (LBS.ByteString -> Token) -> AlexAction Lexeme
@@ -236,7 +237,7 @@ data Lexeme = Lexeme { pos :: AlexPosn, tok :: Token } deriving (Show, Eq)
 
 data AlexUserState = AlexUserState {
         lexerCommentDepth :: Int,
-        lexerStringValue  :: String,
+        lexerStringValue  :: [Word8],
         lexerIsString     :: Bool
     }
 
@@ -262,15 +263,20 @@ setLexerStringFlag :: Bool -> Alex ()
 setLexerStringFlag isString = Alex $ \s ->
     Right (s{ alex_ust=(alex_ust s){ lexerIsString = isString } }, ())
 
-getLexerStringValue :: Alex String
+getLexerStringValue :: Alex [Word8]
 getLexerStringValue = Alex $ \s@AlexState{alex_ust=ust} -> Right (s, lexerStringValue ust)
 
-setLexerStringValue :: String -> Alex ()
+setLexerStringValue :: [Word8] -> Alex ()
 setLexerStringValue ss = Alex $ \s ->
     Right (s{ alex_ust=(alex_ust s){ lexerStringValue = ss } }, ())
 
 addCharToLexerStringValue :: Char -> Alex ()
 addCharToLexerStringValue c = Alex $ \s ->
+    let ust = alex_ust s in
+    Right (s{ alex_ust = ust{ lexerStringValue = (reverse $ LBS.unpack $ LBSUtf8.fromString [c]) ++ lexerStringValue ust } }, ())
+
+addCharCodeToLexerStringValue :: Word8 -> Alex ()
+addCharCodeToLexerStringValue c = Alex $ \s ->
     let ust = alex_ust s in
     Right (s{ alex_ust = ust{ lexerStringValue = c : lexerStringValue ust } }, ())
 
