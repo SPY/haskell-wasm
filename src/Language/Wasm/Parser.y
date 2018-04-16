@@ -1075,7 +1075,7 @@ modAsFields :: { [ModuleField] }
     | '(' modulefield1 list(modulefield) EOF { $2 ++ concat $3}
 
 mod :: { S.Module }
-    : modAsFields { desugarize $1 }
+    : modAsFields {% desugarize $1 }
 
 -- Wasm Script Extended Grammar
 script :: { Script }
@@ -1094,8 +1094,8 @@ command1 :: { Command }
 module1 :: { ModuleDef }
     : 'module' opt(ident) 'binary' datastring ')' { BinaryModDef $2 $4 }
     | 'module' opt(ident) 'quote' list(string) ')' { TextModDef $2 (TL.concat $4) }
-    | 'module' opt(ident) list(modulefield) ')' { RawModDef $2 (desugarize $ concat $3) }
-    | modulefield1 list(modulefield) { RawModDef Nothing (desugarize $ $1 ++ concat $2) }
+    | 'module' opt(ident) list(modulefield) ')' {% RawModDef $2 `fmap` (desugarize $ concat $3) }
+    | modulefield1 list(modulefield) {% RawModDef Nothing `fmap` (desugarize $ $1 ++ concat $2) }
 
 action1 :: { Action }
     : 'invoke' opt(ident) string list(foldedinstr) ')' { Invoke $2 $3 (map (map constInstructionToValue) $4) }
@@ -1492,8 +1492,8 @@ constInstructionToValue (PlainInstr (I64Const v)) = S.I64Const $ integerToWord64
 constInstructionToValue (PlainInstr (F64Const v)) = S.F64Const v
 constInstructionToValue _ = error "Only const instructions supported as arguments for actions"
 
-desugarize :: [ModuleField] -> S.Module
-desugarize fields =
+desugarize :: [ModuleField] -> Either String S.Module
+desugarize fields = do
     let mod = Module {
         types = reverse $ foldl' extractTypeDef (reverse $ explicitTypeDefs fields) fields,
         functions = extract extractFunction fields,
@@ -1505,10 +1505,11 @@ desugarize fields =
         datas = extract extractDataSegment fields,
         start = extractStart fields,
         exports = []
-    } in
-    S.Module {
+    }
+    funs <- mapM (synFunctionToStruct mod) $ functions mod
+    return S.Module {
         S.types = map synTypeDefToStruct $ types mod,
-        S.functions = map (synFunctionToStruct mod) $ functions mod,
+        S.functions = funs,
         S.tables = map synTableToStruct $ tables mod,
         S.imports = map (synImportToStruct $ types mod) $ imports mod,
         S.elems = map (synElemToStruct mod) $ elems mod,
@@ -1698,9 +1699,13 @@ desugarize fields =
             let falseBranch' = map (synInstrToStruct ctx') falseBranch in
             S.If resultType trueBranch' falseBranch'
         
-        synFunctionToStruct :: Module -> Function -> S.Function
-        synFunctionToStruct mod Function { funcType, locals, body } =
-            let typeIdx = fromJust $ getTypeIndex (types mod) funcType in
+        synFunctionToStruct :: Module -> Function -> Either String S.Function
+        synFunctionToStruct mod Function { funcType, locals, body } = do
+            typeIdx <- (
+                    case getTypeIndex (types mod) funcType of
+                        Just idx -> Right idx
+                        Nothing -> Left "Type was not found or type signature doesn't match with type"
+                )
             -- we have to use local func params declaration,
             -- coz it can contain own names for them
             let
@@ -1711,9 +1716,8 @@ desugarize fields =
                         if fromIntegral typeIdx < length (types mod)
                         then let TypeDef _ FuncType { params } = types mod !! fromIntegral typeIdx in params
                         else []
-            in
-            let ctx = FunCtx mod [] locals params in
-            S.Function {
+            let ctx = FunCtx mod [] locals params
+            Right S.Function {
                 S.funcType = typeIdx,
                 S.localTypes = map localType locals,
                 S.body = map (synInstrToStruct ctx) body
