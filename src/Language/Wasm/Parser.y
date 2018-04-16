@@ -619,16 +619,40 @@ paramsresulttypeuse :: { FuncType }
     | 'result' list(valtype) ')' { FuncType [] $2 }
 
 memarg1 :: { MemArg }
-    : opt(offset) opt(align) { MemArg (fromMaybe 0 $1) (unpackAlign 1 $2) }
+    : opt(offset) opt(align) {%
+        let offset = fromMaybe 0 $1 in
+        let align = unpackAlign 1 $2 in
+        if offset >= 2 ^ 32 || align >= 2 ^ 32
+        then Left "u32 is out of boundaries"
+        else return $ MemArg offset align
+    }
 
 memarg2 :: { MemArg }
-    : opt(offset) opt(align) { MemArg (fromMaybe 0 $1) (unpackAlign 2 $2) }
+    : opt(offset) opt(align) {%
+        let offset = fromMaybe 0 $1 in
+        let align = unpackAlign 2 $2 in
+        if offset >= 2 ^ 32 || align >= 2 ^ 32
+        then Left "u32 is out of boundaries"
+        else return $ MemArg offset align
+    }
 
 memarg4 :: { MemArg }
-    : opt(offset) opt(align) { MemArg (fromMaybe 0 $1) (unpackAlign 4 $2) }
+    : opt(offset) opt(align) {%
+        let offset = fromMaybe 0 $1 in
+        let align = unpackAlign 4 $2 in
+        if offset >= 2 ^ 32 || align >= 2 ^ 32
+        then Left "u32 is out of boundaries"
+        else return $ MemArg offset align
+    }
 
 memarg8 :: { MemArg }
-    : opt(offset) opt(align) { MemArg (fromMaybe 0 $1) (unpackAlign 8 $2) }
+    : opt(offset) opt(align) {%
+        let offset = fromMaybe 0 $1 in
+        let align = unpackAlign 8 $2 in
+        if offset >= 2 ^ 32 || align >= 2 ^ 32
+        then Left "u32 is out of boundaries"
+        else return $ MemArg offset align
+    }
 
 instruction :: { [Instruction] }
     : raw_instr { $1 }
