@@ -20,13 +20,15 @@ import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TLEncoding
 
-getULEB128 :: (Integral a, Bits a) => Get a
-getULEB128 = do
+getULEB128 :: (Integral a, Bits a) => Int -> Get a
+getULEB128 bitsBudget = do
+    if bitsBudget > 0 then return () else fail "integer representation too long"
     val <- getWord8
+    if bitsBudget >= 7 || val .&. 0x7F < 1 `shiftL` bitsBudget then return () else fail "integer too large"
     if not (testBit val 7)
     then return $ fromIntegral val
     else do
-        rest <- getULEB128
+        rest <- getULEB128 (bitsBudget - 7)
         return $ (fromIntegral $ val .&. 0x7F) .|. (rest `shiftL` 7)
 
 putULEB128 :: (Integral a, Bits a) => a -> Put
@@ -37,15 +39,18 @@ putULEB128 val =
         putWord8 $ 0x80 + (0x7F .&. fromIntegral val)
         putULEB128 $ val `shiftR` 7
 
-getSLEB128 :: (Integral a, Bits a) => Get a
-getSLEB128 = do
+getSLEB128 :: (Integral a, Bits a) => Int -> Get a
+getSLEB128 bitsBudget = do
+    if bitsBudget > 0 then return () else fail "integer representation too long"
     let toInt8 :: Word8 -> Int8
         toInt8 = fromIntegral
     a <- getWord8
+    let mask = (0xFF `shiftL` (bitsBudget - 1)) .&. 0x7F
+    if bitsBudget >= 7 || a .&. mask == 0 || a .&. mask == mask then return () else fail "integer too large"
     if not (testBit a 7)
     then return . fromIntegral . toInt8 $ (a .&. 0x7f) .|. ((a .&. 0x40) `shiftL` 1)
     else do
-        b <- getSLEB128
+        b <- getSLEB128 (bitsBudget - 7)
         return $ (b `shiftL` 7) .|. (fromIntegral (a .&. 0x7f))
 
 putSLEB128 :: (Integral a, Bits a) => a -> Put
@@ -75,7 +80,7 @@ putVec list = do
 
 getVec :: Serialize a => Get [a]
 getVec = do
-    len <- getULEB128
+    len <- getULEB128 32
     sequence $ replicate len get
 
 byteGuard :: Word8 -> Get ()
@@ -95,7 +100,7 @@ putSection section content = do
 skipCustomSection :: Get ()
 skipCustomSection = do
     byteGuard 0x00
-    size <- getULEB128
+    size <- getULEB128 32
     content <- getByteString size
     case runGet getName content of
         Right _name -> return ()
@@ -112,7 +117,7 @@ getSection sectionType parser def = do
     where
         parseSection op
             | op == 0 = skipCustomSection >> getSection sectionType parser def
-            | op == fromEnum sectionType = getWord8 >> (getULEB128 :: Get Natural) >> parser
+            | op == fromEnum sectionType = getWord8 >> (getULEB128 32 :: Get Natural) >> parser
             | op > fromEnum DataSection = fail "invalid section id"
             | op > fromEnum sectionType = return def
             | otherwise =
@@ -127,7 +132,7 @@ putName txt = do
 
 getName :: Get TL.Text
 getName = do
-    len <- getULEB128
+    len <- getULEB128 32
     bytes <- getLazyByteString len
     case TLEncoding.decodeUtf8' bytes of
         Right name -> return name
@@ -209,11 +214,11 @@ instance Serialize Limit where
         op <- getWord8
         case op of
             0x00 -> do
-                min <- getULEB128
+                min <- getULEB128 32
                 return $ Limit min Nothing
             0x01 -> do
-                min <- getULEB128
-                max <- getULEB128
+                min <- getULEB128 32
+                max <- getULEB128 32
                 return $ Limit min (Just max)
             _ -> fail "Unexpected byte in place of Limit opcode"
 
@@ -245,7 +250,7 @@ instance Serialize ImportDesc where
     get = do
         op <- getWord8
         case op of
-            0x00 -> ImportFunc <$> getULEB128
+            0x00 -> ImportFunc <$> getULEB128 32
             0x01 -> ImportTable <$> get
             0x02 -> ImportMemory <$> get
             0x03 -> ImportGlobal <$> get
@@ -274,11 +279,11 @@ newtype Index = Index { unIndex :: Natural } deriving (Show, Eq)
 
 instance Serialize Index where
     put (Index idx) = putULEB128 idx
-    get = Index <$> getULEB128
+    get = Index <$> getULEB128 32
 
 instance Serialize MemArg where
     put (MemArg align offset) = putULEB128 align >> putULEB128 offset
-    get = MemArg <$> getULEB128 <*> getULEB128
+    get = MemArg <$> getULEB128 32 <*> getULEB128 32
 
 instance Serialize Instruction where
     put Unreachable = putWord8 0x00
@@ -483,24 +488,24 @@ instance Serialize Instruction where
                 (true, hasElse) <- getTrueBranch
                 false <- if hasElse then getExpression else return []
                 return $ If resultType true false
-            0x0C -> Br <$> getULEB128
-            0x0D -> BrIf <$> getULEB128
-            0x0E -> BrTable <$> (map unIndex <$> getVec) <*> getULEB128
+            0x0C -> Br <$> getULEB128 32
+            0x0D -> BrIf <$> getULEB128 32
+            0x0E -> BrTable <$> (map unIndex <$> getVec) <*> getULEB128 32
             0x0F -> return $ Return
-            0x10 -> Call <$> getULEB128
+            0x10 -> Call <$> getULEB128 32
             0x11 -> do
-                typeIdx <- getULEB128
+                typeIdx <- getULEB128 32
                 byteGuard 0x00
                 return $ CallIndirect typeIdx
             -- Parametric instructions
             0x1A -> return $ Drop
             0x1B -> return $ Select
             -- Variable instructions
-            0x20 -> GetLocal <$> getULEB128
-            0x21 -> SetLocal <$> getULEB128
-            0x22 -> TeeLocal <$> getULEB128
-            0x23 -> GetGlobal <$> getULEB128
-            0x24 -> SetGlobal <$> getULEB128
+            0x20 -> GetLocal <$> getULEB128 32
+            0x21 -> SetLocal <$> getULEB128 32
+            0x22 -> TeeLocal <$> getULEB128 32
+            0x23 -> GetGlobal <$> getULEB128 32
+            0x24 -> SetGlobal <$> getULEB128 32
             -- Memory instructions
             0x28 -> I32Load <$> get
             0x29 -> I64Load <$> get
@@ -528,8 +533,8 @@ instance Serialize Instruction where
             0x3F -> byteGuard 0x00 >> (return $ CurrentMemory)
             0x40 -> byteGuard 0x00 >> (return $ GrowMemory)
             -- Numeric instructions
-            0x41 -> I32Const <$> getSLEB128
-            0x42 -> I64Const <$> getSLEB128
+            0x41 -> I32Const <$> getSLEB128 32
+            0x42 -> I64Const <$> getSLEB128 64
             0x43 -> F32Const <$> getFloat32le
             0x44 -> F64Const <$> getFloat64le
             0x45 -> return $ I32Eqz
@@ -698,7 +703,7 @@ instance Serialize ExportDesc where
     put (ExportGlobal idx) = putWord8 0x03 >> putULEB128 idx
     get = do
         op <- getWord8
-        idx <- getULEB128
+        idx <- getULEB128 32
         case op of
             0x00 -> return $ ExportFunc idx
             0x01 -> return $ ExportTable idx
@@ -717,7 +722,7 @@ instance Serialize ElemSegment where
         putULEB128 tableIndex
         putExpression offset
         putVec $ map Index funcIndexes
-    get = ElemSegment <$> getULEB128 <*> getExpression <*> (map unIndex <$> getVec)
+    get = ElemSegment <$> getULEB128 32 <*> getExpression <*> (map unIndex <$> getVec)
 
 data LocalTypeRange = LocalTypeRange Natural ValueType deriving (Show, Eq)
 
@@ -725,7 +730,7 @@ instance Serialize LocalTypeRange where
     put (LocalTypeRange len valType) = do
         putULEB128 len
         put valType
-    get = LocalTypeRange <$> getULEB128 <*> get
+    get = LocalTypeRange <$> getULEB128 32 <*> get
 
 instance Serialize Function where
     put Function {localTypes = locals, body} = do
@@ -735,7 +740,7 @@ instance Serialize Function where
         putULEB128 $ BS.length bs
         putByteString bs
     get = do
-        _size <- getULEB128 :: Get Natural
+        _size <- getULEB128 32 :: Get Natural
         locals <- concat . map (\(LocalTypeRange n val) -> replicate (fromIntegral n) val) <$> getVec
         body <- getExpression
         return $ Function 0 locals body
@@ -747,9 +752,9 @@ instance Serialize DataSegment where
         putULEB128 $ LBS.length init
         putLazyByteString init
     get = do
-        memIdx <- getULEB128
+        memIdx <- getULEB128 32
         offset <- getExpression
-        len <- getULEB128
+        len <- getULEB128 32
         init <- getLazyByteString len
         return $ DataSegment memIdx offset init
 
@@ -786,7 +791,7 @@ instance Serialize Module where
         mems <- getSection MemorySection getVec []
         globals <- getSection GlobalSection getVec []
         exports <- getSection ExportSection getVec []
-        start <- getSection StartSection (Just . StartFunction <$> getULEB128) Nothing
+        start <- getSection StartSection (Just . StartFunction <$> getULEB128 32) Nothing
         elems <- getSection ElementSection getVec []
         functions <- getSection CodeSection getVec []
         datas <- getSection DataSection getVec []
