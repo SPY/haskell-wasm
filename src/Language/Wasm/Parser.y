@@ -1178,9 +1178,12 @@ asAlign str = do
     fromIntegral . fst <$> eitherToMaybe (TLRead.decimal num)
 
 parseMemArg :: Natural -> Maybe Natural -> Maybe Natural -> Either String MemArg
-parseMemArg defAlign optOffset optAlign =
-    let offset = fromMaybe 0 optOffset in
-    let align = fromIntegral $ round $ logBase 2 $ fromIntegral $ fromMaybe defAlign optAlign in
+parseMemArg defAlign optOffset optAlign = do
+    let offset = fromMaybe 0 optOffset
+    let parsedAlign = fromIntegral $ fromMaybe defAlign optAlign
+    if parsedAlign == 0 then Left "alignment" else return ()
+    let align = fromIntegral $ round $ logBase 2 parsedAlign
+    if 2 ^ align /= parsedAlign then Left "alignment" else return ()
     if offset >= 2 ^ 32 || align >= 2 ^ 32
     then Left "u32 is out of boundaries"
     else return $ MemArg offset align
