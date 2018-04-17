@@ -790,6 +790,9 @@ instance Serialize Module where
         elems <- getSection ElementSection getVec []
         functions <- getSection CodeSection getVec []
         datas <- getSection DataSection getVec []
+        if length funcTypes /= length functions
+        then fail "function and code section have inconsistent lengths"
+        else return ()
         return $ emptyModule {
             types,
             imports,
