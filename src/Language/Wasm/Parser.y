@@ -767,10 +767,6 @@ raw_call_indirect_functype1 :: { (Maybe FuncType, [Instruction]) }
         let ft = fromMaybe emptyFuncType $ fst $4 in
         (Just $ ft { params = map (ParamType Nothing) $2 ++ params ft }, snd $4)
     }
-    | 'param' ident valtype ')' raw_call_indirect_functype {
-        let ft = fromMaybe emptyFuncType $ fst $5 in
-        (Just $ ft { params = (ParamType (Just $2) $3) : params ft }, snd $5)
-    }
     | raw_call_indirect_return_functype1 { $1 }
 
 raw_call_indirect_return_functype :: { (Maybe FuncType, [Instruction]) }
@@ -849,8 +845,20 @@ folded_call_indirect_functype :: { (Maybe FuncType, [Instruction]) }
     | ')' { (Nothing, []) }
 
 folded_call_indirect_functype1 :: { (Maybe FuncType, [Instruction]) }
-    : paramsresulttypeuse folded_call_indirect_functype {
-        (Just $ mergeFuncType $1 $ fromMaybe emptyFuncType $ fst $2, snd $2)
+    : 'param' list(valtype) ')' folded_call_indirect_functype {
+        let ft = fromMaybe emptyFuncType $ fst $4 in
+        (Just $ ft { params = map (ParamType Nothing) $2 ++ params ft }, snd $4)
+    }
+    | folded_call_indirect_return_functype1 { $1 }
+
+folded_call_indirect_return_functype :: { (Maybe FuncType, [Instruction]) }
+    : '(' folded_call_indirect_return_functype1 { $2 }
+    | ')' { (Nothing, []) }
+
+folded_call_indirect_return_functype1 :: { (Maybe FuncType, [Instruction]) }
+    : 'result' list(valtype) ')' folded_call_indirect_return_functype {
+        let ft = fromMaybe emptyFuncType $ fst $4 in
+        (Just $ ft { results = $2 ++ results ft }, snd $4)
     }
     | foldedinstr1 list(foldedinstr) ')' { (Nothing, $1 ++ concat $2) }
 
@@ -1508,15 +1516,18 @@ desugarize fields = do
         exports = []
     }
     funs <- mapM (synFunctionToStruct mod) $ functions mod
+    elements <- mapM (synElemToStruct mod) $ elems mod
+    segments <- mapM (synDataToStruct mod) $ datas mod
+    globs <- mapM (synGlobalToStruct mod) $ globals mod
     return S.Module {
         S.types = map synTypeDefToStruct $ types mod,
         S.functions = funs,
         S.tables = map synTableToStruct $ tables mod,
         S.imports = map (synImportToStruct $ types mod) $ imports mod,
-        S.elems = map (synElemToStruct mod) $ elems mod,
-        S.datas = map (synDataToStruct mod) $ datas mod,
+        S.elems = elements,
+        S.datas = segments,
         S.mems = map synMemoryToStruct $ mems mod,
-        S.globals = map (synGlobalToStruct mod) $ globals mod,
+        S.globals = globs,
         S.start = fmap (synStartToStruct mod) $ start mod,
         S.exports = synExportsToStruct mod $ appendIndexToFuncs fields
     }
@@ -1626,92 +1637,112 @@ desugarize fields = do
         extractImport imports (MFImport imp) = imp : imports
         extractImport imports _ = imports
 
+        unwrapLabel ctx labelIdx =
+            case getLabelIdx ctx labelIdx of
+                Just i -> Right i
+                Nothing -> Left "unknown label"
+
         -- functions
-        synInstrToStruct :: FunCtx -> Instruction -> S.Instruction
-        synInstrToStruct _ (PlainInstr Unreachable) = S.Unreachable
-        synInstrToStruct _ (PlainInstr Nop) = S.Nop
+        synInstrToStruct :: FunCtx -> Instruction -> Either String S.Instruction
+        synInstrToStruct _ (PlainInstr Unreachable) = return S.Unreachable
+        synInstrToStruct _ (PlainInstr Nop) = return S.Nop
         synInstrToStruct ctx (PlainInstr (Br labelIdx)) =
-            fromJust $ S.Br <$> getLabelIdx ctx labelIdx
+            S.Br <$> unwrapLabel ctx labelIdx
         synInstrToStruct ctx (PlainInstr (BrIf labelIdx)) =
-            fromJust $ S.BrIf <$> getLabelIdx ctx labelIdx
-        synInstrToStruct ctx (PlainInstr (BrTable lbls lbl)) =
-            S.BrTable (map (fromJust . getLabelIdx ctx) lbls) $ fromJust $ getLabelIdx ctx lbl
-        synInstrToStruct _ (PlainInstr Return) = S.Return
+            S.BrIf <$> unwrapLabel ctx labelIdx
+        synInstrToStruct ctx (PlainInstr (BrTable lbls lbl)) = do
+            labels <- mapM (unwrapLabel ctx) lbls
+            S.BrTable labels <$> unwrapLabel ctx lbl
+        synInstrToStruct _ (PlainInstr Return) = return S.Return
         synInstrToStruct FunCtx { ctxMod } (PlainInstr (Call funIdx)) =
-            S.Call $ fromJust $ getFuncIndex ctxMod funIdx
+            case getFuncIndex ctxMod funIdx of
+                Just idx -> return $ S.Call idx
+                Nothing -> Left "unknown function"
         synInstrToStruct FunCtx { ctxMod = Module { types } } (PlainInstr (CallIndirect typeUse)) =
-            fromJust $ S.CallIndirect <$> getTypeIndex types typeUse
-        synInstrToStruct _ (PlainInstr Drop) = S.Drop
-        synInstrToStruct _ (PlainInstr Select) = S.Select
+            case getTypeIndex types typeUse of
+                Just idx -> return $ S.CallIndirect idx
+                Nothing -> Left "unknown type"
+        synInstrToStruct _ (PlainInstr Drop) = return $ S.Drop
+        synInstrToStruct _ (PlainInstr Select) = return $ S.Select
         synInstrToStruct ctx (PlainInstr (GetLocal localIdx)) =
-            S.GetLocal $ fromJust $ getLocalIndex ctx localIdx
+            case getLocalIndex ctx localIdx of
+                Just idx -> return $ S.GetLocal idx
+                Nothing -> Left "unknown local"
         synInstrToStruct ctx (PlainInstr (SetLocal localIdx)) =
-            S.SetLocal $ fromJust $ getLocalIndex ctx localIdx
+            case getLocalIndex ctx localIdx of
+                Just idx -> return $ S.SetLocal idx
+                Nothing -> Left "unknown local"
         synInstrToStruct ctx (PlainInstr (TeeLocal localIdx)) =
-            S.TeeLocal $ fromJust $ getLocalIndex ctx localIdx
+            case getLocalIndex ctx localIdx of
+                Just idx -> return $ S.TeeLocal idx
+                Nothing -> Left "unknown local"
         synInstrToStruct FunCtx { ctxMod } (PlainInstr (GetGlobal globalIdx)) =
-            S.GetGlobal $ fromJust $ getGlobalIndex ctxMod globalIdx
+            case getGlobalIndex ctxMod globalIdx of
+                Just idx -> return $ S.GetGlobal idx
+                Nothing -> Left "unknown global"
         synInstrToStruct FunCtx { ctxMod } (PlainInstr (SetGlobal globalIdx)) =
-            S.SetGlobal $ fromJust $ getGlobalIndex ctxMod globalIdx
-        synInstrToStruct _ (PlainInstr (I32Load memArg)) = S.I32Load memArg
-        synInstrToStruct _ (PlainInstr (I64Load memArg)) = S.I64Load memArg
-        synInstrToStruct _ (PlainInstr (F32Load memArg)) = S.F32Load memArg
-        synInstrToStruct _ (PlainInstr (F64Load memArg)) = S.F64Load memArg
-        synInstrToStruct _ (PlainInstr (I32Load8S memArg)) = S.I32Load8S memArg
-        synInstrToStruct _ (PlainInstr (I32Load8U memArg)) = S.I32Load8U memArg
-        synInstrToStruct _ (PlainInstr (I32Load16S memArg)) = S.I32Load16S memArg
-        synInstrToStruct _ (PlainInstr (I32Load16U memArg)) = S.I32Load16U memArg
-        synInstrToStruct _ (PlainInstr (I64Load8S memArg)) = S.I64Load8S memArg
-        synInstrToStruct _ (PlainInstr (I64Load8U memArg)) = S.I64Load8U memArg
-        synInstrToStruct _ (PlainInstr (I64Load16S memArg)) = S.I64Load16S memArg
-        synInstrToStruct _ (PlainInstr (I64Load16U memArg)) = S.I64Load16U memArg
-        synInstrToStruct _ (PlainInstr (I64Load32S memArg)) = S.I64Load32S memArg
-        synInstrToStruct _ (PlainInstr (I64Load32U memArg)) = S.I64Load32U memArg
-        synInstrToStruct _ (PlainInstr (I32Store memArg)) = S.I32Store memArg
-        synInstrToStruct _ (PlainInstr (I64Store memArg)) = S.I64Store memArg
-        synInstrToStruct _ (PlainInstr (F32Store memArg)) = S.F32Store memArg
-        synInstrToStruct _ (PlainInstr (F64Store memArg)) = S.F64Store memArg
-        synInstrToStruct _ (PlainInstr (I32Store8 memArg)) = S.I32Store8 memArg
-        synInstrToStruct _ (PlainInstr (I32Store16 memArg)) = S.I32Store16 memArg
-        synInstrToStruct _ (PlainInstr (I64Store8 memArg)) = S.I64Store8 memArg
-        synInstrToStruct _ (PlainInstr (I64Store16 memArg)) = S.I64Store16 memArg
-        synInstrToStruct _ (PlainInstr (I64Store32 memArg)) = S.I64Store32 memArg
-        synInstrToStruct _ (PlainInstr CurrentMemory) = S.CurrentMemory
-        synInstrToStruct _ (PlainInstr GrowMemory) = S.GrowMemory
-        synInstrToStruct _ (PlainInstr (I32Const val)) = S.I32Const $ integerToWord32 val
-        synInstrToStruct _ (PlainInstr (I64Const val)) = S.I64Const $ integerToWord64 val
-        synInstrToStruct _ (PlainInstr (F32Const val)) = S.F32Const val
-        synInstrToStruct _ (PlainInstr (F64Const val)) = S.F64Const val
-        synInstrToStruct _ (PlainInstr (IUnOp sz op)) = S.IUnOp sz op
-        synInstrToStruct _ (PlainInstr (IBinOp sz op)) = S.IBinOp sz op
-        synInstrToStruct _ (PlainInstr I32Eqz) = S.I32Eqz
-        synInstrToStruct _ (PlainInstr I64Eqz) = S.I64Eqz
-        synInstrToStruct _ (PlainInstr (IRelOp sz op)) = S.IRelOp sz op
-        synInstrToStruct _ (PlainInstr (FUnOp sz op)) = S.FUnOp sz op
-        synInstrToStruct _ (PlainInstr (FBinOp sz op)) = S.FBinOp sz op
-        synInstrToStruct _ (PlainInstr (FRelOp sz op)) = S.FRelOp sz op
-        synInstrToStruct _ (PlainInstr I32WrapI64) = S.I32WrapI64
-        synInstrToStruct _ (PlainInstr (ITruncFU sz sz')) = S.ITruncFU sz sz'
-        synInstrToStruct _ (PlainInstr (ITruncFS sz sz')) = S.ITruncFS sz sz'
-        synInstrToStruct _ (PlainInstr I64ExtendSI32) = S.I64ExtendSI32
-        synInstrToStruct _ (PlainInstr I64ExtendUI32) = S.I64ExtendUI32
-        synInstrToStruct _ (PlainInstr (FConvertIU sz sz')) = S.FConvertIU sz sz'
-        synInstrToStruct _ (PlainInstr (FConvertIS sz sz')) = S.FConvertIS sz sz'
-        synInstrToStruct _ (PlainInstr F32DemoteF64) = S.F32DemoteF64
-        synInstrToStruct _ (PlainInstr F64PromoteF32) = S.F64PromoteF32
-        synInstrToStruct _ (PlainInstr (IReinterpretF sz)) = S.IReinterpretF sz
-        synInstrToStruct _ (PlainInstr (FReinterpretI sz)) = S.FReinterpretI sz
+            case getGlobalIndex ctxMod globalIdx of
+                Just idx -> return $ S.SetGlobal idx
+                Nothing -> Left "unknown global"
+        synInstrToStruct _ (PlainInstr (I32Load memArg)) = return $ S.I32Load memArg
+        synInstrToStruct _ (PlainInstr (I64Load memArg)) = return $ S.I64Load memArg
+        synInstrToStruct _ (PlainInstr (F32Load memArg)) = return $ S.F32Load memArg
+        synInstrToStruct _ (PlainInstr (F64Load memArg)) = return $ S.F64Load memArg
+        synInstrToStruct _ (PlainInstr (I32Load8S memArg)) = return $ S.I32Load8S memArg
+        synInstrToStruct _ (PlainInstr (I32Load8U memArg)) = return $ S.I32Load8U memArg
+        synInstrToStruct _ (PlainInstr (I32Load16S memArg)) = return $ S.I32Load16S memArg
+        synInstrToStruct _ (PlainInstr (I32Load16U memArg)) = return $ S.I32Load16U memArg
+        synInstrToStruct _ (PlainInstr (I64Load8S memArg)) = return $ S.I64Load8S memArg
+        synInstrToStruct _ (PlainInstr (I64Load8U memArg)) = return $ S.I64Load8U memArg
+        synInstrToStruct _ (PlainInstr (I64Load16S memArg)) = return $ S.I64Load16S memArg
+        synInstrToStruct _ (PlainInstr (I64Load16U memArg)) = return $ S.I64Load16U memArg
+        synInstrToStruct _ (PlainInstr (I64Load32S memArg)) = return $ S.I64Load32S memArg
+        synInstrToStruct _ (PlainInstr (I64Load32U memArg)) = return $ S.I64Load32U memArg
+        synInstrToStruct _ (PlainInstr (I32Store memArg)) = return $ S.I32Store memArg
+        synInstrToStruct _ (PlainInstr (I64Store memArg)) = return $ S.I64Store memArg
+        synInstrToStruct _ (PlainInstr (F32Store memArg)) = return $ S.F32Store memArg
+        synInstrToStruct _ (PlainInstr (F64Store memArg)) = return $ S.F64Store memArg
+        synInstrToStruct _ (PlainInstr (I32Store8 memArg)) = return $ S.I32Store8 memArg
+        synInstrToStruct _ (PlainInstr (I32Store16 memArg)) = return $ S.I32Store16 memArg
+        synInstrToStruct _ (PlainInstr (I64Store8 memArg)) = return $ S.I64Store8 memArg
+        synInstrToStruct _ (PlainInstr (I64Store16 memArg)) = return $ S.I64Store16 memArg
+        synInstrToStruct _ (PlainInstr (I64Store32 memArg)) = return $ S.I64Store32 memArg
+        synInstrToStruct _ (PlainInstr CurrentMemory) = return $ S.CurrentMemory
+        synInstrToStruct _ (PlainInstr GrowMemory) = return $ S.GrowMemory
+        synInstrToStruct _ (PlainInstr (I32Const val)) = return $ S.I32Const $ integerToWord32 val
+        synInstrToStruct _ (PlainInstr (I64Const val)) = return $ S.I64Const $ integerToWord64 val
+        synInstrToStruct _ (PlainInstr (F32Const val)) = return $ S.F32Const val
+        synInstrToStruct _ (PlainInstr (F64Const val)) = return $ S.F64Const val
+        synInstrToStruct _ (PlainInstr (IUnOp sz op)) = return $ S.IUnOp sz op
+        synInstrToStruct _ (PlainInstr (IBinOp sz op)) = return $ S.IBinOp sz op
+        synInstrToStruct _ (PlainInstr I32Eqz) = return $ S.I32Eqz
+        synInstrToStruct _ (PlainInstr I64Eqz) = return $ S.I64Eqz
+        synInstrToStruct _ (PlainInstr (IRelOp sz op)) = return $ S.IRelOp sz op
+        synInstrToStruct _ (PlainInstr (FUnOp sz op)) = return $ S.FUnOp sz op
+        synInstrToStruct _ (PlainInstr (FBinOp sz op)) = return $ S.FBinOp sz op
+        synInstrToStruct _ (PlainInstr (FRelOp sz op)) = return $ S.FRelOp sz op
+        synInstrToStruct _ (PlainInstr I32WrapI64) = return $ S.I32WrapI64
+        synInstrToStruct _ (PlainInstr (ITruncFU sz sz')) = return $ S.ITruncFU sz sz'
+        synInstrToStruct _ (PlainInstr (ITruncFS sz sz')) = return $ S.ITruncFS sz sz'
+        synInstrToStruct _ (PlainInstr I64ExtendSI32) = return $ S.I64ExtendSI32
+        synInstrToStruct _ (PlainInstr I64ExtendUI32) = return $ S.I64ExtendUI32
+        synInstrToStruct _ (PlainInstr (FConvertIU sz sz')) = return $ S.FConvertIU sz sz'
+        synInstrToStruct _ (PlainInstr (FConvertIS sz sz')) = return $ S.FConvertIS sz sz'
+        synInstrToStruct _ (PlainInstr F32DemoteF64) = return $ S.F32DemoteF64
+        synInstrToStruct _ (PlainInstr F64PromoteF32) = return $ S.F64PromoteF32
+        synInstrToStruct _ (PlainInstr (IReinterpretF sz)) = return $ S.IReinterpretF sz
+        synInstrToStruct _ (PlainInstr (FReinterpretI sz)) = return $ S.FReinterpretI sz
         synInstrToStruct ctx BlockInstr {label, resultType, body} =
             let ctx' = ctx { ctxLabels = label : ctxLabels ctx } in
-            S.Block resultType $ map (synInstrToStruct ctx') body
+            S.Block resultType <$> mapM (synInstrToStruct ctx') body
         synInstrToStruct ctx LoopInstr {label, resultType, body} =
             let ctx' = ctx { ctxLabels = label : ctxLabels ctx } in
-            S.Loop resultType $ map (synInstrToStruct ctx') body
-        synInstrToStruct ctx IfInstr {label, resultType, trueBranch, falseBranch} =
-            let ctx' = ctx { ctxLabels = label : ctxLabels ctx } in
-            let trueBranch' = map (synInstrToStruct ctx') trueBranch in
-            let falseBranch' = map (synInstrToStruct ctx') falseBranch in
-            S.If resultType trueBranch' falseBranch'
+            S.Loop resultType <$> mapM (synInstrToStruct ctx') body
+        synInstrToStruct ctx IfInstr {label, resultType, trueBranch, falseBranch} = do
+            let ctx' = ctx { ctxLabels = label : ctxLabels ctx }
+            trueBranch' <- mapM (synInstrToStruct ctx') trueBranch
+            falseBranch' <- mapM (synInstrToStruct ctx') falseBranch
+            return $ S.If resultType trueBranch' falseBranch'
         
         synFunctionToStruct :: Module -> Function -> Either String S.Function
         synFunctionToStruct mod Function { funcType, locals, body } = do
@@ -1731,10 +1762,11 @@ desugarize fields = do
                         then let TypeDef _ FuncType { params } = types mod !! fromIntegral typeIdx in params
                         else []
             let ctx = FunCtx mod [] locals params
-            Right S.Function {
+            instructions <- mapM (synInstrToStruct ctx) body
+            return S.Function {
                 S.funcType = typeIdx,
                 S.localTypes = map localType locals,
-                S.body = map (synInstrToStruct ctx) body
+                S.body = instructions
             }
 
         extractFunction :: [Function] -> ModuleField -> [Function]
@@ -1815,10 +1847,10 @@ desugarize fields = do
         getMemIndex Module { imports, mems } (Index idx) = Just idx
 
         -- global
-        synGlobalToStruct :: Module -> Global -> S.Global
+        synGlobalToStruct :: Module -> Global -> Either String S.Global
         synGlobalToStruct mod Global { globalType, initializer } =
             let ctx = FunCtx mod [] [] [] in
-            S.Global globalType $ map (synInstrToStruct ctx) initializer
+            S.Global globalType <$> mapM (synInstrToStruct ctx) initializer
 
         extractGlobal :: [Global] -> ModuleField -> [Global]
         extractGlobal globals (MFGlobal global) = global : globals
@@ -1839,25 +1871,25 @@ desugarize fields = do
         getGlobalIndex Module { imports, globals } (Index idx) = Just idx
 
         -- elem segment
-        synElemToStruct :: Module -> ElemSegment -> S.ElemSegment
+        synElemToStruct :: Module -> ElemSegment -> Either String S.ElemSegment
         synElemToStruct mod ElemSegment { tableIndex, offset, funcIndexes } =
             let ctx = FunCtx mod [] [] [] in
-            let offsetInstrs = map (synInstrToStruct ctx) offset in
+            let offsetInstrs = mapM (synInstrToStruct ctx) offset in
             let idx = fromJust $ getTableIndex mod tableIndex in
             let indexes = map (fromJust . getFuncIndex mod) funcIndexes in
-            S.ElemSegment idx offsetInstrs indexes
+            S.ElemSegment idx <$> offsetInstrs <*> return indexes
 
         extractElemSegment :: [ElemSegment] -> ModuleField -> [ElemSegment]
         extractElemSegment elems (MFElem elem) = elem : elems
         extractElemSegment elems _ = elems
 
         -- data segment
-        synDataToStruct :: Module -> DataSegment -> S.DataSegment
+        synDataToStruct :: Module -> DataSegment -> Either String S.DataSegment
         synDataToStruct mod DataSegment { memIndex, offset, datastring } =
             let ctx = FunCtx mod [] [] [] in
-            let offsetInstrs = map (synInstrToStruct ctx) offset in
+            let offsetInstrs = mapM (synInstrToStruct ctx) offset in
             let idx = fromJust $ getMemIndex mod memIndex in
-            S.DataSegment idx offsetInstrs datastring
+            S.DataSegment idx <$> offsetInstrs <*> return datastring
 
         extractDataSegment :: [DataSegment] -> ModuleField -> [DataSegment]
         extractDataSegment datas (MFData dataSegment) = dataSegment : datas
