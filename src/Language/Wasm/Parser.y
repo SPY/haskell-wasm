@@ -73,7 +73,7 @@ import Control.Monad (guard, foldM)
 import Numeric.Natural (Natural)
 import Data.Word (Word32, Word64)
 import Data.Bits ((.|.))
-import Numeric.IEEE (infinity, nan)
+import Numeric.IEEE (infinity, nan, maxFinite)
 import Language.Wasm.FloatUtils (doubleToFloat)
 import Control.DeepSeq (NFData)
 import GHC.Generics (Generic)
@@ -91,7 +91,9 @@ import Language.Wasm.Lexer (
             EOF
         ),
         Lexeme(..),
-        AlexPosn(..)
+        AlexPosn(..),
+        asFloat,
+        asDouble
     )
 
 import Debug.Trace as Debug
@@ -401,12 +403,22 @@ int64 :: { Integer }
     }
 
 float32 :: { Float }
-    : int { fromIntegral $1 }
-    | f64 { asFloat32 $1 }
+    : int {%
+        let maxInt = 340282356779733623858607532500980858880 in
+        if $1 <= maxInt && $1 >= -maxInt
+        then return $ fromIntegral $1
+        else Left "constant out of range"
+    }
+    | f64 {% asFloat $1 }
 
 float64 :: { Double }
-    : int { fromIntegral $1 }
-    | f64 { $1 }
+    : int {%
+        let maxInt = round (maxFinite :: Double) in
+        if $1 <= maxInt && $1 >= -maxInt
+        then return $ fromIntegral $1
+        else Left "constant out of range"
+    }
+    | f64 {% asDouble $1 }
 
 plaininstr :: { PlainInstr }
     -- control instructions

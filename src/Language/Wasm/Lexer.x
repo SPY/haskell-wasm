@@ -5,7 +5,9 @@ module Language.Wasm.Lexer (
     Lexeme(..),
     Token(..),
     AlexPosn(..),
-    scanner
+    scanner,
+    asFloat,
+    asDouble
 ) where
 
 import qualified Data.ByteString.Lazy as LBS
@@ -14,8 +16,10 @@ import qualified Data.ByteString.Lazy.UTF8 as LBSUtf8
 import Control.Applicative ((<$>))
 import Control.Monad (when)
 import Numeric.IEEE (infinity, nan)
-import Language.Wasm.FloatUtils (makeNaN)
+import Language.Wasm.FloatUtils (makeNaN, doubleToFloat)
 import Data.Word (Word8)
+import Data.List (isPrefixOf)
+import Text.Read (readEither)
 
 import qualified Debug.Trace as Debug
 
@@ -58,13 +62,13 @@ $doublequote = \"
 tokens :-
 
 <0> $space                                ;
-<0> "nan"                                 { constToken $ TFloatLit (abs nan) }
-<0> "+nan"                                { constToken $ TFloatLit (abs nan) }
-<0> "-nan"                                { constToken $ TFloatLit nan }
+<0> "nan"                                 { constToken $ TFloatLit $ BinRep (abs nan) }
+<0> "+nan"                                { constToken $ TFloatLit $ BinRep (abs nan) }
+<0> "-nan"                                { constToken $ TFloatLit $ BinRep nan }
 <0> $sign? @nanhex                        { parseNanSigned }
-<0> "inf"                                 { constToken $ TFloatLit inf }
-<0> "+inf"                                { constToken $ TFloatLit inf }
-<0> "-inf"                                { constToken $ TFloatLit minusInf }
+<0> "inf"                                 { constToken $ TFloatLit $ BinRep inf }
+<0> "+inf"                                { constToken $ TFloatLit $ BinRep inf }
+<0> "-inf"                                { constToken $ TFloatLit $ BinRep minusInf }
 <0> @keyword                              { tokenStr TKeyword }
 <0> @linecomment                          ;
 <0> @id                                   { tokenStr TId }
@@ -130,7 +134,7 @@ parseNanSigned :: AlexAction Lexeme
 parseNanSigned = token $ \(pos, _, s, _) len -> 
     let (sign, slen) = parseSign s in
     let num = readHexFromPrefix (len - 6 - slen) $ LBSUtf8.drop (6 + slen) s in
-    Lexeme (Just pos) $ TFloatLit $ sign $ makeNaN $ fromIntegral num
+    Lexeme (Just pos) $ TFloatLit $ BinRep $ sign $ makeNaN $ fromIntegral num
 
 parseDecimalSignedInt :: AlexAction Lexeme
 parseDecimalSignedInt = token $ \(pos, _, s, _) len ->
@@ -140,15 +144,86 @@ parseDecimalSignedInt = token $ \(pos, _, s, _) len ->
 
 parseDecFloat :: AlexAction Lexeme
 parseDecFloat = token $ \(pos, _, s, _) len ->
-    let (sign, slen) = parseSign s in
-    let str = filter (/= '_') $ takeChars (len - slen) $ LBSUtf8.drop slen s in
-    Lexeme (Just pos) $ TFloatLit $ sign $ readDecFloat str
+    Lexeme (Just pos) $ TFloatLit $ DecRep $ filter (/= '_') $ takeChars len s
+
+expAsInt :: String -> Int
+expAsInt [] = 0
+expAsInt ('+' : rest) = expAsInt rest
+expAsInt ('-' : rest) = negate $ expAsInt rest
+expAsInt str = read str
+
+readDecFloat :: String -> Either String Float
+readDecFloat str =
+    let (sign, rest) = case str of
+            ('+':rest) -> (abs, rest)
+            ('-':rest) -> (negate, rest)
+            rest -> (abs, rest)
+    in
+    let (val, exp) = splitBy (\c -> c == 'E' || c == 'e') rest in
+    let (int, frac) = splitBy (== '.') val in
+    let nullIfEmpty str = if null str then "0" else str in
+    let expInt = expAsInt $ nullIfEmpty exp in
+    if expInt > 38
+    then Left $ "constant out of range"
+    else fmap sign $ readEither $ nullIfEmpty int ++ "." ++ nullIfEmpty frac ++ "e" ++ nullIfEmpty exp
+
+readDecDouble :: String -> Either String Double
+readDecDouble str =
+    let (sign, rest) = case str of
+            ('+':rest) -> (abs, rest)
+            ('-':rest) -> (negate, rest)
+            rest -> (abs, rest)
+    in
+    let (val, exp) = splitBy (\c -> c == 'E' || c == 'e') rest in
+    let (int, frac) = splitBy (== '.') val in
+    let nullIfEmpty str = if null str then "0" else str in
+    let expInt = expAsInt $ nullIfEmpty exp in
+    if expInt > 308
+    then Left $ "constant out of range"
+    else fmap sign $ readEither $ nullIfEmpty int ++ "." ++ nullIfEmpty frac ++ "e" ++ nullIfEmpty exp
 
 parseHexFloat :: AlexAction Lexeme
 parseHexFloat = token $ \(pos, _, s, _) len ->
-    let (sign, slen) = parseSign s in
-    let ('0' : 'x' : str) = filter (/= '_') $ takeChars (len - slen) $ LBS.drop slen s in
-    Lexeme (Just pos) $ TFloatLit $ sign $ readHexFloat str
+    Lexeme (Just pos) $ TFloatLit $ HexRep $ filter (/= '_') $ takeChars len s
+
+readHexFloat :: Int -> String -> String -> Either String Double
+readHexFloat expLimit restrictedPrefix str =
+    let (sign, '0':'x':rest) = case str of
+            ('+':rest) -> (abs, rest)
+            ('-':rest) -> (negate, rest)
+            rest -> (abs, rest)
+    in
+    let (val, exp) = splitBy (\c -> c == 'P' || c == 'p') rest in
+    let (int, frac) = splitBy (== '.') val in
+    let intLen = length int in
+    let expInt = expAsInt exp in
+    if int == "1" && ((restrictedPrefix `isPrefixOf` frac && expInt == expLimit - 1) || expInt >= expLimit)
+    then Left $ "constant out of range"
+    else
+        let intVal = sum $ zipWith (\i c -> readHexFromChar c * (16 ^ (intLen - i))) [1..] int in
+        Right $ sign $ (intVal + readHexFrac frac) * readHexExp exp
+    where
+        readHexExp :: String -> Double
+        readHexExp [] = 1
+        readHexExp ('+' : rest) = readHexExp rest
+        readHexExp ('-' : rest) = 1 / readHexExp rest
+        readHexExp expStr = 2 ^ read expStr
+
+        readHexFrac :: String -> Double
+        readHexFrac [] = 0
+        readHexFrac val =
+            let len = length val in
+            sum $ zipWith (\i c -> readHexFromChar c / (16 ^ i)) [1..] val
+
+asFloat :: FloatRep -> Either String Float
+asFloat (BinRep d) = Right $ doubleToFloat d
+asFloat (HexRep s) = doubleToFloat <$> readHexFloat 128 "ffffff" s
+asFloat (DecRep s) = readDecFloat s
+
+asDouble :: FloatRep -> Either String Double
+asDouble (BinRep d) = Right d
+asDouble (HexRep s) = readHexFloat 1024 "fffffffffffff8" s
+asDouble (DecRep s) = readDecDouble s
 
 startBlockComment :: AlexAction Lexeme
 startBlockComment _inp _len = do
@@ -222,9 +297,15 @@ constToken tok = token $ \(pos, _, _, _) _len -> (Lexeme (Just pos) tok)
 
 {- End Lexem Helpers -}
 
+data FloatRep
+    = BinRep Double
+    | DecRep String
+    | HexRep String
+    deriving (Show, Eq)
+
 data Token = TKeyword LBS.ByteString
     | TIntLit Integer
-    | TFloatLit Double
+    | TFloatLit FloatRep
     | TStringLit LBS.ByteString
     | TId LBS.ByteString
     | TOpenBracket
@@ -340,33 +421,6 @@ splitBy pred str =
     case break pred str of
         (left, (_ : rest)) -> (left, rest)
         res -> res
-
-readHexFloat :: String -> Double
-readHexFloat str =
-    let (val, exp) = splitBy (\c -> c == 'P' || c == 'p') str in
-    let (int, frac) = splitBy (== '.') val in
-    let intLen = length int in
-    let intVal = sum $ zipWith (\i c -> readHexFromChar c * (16 ^ (intLen - i))) [1..] int in
-    (intVal + readHexFrac frac) * readHexExp exp
-    where
-        readHexExp :: String -> Double
-        readHexExp [] = 1
-        readHexExp ('+' : rest) = readHexExp rest
-        readHexExp ('-' : rest) = 1 / readHexExp rest
-        readHexExp expStr = 2 ^ read expStr
-
-        readHexFrac :: String -> Double
-        readHexFrac [] = 0
-        readHexFrac val =
-            let len = length val in
-            sum $ zipWith (\i c -> readHexFromChar c / (16 ^ i)) [1..] val
-
-readDecFloat :: String -> Double
-readDecFloat str =
-    let (val, exp) = splitBy (\c -> c == 'E' || c == 'e') str in
-    let (int, frac) = splitBy (== '.') val in
-    let nullIfEmpty str = if null str then "0" else str in
-    read $ nullIfEmpty int ++ "." ++ nullIfEmpty frac ++ "e" ++ nullIfEmpty exp
 
 scanner :: LBS.ByteString -> Either String [Lexeme]
 scanner str = runAlex str loop
