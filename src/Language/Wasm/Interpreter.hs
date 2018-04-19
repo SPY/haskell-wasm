@@ -424,16 +424,19 @@ allocMems mems = Vector.fromList <$> mapM allocMem mems
                 maxLen = fromIntegral <$> to
             }
 
-initialize :: ModuleInstance -> Module -> Store -> IO Store
+initialize :: ModuleInstance -> Module -> Store -> IO (Either String Store)
 initialize inst Module {elems, datas, start} store = do
     storeWithTables <- Monad.foldM initElem store elems
-    storeWithMems <- Monad.foldM initData storeWithTables datas
-    case start of
-        Just (StartFunction idx) -> do
-            let funInst = funcInstances store ! (funcaddrs inst ! fromIntegral idx)
-            [] <- eval storeWithMems funInst []
-            return storeWithMems
-        Nothing -> return storeWithMems
+    storeWithMems <- Monad.foldM initData (Right storeWithTables) datas
+    case storeWithMems of
+        Right st -> do
+            case start of
+                Just (StartFunction idx) -> do
+                    let funInst = funcInstances store ! (funcaddrs inst ! fromIntegral idx)
+                    [] <- eval st funInst []
+                    return $ Right st
+                Nothing -> return $ Right st
+        Left reason -> return $ Left reason
     where
         fitOrGrowTable :: Address -> Store -> Int -> TableInstance
         fitOrGrowTable idx st last =
@@ -461,35 +464,20 @@ initialize inst Module {elems, datas, start} store = do
             let table = TableInstance (elems // zip [from..] (map Just funcs)) maxLen
             return $ st { tableInstances = tableInstances st Vector.// [(idx, table)] }
 
-        fitOrGrowMemory :: Address -> Store -> Int -> IO MemoryInstance
-        fitOrGrowMemory idx st 0 = readIORef $ memInstances st ! idx
-        fitOrGrowMemory idx st last = do
-            m@(MemoryInstance mem maxLen) <- readIORef $ memInstances st ! idx
-            let len = IOVector.length mem
-            let increased = do
-                    let pages = (last - len) `div` pageSize + (if (last - len) `rem` len == 0 then 0 else 1)
-                    mem' <- IOVector.grow mem $ pages * pageSize
-                    return $ MemoryInstance mem' maxLen
-            if last < len
-            then return m
-            else case maxLen of
-                Nothing -> increased
-                Just max ->
-                    let maxInBytes = max * pageSize in
-                    if maxInBytes < last
-                    then error $ "Max memory length reached. Max " ++ show max ++ "(" ++ show maxInBytes ++ "b), but requested " ++ show last
-                    else increased
-
-        initData :: Store -> DataSegment -> IO Store
-        initData st DataSegment {memIndex, offset, chunk} = do
-            VI32 val <- evalConstExpr inst store offset
+        initData :: Either String Store -> DataSegment -> IO (Either String Store)
+        initData (Left err) _ = return $ Left err
+        initData (Right st) DataSegment {memIndex, offset, chunk} = do
+            VI32 val <- evalConstExpr inst st offset
             let from = fromIntegral val
             let idx = memaddrs inst ! fromIntegral memIndex
             let last = from + (fromIntegral $ LBS.length chunk)
-            MemoryInstance mem maxLen <- fitOrGrowMemory idx st last
-            mapM_ (\(i,b) -> IOVector.write mem i b) $ zip [from..] $ LBS.unpack chunk
-            mem' <- newIORef $ MemoryInstance mem maxLen
-            return $ st { memInstances = memInstances st // [(idx, mem')] }
+            MemoryInstance mem maxLen <- readIORef $ memInstances st ! idx
+            let len = IOVector.length mem
+            if last > len
+            then return $ Left "data segment does not fit"
+            else do
+                mapM_ (\(i,b) -> IOVector.write mem i b) $ zip [from..] $ LBS.unpack chunk
+                return $ Right st
 
 instantiate :: Store -> Imports -> Module -> IO (Either String (ModuleInstance, Store))
 instantiate st imps m =
@@ -506,7 +494,7 @@ instantiate st imps m =
                 memInstances = mems,
                 globalInstances = globals
             }
-            return $ return (inst, st')
+            return $ (,) inst <$> st'
 
 type Stack = [Value]
 
