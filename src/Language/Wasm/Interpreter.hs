@@ -426,8 +426,8 @@ allocMems mems = Vector.fromList <$> mapM allocMem mems
 
 initialize :: ModuleInstance -> Module -> Store -> IO (Either String Store)
 initialize inst Module {elems, datas, start} store = do
-    storeWithTables <- Monad.foldM initElem store elems
-    storeWithMems <- Monad.foldM initData (Right storeWithTables) datas
+    storeWithTables <- Monad.foldM initElem (Right store) elems
+    storeWithMems <- Monad.foldM initData storeWithTables datas
     case storeWithMems of
         Right st -> do
             case start of
@@ -438,31 +438,21 @@ initialize inst Module {elems, datas, start} store = do
                 Nothing -> return $ Right st
         Left reason -> return $ Left reason
     where
-        fitOrGrowTable :: Address -> Store -> Int -> TableInstance
-        fitOrGrowTable idx st last =
-            let t@(TableInstance elems maxLen) = tableInstances st ! idx in
-            let len = Vector.length elems in
-            let increased = TableInstance (elems Vector.++ (Vector.fromList $ replicate (last - len) Nothing)) maxLen in
-            if last < len
-            then t
-            else case maxLen of
-                Nothing -> increased
-                Just max ->
-                    if max < last
-                    then error $ "Max table length reached. Max " ++ show max ++ ", but requested " ++ show last
-                    else increased
-
-        initElem :: Store -> ElemSegment -> IO Store
-        initElem st ElemSegment {tableIndex, offset, funcIndexes} = do
-            VI32 val <- evalConstExpr inst store offset
+        initElem :: Either String Store -> ElemSegment -> IO (Either String Store)
+        initElem (Left err) _ = return $ Left err
+        initElem (Right st) ElemSegment {tableIndex, offset, funcIndexes} = do
+            VI32 val <- evalConstExpr inst st offset
             let from = fromIntegral val
             let funcs = map ((funcaddrs inst !) . fromIntegral) funcIndexes
             let idx = tableaddrs inst ! fromIntegral tableIndex
             let last = from + length funcs
-            let TableInstance elems maxLen = fitOrGrowTable idx st last
+            let TableInstance elems maxLen = tableInstances st ! idx
             let len = Vector.length elems
-            let table = TableInstance (elems // zip [from..] (map Just funcs)) maxLen
-            return $ st { tableInstances = tableInstances st Vector.// [(idx, table)] }
+            if last > len
+            then return $ Left "elements segment does not fit"
+            else do
+                let table = TableInstance (elems // zip [from..] (map Just funcs)) maxLen
+                return $ Right st { tableInstances = tableInstances st Vector.// [(idx, table)] }
 
         initData :: Either String Store -> DataSegment -> IO (Either String Store)
         initData (Left err) _ = return $ Left err
