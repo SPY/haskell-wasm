@@ -95,8 +95,10 @@ runScript onAssertFail script = do
         addModule ident m st =
             case Validate.validate m of
                 Validate.Valid -> do
-                    (modInst, store') <- Interpreter.instantiate (store st) (buildImports st) m
-                    return $ addToStore ident modInst $ st { lastModule = Just modInst, store = store' }
+                    res <- Interpreter.instantiate (store st) (buildImports st) m
+                    case res of
+                        Right (modInst, store') -> return $ addToStore ident modInst $ st { lastModule = Just modInst, store = store' }
+                        Left reason -> error $ "Module instantiation failed dut to invalid module with reason: " ++ show reason
                 reason -> error $ "Module instantiation failed dut to invalid module with reason: " ++ show reason
         
         getModule :: ScriptState -> Maybe Ident -> Maybe Interpreter.ModuleInstance
@@ -206,6 +208,15 @@ runScript onAssertFail script = do
             case Binary.decodeModuleLazy binaryRep of
                 Right _ -> onAssertFail ("Module decoding should fail with failure string " ++ show failureString) assert
                 Left _ -> return ()
+        runAssert st assert@(AssertUnlinkable moduleDef failureString) =
+            let (_, m) = buildModule moduleDef in
+            case Validate.validate m of
+                Validate.Valid -> do
+                    res <- Interpreter.instantiate (store st) (buildImports st) m
+                    case res of
+                        Left err -> return ()
+                        Right _ -> onAssertFail ("Module linking should fail with failure string " ++ show failureString) assert
+                reason -> error $ "Module linking failed dut to invalid module with reason: " ++ show reason
         runAssert _ _ = return ()
 
         runCommand :: ScriptState -> Command -> IO ScriptState

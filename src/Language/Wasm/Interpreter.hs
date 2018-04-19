@@ -321,25 +321,24 @@ emptyModInstance = ModuleInstance {
     exports = Vector.empty
 }
 
-calcInstance :: Store -> Imports -> Module -> ModuleInstance
-calcInstance (Store fs ts ms gs) imps Module {functions, types, tables, mems, globals, exports, imports} =
-    let funLen = length fs in
-    let tableLen = length ts in
-    let memLen = length ms in
-    let globalLen = length gs in
+calcInstance :: Store -> Imports -> Module -> Either String ModuleInstance
+calcInstance (Store fs ts ms gs) imps Module {functions, types, tables, mems, globals, exports, imports} = do
+    let funLen = length fs
+    let tableLen = length ts
+    let memLen = length ms
+    let globalLen = length gs
     let getImpIdx (Import m n _) =
             case Map.lookup (m, n) imps of
-                Just idx -> idx
-                Nothing -> error $ "Cannot find import from module " ++ show m ++ " with name " ++ show n
-    in
-    let funImps = map getImpIdx $ filter isFuncImport imports in
-    let tableImps = map getImpIdx $ filter isTableImport imports in
-    let memImps = map getImpIdx $ filter isMemImport imports in
-    let globalImps = map getImpIdx $ filter isGlobalImport imports in
-    let funs = Vector.fromList $ map (\(ExternFunction i) -> i) funImps ++ [funLen..funLen + length functions - 1] in
-    let tbls = Vector.fromList $ map (\(ExternTable i) -> i) tableImps ++ [tableLen..tableLen + length tables - 1] in
-    let memories = Vector.fromList $ map (\(ExternMemory i) -> i) memImps ++ [memLen..memLen + length mems - 1] in
-    let globs = Vector.fromList $ map (\(ExternGlobal i) -> i) globalImps ++ [globalLen..globalLen + length globals - 1] in
+                Just idx -> Right idx
+                Nothing -> Left $ "Cannot find import from module " ++ show m ++ " with name " ++ show n
+    funImps <- mapM getImpIdx $ filter isFuncImport imports
+    tableImps <- mapM getImpIdx $ filter isTableImport imports
+    memImps <- mapM getImpIdx $ filter isMemImport imports
+    globalImps <- mapM getImpIdx $ filter isGlobalImport imports
+    let funs = Vector.fromList $ map (\(ExternFunction i) -> i) funImps ++ [funLen..funLen + length functions - 1]
+    let tbls = Vector.fromList $ map (\(ExternTable i) -> i) tableImps ++ [tableLen..tableLen + length tables - 1]
+    let memories = Vector.fromList $ map (\(ExternMemory i) -> i) memImps ++ [memLen..memLen + length mems - 1]
+    let globs = Vector.fromList $ map (\(ExternGlobal i) -> i) globalImps ++ [globalLen..globalLen + length globals - 1]
     let
         refExport (Export name (ExportFunc idx)) =
             ExportInstance name $ ExternFunction $ funs ! fromIntegral idx
@@ -349,8 +348,7 @@ calcInstance (Store fs ts ms gs) imps Module {functions, types, tables, mems, gl
             ExportInstance name $ ExternMemory $ memories ! fromIntegral idx
         refExport (Export name (ExportGlobal idx)) =
             ExportInstance name $ ExternGlobal $ globs ! fromIntegral idx
-    in
-    ModuleInstance {
+    return $ ModuleInstance {
         funcTypes = Vector.fromList types,
         funcaddrs = funs,
         tableaddrs = tbls,
@@ -493,20 +491,22 @@ initialize inst Module {elems, datas, start} store = do
             mem' <- newIORef $ MemoryInstance mem maxLen
             return $ st { memInstances = memInstances st // [(idx, mem')] }
 
-instantiate :: Store -> Imports -> Module -> IO (ModuleInstance, Store)
-instantiate st imps m = do
-    let inst = calcInstance st imps m
-    let functions = funcInstances st <> (allocFunctions inst $ Struct.functions m)
-    globals <- (globalInstances st <>) <$> (allocAndInitGlobals inst st $ Struct.globals m)
-    let tables = tableInstances st <> (allocTables $ Struct.tables m)
-    mems <- (memInstances st <>) <$> (allocMems $ Struct.mems m)
-    st' <- initialize inst m $ st {
-        funcInstances = functions,
-        tableInstances = tables,
-        memInstances = mems,
-        globalInstances = globals
-    }
-    return (inst, st')
+instantiate :: Store -> Imports -> Module -> IO (Either String (ModuleInstance, Store))
+instantiate st imps m =
+    case calcInstance st imps m of
+        Left err -> return $ Left err
+        Right inst -> do
+            let functions = funcInstances st <> (allocFunctions inst $ Struct.functions m)
+            globals <- (globalInstances st <>) <$> (allocAndInitGlobals inst st $ Struct.globals m)
+            let tables = tableInstances st <> (allocTables $ Struct.tables m)
+            mems <- (memInstances st <>) <$> (allocMems $ Struct.mems m)
+            st' <- initialize inst m $ st {
+                funcInstances = functions,
+                tableInstances = tables,
+                memInstances = mems,
+                globalInstances = globals
+            }
+            return $ return (inst, st')
 
 type Stack = [Value]
 
