@@ -474,7 +474,7 @@ allocMems mems = Vector.fromList <$> mapM allocMem mems
         allocMem :: Memory -> IO MemoryInstance
         allocMem (Memory lim@(Limit from to)) = do
             mem <- IOVector.replicate (fromIntegral from * pageSize) 0
-            memory <- newIORef mem 
+            memory <- newIORef mem
             return MemoryInstance {
                 lim,
                 memory
@@ -482,7 +482,9 @@ allocMems mems = Vector.fromList <$> mapM allocMem mems
 
 initialize :: ModuleInstance -> Module -> Store -> IO (Either String Store)
 initialize inst Module {elems, datas, start} store = do
-    storeWithTables <- Monad.foldM initElem (Right store) elems
+    checkedMems <- Monad.foldM checkData (Right store) datas
+    checkedTables <- Monad.foldM checkElem checkedMems elems
+    storeWithTables <- Monad.foldM initElem checkedMems elems
     storeWithMems <- Monad.foldM initData storeWithTables datas
     case storeWithMems of
         Right st -> do
@@ -494,6 +496,20 @@ initialize inst Module {elems, datas, start} store = do
                 Nothing -> return $ Right st
         Left reason -> return $ Left reason
     where
+        checkElem :: Either String Store -> ElemSegment -> IO (Either String Store)
+        checkElem (Left err) _ = return $ Left err
+        checkElem (Right st) ElemSegment {tableIndex, offset, funcIndexes} = do
+            VI32 val <- evalConstExpr inst st offset
+            let from = fromIntegral val
+            let funcs = map ((funcaddrs inst !) . fromIntegral) funcIndexes
+            let idx = tableaddrs inst ! fromIntegral tableIndex
+            let last = from + length funcs
+            let TableInstance lim elems = tableInstances st ! idx
+            let len = Vector.length elems
+            if last > len
+            then return $ Left "elements segment does not fit"
+            else return $ Right st
+
         initElem :: Either String Store -> ElemSegment -> IO (Either String Store)
         initElem (Left err) _ = return $ Left err
         initElem (Right st) ElemSegment {tableIndex, offset, funcIndexes} = do
@@ -510,9 +526,9 @@ initialize inst Module {elems, datas, start} store = do
                 let table = TableInstance lim (elems // zip [from..] (map Just funcs))
                 return $ Right st { tableInstances = tableInstances st Vector.// [(idx, table)] }
 
-        initData :: Either String Store -> DataSegment -> IO (Either String Store)
-        initData (Left err) _ = return $ Left err
-        initData (Right st) DataSegment {memIndex, offset, chunk} = do
+        checkData :: Either String Store -> DataSegment -> IO (Either String Store)
+        checkData (Left err) _ = return $ Left err
+        checkData (Right st) DataSegment {memIndex, offset, chunk} = do
             VI32 val <- evalConstExpr inst st offset
             let from = fromIntegral val
             let idx = memaddrs inst ! fromIntegral memIndex
@@ -522,9 +538,19 @@ initialize inst Module {elems, datas, start} store = do
             let len = IOVector.length mem
             if last > len
             then return $ Left "data segment does not fit"
-            else do
-                mapM_ (\(i,b) -> IOVector.write mem i b) $ zip [from..] $ LBS.unpack chunk
-                return $ Right st
+            else return $ Right st
+
+        initData :: Either String Store -> DataSegment -> IO (Either String Store)
+        initData (Left err) _ = return $ Left err
+        initData (Right st) DataSegment {memIndex, offset, chunk} = do
+            VI32 val <- evalConstExpr inst st offset
+            let from = fromIntegral val
+            let idx = memaddrs inst ! fromIntegral memIndex
+            let last = from + (fromIntegral $ LBS.length chunk)
+            let MemoryInstance _ memory = memInstances st ! idx
+            mem <- readIORef memory
+            mapM_ (\(i,b) -> IOVector.write mem i b) $ zip [from..] $ LBS.unpack chunk
+            return $ Right st
 
 instantiate :: Store -> Imports -> Module -> IO (Either String (ModuleInstance, Store))
 instantiate st imps m =
