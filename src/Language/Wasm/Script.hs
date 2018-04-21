@@ -212,6 +212,7 @@ runScript onAssertFail script = do
             case Binary.decodeModuleLazy binaryRep of
                 Right _ -> onAssertFail ("Module decoding should fail with failure string " ++ show failureString) assert
                 Left _ -> return ()
+        runAssert st assert@(AssertMalformed (RawModDef _ _) failureString) = return ()
         runAssert st assert@(AssertUnlinkable moduleDef failureString) =
             let (_, m) = buildModule moduleDef in
             case Validate.validate m of
@@ -235,7 +236,11 @@ runScript onAssertFail script = do
                         Left "Start function terminated with trap" -> return ()
                         _ -> onAssertFail ("Module linking should fail with trap during execution of a start function") assert
                 reason -> error $ "Module linking failed dut to invalid module with reason: " ++ show reason
-        runAssert _ _ = return ()
+        runAssert st assert@(AssertExhaustion action failureString) = do
+            result <- runAction st action
+            if isNothing result
+            then return ()
+            else onAssertFail ("Expected exhaustion, but action returned " ++ show (fromJust result)) assert
 
         runCommand :: ScriptState -> Command -> IO ScriptState
         runCommand st (ModuleDef moduleDef) =

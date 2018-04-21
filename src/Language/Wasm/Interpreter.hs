@@ -465,6 +465,9 @@ allocTables tables = Vector.fromList $ map allocTable tables
                 elements = Vector.fromList $ replicate (fromIntegral from) Nothing
             }
 
+defaultBudget :: Natural
+defaultBudget = 300
+
 pageSize :: Int
 pageSize = 64 * 1024
 
@@ -491,7 +494,7 @@ initialize inst Module {elems, datas, start} store = do
             case start of
                 Just (StartFunction idx) -> do
                     let funInst = funcInstances store ! (funcaddrs inst ! fromIntegral idx)
-                    mainRes <- eval st funInst []
+                    mainRes <- eval defaultBudget st funInst []
                     case mainRes of
                         Just [] -> return $ Right st
                         _ -> return $ Left "Start function terminated with trap"
@@ -586,8 +589,9 @@ data EvalResult =
     | ReturnFn [Value]
     deriving (Show, Eq)
 
-eval :: Store -> FunctionInstance -> [Value] -> IO (Maybe [Value])
-eval store FunctionInstance { funcType, moduleInstance, code = Function { localTypes, body} } args = do
+eval :: Natural -> Store -> FunctionInstance -> [Value] -> IO (Maybe [Value])
+eval 0 _ _ _ = return Nothing
+eval budget store FunctionInstance { funcType, moduleInstance, code = Function { localTypes, body} } args = do
     case sequence $ zipWith checkValType (params funcType) args of
         Just checkedArgs -> do
             let initialContext = EvalCtx {
@@ -676,7 +680,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
             let args = params ft
             case sequence $ zipWith checkValType args $ reverse $ take (length args) $ stack ctx of
                 Just params -> do
-                    res <- eval store funInst params
+                    res <- eval (budget - 1) store funInst params
                     case res of
                         Just res -> return $ Done ctx { stack = reverse res ++ (drop (length args) $ stack ctx) }
                         Nothing -> return Trap
@@ -696,7 +700,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
                         then return Trap
                         else case sequence $ zipWith checkValType args $ reverse $ take (length args) rest of
                             Just params -> do
-                                res <- eval store funInst params
+                                res <- eval (budget - 1) store funInst params
                                 case res of
                                     Just res -> return $ Done ctx { stack = reverse res ++ (drop (length args) rest) }
                                     Nothing -> return Trap
@@ -1301,10 +1305,10 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VI64 v:rest) } (FReinterpretI BS64) =
             return $ Done ctx { stack = VF64 (wordToDouble v) : rest }
         step EvalCtx{ stack } instr = error $ "Error during evaluation of instruction: " ++ show instr ++ ". Stack " ++ show stack
-eval _ HostInstance { funcType, hostCode } args = Just <$> hostCode args
+eval _ _ HostInstance { funcType, hostCode } args = Just <$> hostCode args
 
 invoke :: Store -> Address -> [Value] -> IO (Maybe [Value])
-invoke st funcIdx = eval st $ funcInstances st ! funcIdx
+invoke st funcIdx = eval defaultBudget st $ funcInstances st ! funcIdx
 
 invokeExport :: Store -> ModuleInstance -> TL.Text -> [Value] -> IO (Maybe [Value])
 invokeExport st ModuleInstance { exports } name args =
