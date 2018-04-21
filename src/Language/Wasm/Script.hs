@@ -10,6 +10,7 @@ import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TLEncoding
 import Numeric.IEEE (identicalIEEE)
 import qualified Control.DeepSeq as DeepSeq
+import Data.Maybe (fromJust, isNothing)
 
 import Language.Wasm.Parser (
         Ident(..),
@@ -112,14 +113,14 @@ runScript onAssertFail script = do
         asArg [Struct.F64Const v] = Interpreter.VF64 v
         asArg _                   = error "Only const instructions supported as arguments for actions"
 
-        runAction :: ScriptState -> Action -> IO [Interpreter.Value]
+        runAction :: ScriptState -> Action -> IO (Maybe [Interpreter.Value])
         runAction st (Invoke ident name args) = do
             case getModule st ident of
                 Just m -> Interpreter.invokeExport (store st) m name $ map asArg args
                 Nothing -> error $ "Cannot invoke function on module with identifier '" ++ show ident  ++ "'. No such module"
         runAction st (Get ident name) = do
             case getModule st ident of
-                Just m -> Interpreter.getGlobalValueByName (store st) m name >>= return . (: [])
+                Just m -> Interpreter.getGlobalValueByName (store st) m name >>= return . Just . (: [])
                 Nothing -> error $ "Cannot invoke function on module with identifier '" ++ show ident  ++ "'. No such module"
 
         isValueEqual :: Interpreter.Value -> Interpreter.Value -> Bool
@@ -133,11 +134,11 @@ runScript onAssertFail script = do
         isNaNReturned st action assert = do
             result <- runAction st action
             case result of
-                [Interpreter.VF32 v] ->
+                Just [Interpreter.VF32 v] ->
                     if isNaN v
                     then return ()
                     else onAssertFail ("Expected NaN, but action returned " ++ show v) assert
-                [Interpreter.VF64 v] ->
+                Just [Interpreter.VF64 v] ->
                     if isNaN v
                     then return ()
                     else onAssertFail ("Expected NaN, but action returned " ++ show v) assert
@@ -182,9 +183,12 @@ runScript onAssertFail script = do
         runAssert :: ScriptState -> Assertion -> IO ()
         runAssert st assert@(AssertReturn action expected) = do
             result <- runAction st action
-            if length result == length expected && (all id $ zipWith isValueEqual result (map asArg expected))
-            then return ()
-            else onAssertFail ("Expected " ++ show (map asArg expected) ++ ", but action returned " ++ show result) assert
+            case result of
+                Just result -> do
+                    if length result == length expected && (all id $ zipWith isValueEqual result (map asArg expected))
+                    then return ()
+                    else onAssertFail ("Expected " ++ show (map asArg expected) ++ ", but action returned " ++ show result) assert
+                Nothing -> onAssertFail ("Expected " ++ show (map asArg expected) ++ ", but action returned Trap") assert
         runAssert st assert@(AssertReturnCanonicalNaN action) = isNaNReturned st action assert
         runAssert st assert@(AssertReturnArithmeticNaN action) = isNaNReturned st action assert
         runAssert st assert@(AssertInvalid moduleDef failureString) =
@@ -217,6 +221,12 @@ runScript onAssertFail script = do
                         Left err -> return ()
                         Right _ -> onAssertFail ("Module linking should fail with failure string " ++ show failureString) assert
                 reason -> error $ "Module linking failed dut to invalid module with reason: " ++ show reason
+        runAssert st assert@(AssertTrap (Left action) failureString) = do
+            result <- runAction st action
+            if isNothing result
+            then return ()
+            else onAssertFail ("Expected trap, but action returned " ++ show (fromJust result)) assert
+        -- runAssert st assert@(AssertTrap (Right moduleDef) failureString) =
         runAssert _ _ = return ()
 
         runCommand :: ScriptState -> Command -> IO ScriptState

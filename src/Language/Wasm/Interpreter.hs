@@ -491,8 +491,10 @@ initialize inst Module {elems, datas, start} store = do
             case start of
                 Just (StartFunction idx) -> do
                     let funInst = funcInstances store ! (funcaddrs inst ! fromIntegral idx)
-                    [] <- eval st funInst []
-                    return $ Right st
+                    mainRes <- eval st funInst []
+                    case mainRes of
+                        Just [] -> return $ Right st
+                        _ -> return $ Left "Start function terminated with trap"
                 Nothing -> return $ Right st
         Left reason -> return $ Left reason
     where
@@ -584,7 +586,7 @@ data EvalResult =
     | ReturnFn [Value]
     deriving (Show, Eq)
 
-eval :: Store -> FunctionInstance -> [Value] -> IO [Value]
+eval :: Store -> FunctionInstance -> [Value] -> IO (Maybe [Value])
 eval store FunctionInstance { funcType, moduleInstance, code = Function { localTypes, body} } args = do
     let checkedArgs = zipWith checkValType (params funcType) args
     let initialContext = EvalCtx {
@@ -594,11 +596,11 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         }
     res <- go initialContext body
     case res of
-        Done ctx -> return $ reverse $ stack ctx
-        ReturnFn r -> return r
-        Break 0 r _ -> return $ reverse r
+        Done ctx -> return $ Just $ reverse $ stack ctx
+        ReturnFn r -> return $ Just r
+        Break 0 r _ -> return $ Just $ reverse r
         Break _ _ _ -> error "Break is out of range"
-        Trap -> error "Evaluation terminated with Trap"
+        Trap -> return Nothing
     where
         checkValType :: ValueType -> Value -> Value
         checkValType I32 (VI32 v) = VI32 v
@@ -667,7 +669,9 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
             let ft = Language.Wasm.Interpreter.funcType funInst 
             let args = params ft
             res <- eval store funInst (zipWith checkValType args $ reverse $ take (length args) $ stack ctx)
-            return $ Done ctx { stack = reverse res ++ (drop (length args) $ stack ctx) }
+            case res of
+                Just res -> return $ Done ctx { stack = reverse res ++ (drop (length args) $ stack ctx) }
+                Nothing -> return Trap
         step ctx@EvalCtx{ stack = (VI32 v): rest } (CallIndirect typeIdx) = do
             let funcType = funcTypes moduleInstance ! fromIntegral typeIdx
             let TableInstance { elements } = tableInstances store ! (tableaddrs moduleInstance ! 0)
@@ -676,7 +680,9 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
                 Just (Just addr) -> do
                     let args = params funcType
                     res <- invoke store addr (zipWith checkValType args $ reverse $ take (length args) rest)
-                    return $ Done ctx { stack = reverse res ++ (drop (length args) rest) }
+                    case res of
+                        Just res -> return $ Done ctx { stack = reverse res ++ (drop (length args) rest) }
+                        Nothing -> return Trap
                 _ -> return Trap
         step ctx@EvalCtx{ stack = (_:rest) } Drop = return $ Done ctx { stack = rest }
         step ctx@EvalCtx{ stack = (VI32 test:val2:val1:rest) } Select =
@@ -1175,12 +1181,12 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VI64 v:rest) } (FReinterpretI BS64) =
             return $ Done ctx { stack = VF64 (wordToDouble v) : rest }
         step EvalCtx{ stack } instr = error $ "Error during evaluation of instruction: " ++ show instr ++ ". Stack " ++ show stack
-eval _ HostInstance { funcType, hostCode } args = hostCode args
+eval _ HostInstance { funcType, hostCode } args = Just <$> hostCode args
 
-invoke :: Store -> Address -> [Value] -> IO [Value]
+invoke :: Store -> Address -> [Value] -> IO (Maybe [Value])
 invoke st funcIdx = eval st $ funcInstances st ! funcIdx
 
-invokeExport :: Store -> ModuleInstance -> TL.Text -> [Value] -> IO [Value]
+invokeExport :: Store -> ModuleInstance -> TL.Text -> [Value] -> IO (Maybe [Value])
 invokeExport st ModuleInstance { exports } name args =
     case Vector.find (\(ExportInstance n _) -> n == name) exports of
         Just (ExportInstance _ (ExternFunction addr)) -> invoke st addr args
