@@ -13,11 +13,11 @@
   * [x] Validation Phase: execute a verification procedure from the Spec
   * [x] Execution Phase: implement a simple interpreter
   * [x] Support extended Core Test Suit assertion grammar
+  * [X] Compile Core Tests to Tasty test cases and pass all tests
 
 ## Todo
   * [ ] Improve error messages for text representation parsing
   * [ ] Text Representation pretty-printer
-  * [ ] Compile Core Tests to Tasty test cases and pass all tests
   * [ ] Command line tool for calling interpreter/compiler/validator
   * [ ] Codegen interface for type enforced generating valid WASM code
 
