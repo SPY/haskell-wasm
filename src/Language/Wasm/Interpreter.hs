@@ -731,7 +731,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VI32 v:rest) } (I32Load MemArg { offset }) = do
             let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
             memory <- readIORef memoryRef
-            let addr = fromIntegral $ v + fromIntegral offset
+            let addr = fromIntegral v + fromIntegral offset
             let readByte idx = do
                     byte <- IOVector.read memory $ addr + idx
                     return $ fromIntegral byte `shiftL` (idx * 8)
@@ -743,7 +743,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VI32 v:rest) } (I64Load MemArg { offset }) = do
             let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
             memory <- readIORef memoryRef
-            let addr = fromIntegral $ v + fromIntegral offset
+            let addr = fromIntegral v + fromIntegral offset
             let readByte idx = do
                     byte <- IOVector.read memory $ addr + idx
                     return $ fromIntegral byte `shiftL` (idx * 8)
@@ -755,7 +755,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VI32 v:rest) } (F32Load MemArg { offset }) = do
             let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
             memory <- readIORef memoryRef
-            let addr = fromIntegral $ v + fromIntegral offset
+            let addr = fromIntegral v + fromIntegral offset
             let readByte idx = do
                     byte <- IOVector.read memory $ addr + idx
                     return $ fromIntegral byte `shiftL` (idx * 8)
@@ -767,7 +767,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VI32 v:rest) } (F64Load MemArg { offset }) = do
             let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
             memory <- readIORef memoryRef
-            let addr = fromIntegral $ v + fromIntegral offset
+            let addr = fromIntegral v + fromIntegral offset
             let readByte idx = do
                     byte <- IOVector.read memory $ addr + idx
                     return $ fromIntegral byte `shiftL` (idx * 8)
@@ -779,7 +779,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VI32 v:rest) } (I32Load8U MemArg { offset }) = do
             let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
             memory <- readIORef memoryRef
-            let addr = fromIntegral $ v + fromIntegral offset
+            let addr = fromIntegral v + fromIntegral offset
             if addr + 1 > IOVector.length memory
             then return Trap
             else do
@@ -788,7 +788,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VI32 v:rest) } (I32Load8S MemArg { offset }) = do
             let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
             memory <- readIORef memoryRef
-            let addr = fromIntegral $ v + fromIntegral offset
+            let addr = fromIntegral v + fromIntegral offset
             if addr + 4 > IOVector.length memory
             then return Trap
             else do
@@ -798,7 +798,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VI32 v:rest) } (I32Load16U MemArg { offset }) = do
             let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
             memory <- readIORef memoryRef
-            let addr = fromIntegral $ v + fromIntegral offset
+            let addr = fromIntegral v + fromIntegral offset
             let readByte idx = do
                     byte <- IOVector.read memory $ addr + idx
                     return $ fromIntegral byte `shiftL` (idx * 8)
@@ -810,7 +810,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VI32 v:rest) } (I32Load16S MemArg { offset }) = do
             let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
             memory <- readIORef memoryRef
-            let addr = fromIntegral $ v + fromIntegral offset
+            let addr = fromIntegral v + fromIntegral offset
             let readByte idx = do
                     byte <- IOVector.read memory $ addr + idx
                     return $ (fromIntegral byte :: Word32) `shiftL` (idx * 8)
@@ -823,7 +823,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VI32 v:rest) } (I64Load8U MemArg { offset }) = do
             let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
             memory <- readIORef memoryRef
-            let addr = fromIntegral $ v + fromIntegral offset
+            let addr = fromIntegral v + fromIntegral offset
             if addr + 1 > IOVector.length memory
             then return Trap
             else do
@@ -832,7 +832,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VI32 v:rest) } (I64Load8S MemArg { offset }) = do
             let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
             memory <- readIORef memoryRef
-            let addr = fromIntegral $ v + fromIntegral offset
+            let addr = fromIntegral v + fromIntegral offset
             if addr + 1 > IOVector.length memory
             then return Trap
             else do
@@ -842,7 +842,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VI32 v:rest) } (I64Load16U MemArg { offset }) = do
             let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
             memory <- readIORef memoryRef
-            let addr = fromIntegral $ v + fromIntegral offset
+            let addr = fromIntegral v + fromIntegral offset
             let readByte idx = do
                     byte <- IOVector.read memory $ addr + idx
                     return $ fromIntegral byte `shiftL` (idx * 8)
@@ -854,7 +854,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VI32 v:rest) } (I64Load16S MemArg { offset }) = do
             let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
             memory <- readIORef memoryRef
-            let addr = fromIntegral $ v + fromIntegral offset
+            let addr = fromIntegral v + fromIntegral offset
             let readByte idx = do
                     byte <- IOVector.read memory $ addr + idx
                     return $ (fromIntegral byte :: Word32) `shiftL` (idx * 8)
@@ -867,7 +867,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VI32 v:rest) } (I64Load32U MemArg { offset }) = do
             let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
             memory <- readIORef memoryRef
-            let addr = fromIntegral $ v + fromIntegral offset
+            let addr = fromIntegral v + fromIntegral offset
             let readByte idx = do
                     byte <- IOVector.read memory $ addr + idx
                     return $ fromIntegral byte `shiftL` (idx * 8)
@@ -879,7 +879,7 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VI32 v:rest) } (I64Load32S MemArg { offset }) = do
             let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
             memory <- readIORef memoryRef
-            let addr = fromIntegral $ v + fromIntegral offset
+            let addr = fromIntegral v + fromIntegral offset
             let readByte idx = do
                     byte <- IOVector.read memory $ addr + idx
                     return $ (fromIntegral byte :: Word32) `shiftL` (idx * 8)
