@@ -226,7 +226,15 @@ runScript onAssertFail script = do
             if isNothing result
             then return ()
             else onAssertFail ("Expected trap, but action returned " ++ show (fromJust result)) assert
-        -- runAssert st assert@(AssertTrap (Right moduleDef) failureString) =
+        runAssert st assert@(AssertTrap (Right moduleDef) failureString) =
+            let (_, m) = buildModule moduleDef in
+            case Validate.validate m of
+                Validate.Valid -> do
+                    res <- Interpreter.instantiate (store st) (buildImports st) m
+                    case res of
+                        Left "Start function terminated with trap" -> return ()
+                        _ -> onAssertFail ("Module linking should fail with trap during execution of a start function") assert
+                reason -> error $ "Module linking failed dut to invalid module with reason: " ++ show reason
         runAssert _ _ = return ()
 
         runCommand :: ScriptState -> Command -> IO ScriptState

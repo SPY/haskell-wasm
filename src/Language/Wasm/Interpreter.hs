@@ -678,11 +678,15 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
             let funcAddr = elements !? fromIntegral v
             case funcAddr of
                 Just (Just addr) -> do
-                    let args = params funcType
-                    res <- invoke store addr (zipWith checkValType args $ reverse $ take (length args) rest)
-                    case res of
-                        Just res -> return $ Done ctx { stack = reverse res ++ (drop (length args) rest) }
-                        Nothing -> return Trap
+                    let funInst = funcInstances store ! addr
+                    let args = params $ Language.Wasm.Interpreter.funcType funInst
+                    if length args > length rest
+                    then return Trap
+                    else do
+                        res <- eval store funInst (zipWith checkValType args $ reverse $ take (length args) rest)
+                        case res of
+                            Just res -> return $ Done ctx { stack = reverse res ++ (drop (length args) rest) }
+                            Nothing -> return Trap
                 _ -> return Trap
         step ctx@EvalCtx{ stack = (_:rest) } Drop = return $ Done ctx { stack = rest }
         step ctx@EvalCtx{ stack = (VI32 test:val2:val1:rest) } Select =
@@ -941,13 +945,21 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VI32 v2:VI32 v1:rest) } (IBinOp BS32 IMul) =
             return $ Done ctx { stack = VI32 (v1 * v2) : rest }
         step ctx@EvalCtx{ stack = (VI32 v2:VI32 v1:rest) } (IBinOp BS32 IDivU) =
-            return $ Done ctx { stack = VI32 (v1 `quot` v2) : rest }
+            if v2 == 0
+            then return Trap
+            else return $ Done ctx { stack = VI32 (v1 `quot` v2) : rest }
         step ctx@EvalCtx{ stack = (VI32 v2:VI32 v1:rest) } (IBinOp BS32 IDivS) =
-            return $ Done ctx { stack = VI32 (asWord32 $ asInt32 v1 `quot` asInt32 v2) : rest }
+            if v2 == 0 || (v1 == 0x80000000 && v2 == 0xFFFFFFFF)
+            then return Trap
+            else return $ Done ctx { stack = VI32 (asWord32 $ asInt32 v1 `quot` asInt32 v2) : rest }
         step ctx@EvalCtx{ stack = (VI32 v2:VI32 v1:rest) } (IBinOp BS32 IRemU) =
-            return $ Done ctx { stack = VI32 (v1 `rem` v2) : rest }
+            if v2 == 0
+            then return Trap
+            else return $ Done ctx { stack = VI32 (v1 `rem` v2) : rest }
         step ctx@EvalCtx{ stack = (VI32 v2:VI32 v1:rest) } (IBinOp BS32 IRemS) =
-            return $ Done ctx { stack = VI32 (asWord32 $ asInt32 v1 `rem` asInt32 v2) : rest }
+            if v2 == 0
+            then return Trap
+            else return $ Done ctx { stack = VI32 (asWord32 $ asInt32 v1 `rem` asInt32 v2) : rest }
         step ctx@EvalCtx{ stack = (VI32 v2:VI32 v1:rest) } (IBinOp BS32 IAnd) =
             return $ Done ctx { stack = VI32 (v1 .&. v2) : rest }
         step ctx@EvalCtx{ stack = (VI32 v2:VI32 v1:rest) } (IBinOp BS32 IOr) =
@@ -999,13 +1011,21 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack = (VI64 v2:VI64 v1:rest) } (IBinOp BS64 IMul) =
             return $ Done ctx { stack = VI64 (v1 * v2) : rest }
         step ctx@EvalCtx{ stack = (VI64 v2:VI64 v1:rest) } (IBinOp BS64 IDivU) =
-            return $ Done ctx { stack = VI64 (v1 `quot` v2) : rest }
+            if v2 == 0
+            then return Trap
+            else return $ Done ctx { stack = VI64 (v1 `quot` v2) : rest }
         step ctx@EvalCtx{ stack = (VI64 v2:VI64 v1:rest) } (IBinOp BS64 IDivS) =
-            return $ Done ctx { stack = VI64 (asWord64 $ asInt64 v1 `quot` asInt64 v2) : rest }
+            if v2 == 0 || (v1 == 0x8000000000000000 && v2 == 0xFFFFFFFFFFFFFFFF)
+            then return Trap
+            else return $ Done ctx { stack = VI64 (asWord64 $ asInt64 v1 `quot` asInt64 v2) : rest }
         step ctx@EvalCtx{ stack = (VI64 v2:VI64 v1:rest) } (IBinOp BS64 IRemU) =
-            return $ Done ctx { stack = VI64 (v1 `rem` v2) : rest }
+            if v2 == 0
+            then return Trap
+            else return $ Done ctx { stack = VI64 (v1 `rem` v2) : rest }
         step ctx@EvalCtx{ stack = (VI64 v2:VI64 v1:rest) } (IBinOp BS64 IRemS) =
-            return $ Done ctx { stack = VI64 (asWord64 $ asInt64 v1 `rem` asInt64 v2) : rest }
+            if v2 == 0
+            then return Trap
+            else return $ Done ctx { stack = VI64 (asWord64 $ asInt64 v1 `rem` asInt64 v2) : rest }
         step ctx@EvalCtx{ stack = (VI64 v2:VI64 v1:rest) } (IBinOp BS64 IAnd) =
             return $ Done ctx { stack = VI64 (v1 .&. v2) : rest }
         step ctx@EvalCtx{ stack = (VI64 v2:VI64 v1:rest) } (IBinOp BS64 IOr) =
