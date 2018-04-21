@@ -588,26 +588,28 @@ data EvalResult =
 
 eval :: Store -> FunctionInstance -> [Value] -> IO (Maybe [Value])
 eval store FunctionInstance { funcType, moduleInstance, code = Function { localTypes, body} } args = do
-    let checkedArgs = zipWith checkValType (params funcType) args
-    let initialContext = EvalCtx {
-            locals = Vector.fromList $ checkedArgs ++ map initLocal localTypes,
-            labels = [Label $ results funcType],
-            stack = []
-        }
-    res <- go initialContext body
-    case res of
-        Done ctx -> return $ Just $ reverse $ stack ctx
-        ReturnFn r -> return $ Just r
-        Break 0 r _ -> return $ Just $ reverse r
-        Break _ _ _ -> error "Break is out of range"
-        Trap -> return Nothing
+    case sequence $ zipWith checkValType (params funcType) args of
+        Just checkedArgs -> do
+            let initialContext = EvalCtx {
+                    locals = Vector.fromList $ checkedArgs ++ map initLocal localTypes,
+                    labels = [Label $ results funcType],
+                    stack = []
+                }
+            res <- go initialContext body
+            case res of
+                Done ctx -> return $ Just $ reverse $ stack ctx
+                ReturnFn r -> return $ Just r
+                Break 0 r _ -> return $ Just $ reverse r
+                Break _ _ _ -> error "Break is out of range"
+                Trap -> return Nothing
+        Nothing -> return Nothing
     where
-        checkValType :: ValueType -> Value -> Value
-        checkValType I32 (VI32 v) = VI32 v
-        checkValType I64 (VI64 v) = VI64 v
-        checkValType F32 (VF32 v) = VF32 v
-        checkValType F64 (VF64 v) = VF64 v
-        checkValType _   _        = error "Value types do not match provided value"
+        checkValType :: ValueType -> Value -> Maybe Value
+        checkValType I32 (VI32 v) = Just $ VI32 v
+        checkValType I64 (VI64 v) = Just $ VI64 v
+        checkValType F32 (VF32 v) = Just $ VF32 v
+        checkValType F64 (VF64 v) = Just $ VF64 v
+        checkValType _   _        = Nothing
 
         initLocal :: ValueType -> Value
         initLocal I32 = VI32 0
@@ -652,7 +654,9 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
         step ctx@EvalCtx{ stack, labels } (Br label) = do
             let idx = fromIntegral label
             let Label resType = labels !! idx
-            return $ Break idx (zipWith checkValType resType $ take (length resType) stack) ctx
+            case sequence $ zipWith checkValType resType $ take (length resType) stack of
+                Just result -> return $ Break idx result ctx
+                Nothing -> return Trap
         step ctx@EvalCtx{ stack = (VI32 v): rest } (BrIf label) =
             if v == 0
             then return $ Done ctx { stack = rest }
@@ -663,14 +667,19 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
             step ctx { stack = rest } (Br lbl)
         step EvalCtx{ stack } Return =
             let resType = results funcType in
-            return $ ReturnFn $ reverse $ zipWith checkValType resType $ take (length resType) stack
+            case sequence $ zipWith checkValType resType $ take (length resType) stack of
+                Just result -> return $ ReturnFn $ reverse result
+                Nothing -> return Trap
         step ctx (Call fun) = do
             let funInst = funcInstances store ! (funcaddrs moduleInstance ! fromIntegral fun)
             let ft = Language.Wasm.Interpreter.funcType funInst 
             let args = params ft
-            res <- eval store funInst (zipWith checkValType args $ reverse $ take (length args) $ stack ctx)
-            case res of
-                Just res -> return $ Done ctx { stack = reverse res ++ (drop (length args) $ stack ctx) }
+            case sequence $ zipWith checkValType args $ reverse $ take (length args) $ stack ctx of
+                Just params -> do
+                    res <- eval store funInst params
+                    case res of
+                        Just res -> return $ Done ctx { stack = reverse res ++ (drop (length args) $ stack ctx) }
+                        Nothing -> return Trap
                 Nothing -> return Trap
         step ctx@EvalCtx{ stack = (VI32 v): rest } (CallIndirect typeIdx) = do
             let funcType = funcTypes moduleInstance ! fromIntegral typeIdx
@@ -679,14 +688,20 @@ eval store FunctionInstance { funcType, moduleInstance, code = Function { localT
             case funcAddr of
                 Just (Just addr) -> do
                     let funInst = funcInstances store ! addr
-                    let args = params $ Language.Wasm.Interpreter.funcType funInst
-                    if length args > length rest
-                    then return Trap
-                    else do
-                        res <- eval store funInst (zipWith checkValType args $ reverse $ take (length args) rest)
-                        case res of
-                            Just res -> return $ Done ctx { stack = reverse res ++ (drop (length args) rest) }
+                    let targetType = Language.Wasm.Interpreter.funcType funInst
+                    if targetType == funcType
+                    then do
+                        let args = params targetType
+                        if length args > length rest
+                        then return Trap
+                        else case sequence $ zipWith checkValType args $ reverse $ take (length args) rest of
+                            Just params -> do
+                                res <- eval store funInst params
+                                case res of
+                                    Just res -> return $ Done ctx { stack = reverse res ++ (drop (length args) rest) }
+                                    Nothing -> return Trap
                             Nothing -> return Trap
+                    else return Trap
                 _ -> return Trap
         step ctx@EvalCtx{ stack = (_:rest) } Drop = return $ Done ctx { stack = rest }
         step ctx@EvalCtx{ stack = (VI32 test:val2:val1:rest) } Select =
