@@ -353,31 +353,7 @@ valtype :: { ValueType }
     | 'f32' { F32 }
     | 'f64' { F64 }
 
-labelidx :: { LabelIndex }
-    : u32 { Index $1 }
-    | ident { Named $1 }
-
-funcidx :: { FuncIndex }
-    : u32 { Index $1 }
-    | ident { Named $1 }
-
-typeidx :: { TypeIndex }
-    : u32 { Index $1 }
-    | ident { Named $1 }
-
-localidx :: { LocalIndex }
-    : u32 { Index $1 }
-    | ident { Named $1 }
-
-globalidx :: { GlobalIndex }
-    : u32 { Index $1 }
-    | ident { Named $1 }
-
-tableidx :: { TableIndex }
-    : u32 { Index $1 }
-    | ident { Named $1 }
-
-memidx :: { MemoryIndex }
+index :: { Index }
     : u32 { Index $1 }
     | ident { Named $1 }
 
@@ -424,22 +400,19 @@ plaininstr :: { PlainInstr }
     -- control instructions
     : 'unreachable'                  { Unreachable }
     | 'nop'                          { Nop }
-    | 'br' labelidx                  { Br $2 }
-    | 'br_if' labelidx               { BrIf $2 }
-    | 'br_table' rev_list1(labelidx) { BrTable (reverse $ tail $2) (head $2) }
+    | 'br' index                     { Br $2 }
+    | 'br_if' index                  { BrIf $2 }
+    | 'br_table' rev_list1(index)    { BrTable (reverse $ tail $2) (head $2) }
     | 'return'                       { Return }
-    | 'call' funcidx                 { Call $2 }
-    -- | 'call_indirect' typeuse        { CallIndirect $2 }
-    -- call_inderict has special case in folded form
-    -- parametric instructions
+    | 'call' index                   { Call $2 }
     | 'drop'                         { Drop }
     | 'select'                       { Select }
     -- variable instructions
-    | 'get_local' localidx           { GetLocal $2 }
-    | 'set_local' localidx           { SetLocal $2 }
-    | 'tee_local' localidx           { TeeLocal $2 }
-    | 'get_global' globalidx         { GetGlobal $2 }
-    | 'set_global' globalidx         { SetGlobal $2 }
+    | 'get_local' index              { GetLocal $2 }
+    | 'set_local' index              { SetLocal $2 }
+    | 'tee_local' index              { TeeLocal $2 }
+    | 'get_global' index             { GetGlobal $2 }
+    | 'set_global' index             { SetGlobal $2 }
     -- memory instructions
     | 'i32.load' memarg4             { I32Load $2 }
     | 'i64.load' memarg8             { I64Load $2 }
@@ -602,7 +575,7 @@ typeuse :: { TypeUse }
     | {- empty -} { AnonimousTypeUse $ FuncType [] [] }
 
 typeuse1 :: { TypeUse }
-    : 'type' typeidx ')' typedtypeuse { IndexedTypeUse $2 $4 }
+    : 'type' index ')' typedtypeuse { IndexedTypeUse $2 $4 }
     | paramsresultstypeuse { AnonimousTypeUse $1 }
 
 typedtypeuse :: { Maybe FuncType }
@@ -763,7 +736,7 @@ raw_call_indirect :: { [Instruction] }
     | {- empty -} { [PlainInstr $ CallIndirect $ AnonimousTypeUse $ FuncType [] []] }
 
 raw_call_indirect_typeuse :: { (TypeUse, [Instruction]) }
-    : 'type' typeidx ')' raw_call_indirect_functype {
+    : 'type' index ')' raw_call_indirect_functype {
         (IndexedTypeUse $2 $ fst $4, snd $4)
     }
     | raw_call_indirect_functype1 {
@@ -845,7 +818,7 @@ folded_call_indirect :: { [Instruction] }
     | '(' folded_call_indirect_typeuse { snd $2 ++ [PlainInstr $ CallIndirect $ fst $2] }
 
 folded_call_indirect_typeuse :: { (TypeUse, [Instruction]) }
-    : 'type' typeidx ')' folded_call_indirect_functype {
+    : 'type' index ')' folded_call_indirect_functype {
         (IndexedTypeUse $2 $ fst $4, snd $4)
     }
     | folded_call_indirect_functype1 {
@@ -907,7 +880,7 @@ import_typeuse_locals_body1 :: { Maybe Ident -> ModuleField }
     | typeuse_locals_body1 { MFFunc Nothing . $1 }
 
 typeuse_locals_body1 :: { Maybe Ident -> Function }
-    : 'type' typeidx ')' signature_locals_body {
+    : 'type' index ')' signature_locals_body {
         \i ->
             let (AnonimousTypeUse signature) = funcType $4 in
             let typeSign = if signature == emptyFuncType then Nothing else Just signature in
@@ -1025,7 +998,7 @@ table :: { [ModuleField] }
 
 limits_elemtype_elem :: { Maybe Ident -> [ModuleField] }
     : tabletype ')' { \ident -> [MFTable $ Table ident $1] }
-    | elemtype '(' 'elem' list(funcidx) ')' ')' {
+    | elemtype '(' 'elem' list(index) ')' ')' {
         \ident ->
             let funcsLen = fromIntegral $ length $4 in [
                 MFTable $ Table ident $ TableType (Limit funcsLen (Just funcsLen)) $1,
@@ -1045,16 +1018,16 @@ import_export_table :: { Maybe Ident -> [ModuleField] }
 -- TABLE END --
 
 exportdesc :: { ExportDesc }
-    : 'func' funcidx ')' { ExportFunc (Just $2) }
-    | 'table' tableidx ')' { ExportTable (Just $2) }
-    | 'memory' memidx ')' { ExportMemory (Just $2) }
-    | 'global' globalidx ')' { ExportGlobal (Just $2) }
+    : 'func' index ')' { ExportFunc (Just $2) }
+    | 'table' index ')' { ExportTable (Just $2) }
+    | 'memory' index ')' { ExportMemory (Just $2) }
+    | 'global' index ')' { ExportGlobal (Just $2) }
 
 export :: { Export }
     : 'export' name '(' exportdesc ')' { Export $2 $4 }
 
 start :: { StartFunction }
-    : 'start' funcidx ')' { StartFunction $2 }
+    : 'start' index ')' { StartFunction $2 }
 
 -- TODO: Spec from 09 Jan 2018 declares 'offset' keyword as mandatory,
 -- but collection of testcases omits 'offset' in this position
@@ -1064,10 +1037,10 @@ offsetexpr :: { [Instruction] }
     | foldedinstr1 { $1 }
 
 elemsegment :: { ElemSegment }
-    : 'elem' opt(tableidx) '(' offsetexpr list(funcidx) ')' { ElemSegment (fromMaybe (Index 0) $2) $4 $5 }
+    : 'elem' opt(index) '(' offsetexpr list(index) ')' { ElemSegment (fromMaybe (Index 0) $2) $4 $5 }
 
 datasegment :: { DataSegment }
-    : 'data' opt(memidx) '(' offsetexpr datastring ')' { DataSegment (fromMaybe (Index 0) $2) $4 $5 }
+    : 'data' opt(index) '(' offsetexpr datastring ')' { DataSegment (fromMaybe (Index 0) $2) $4 $5 }
 
 modulefield1_single :: { ModuleField }
     : typedef { MFType $1 }
