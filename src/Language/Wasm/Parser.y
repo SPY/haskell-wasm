@@ -795,19 +795,22 @@ folded_loop1 :: { Maybe Ident -> Instruction }
 
 folded_if_result :: { Maybe Ident -> [Instruction] }
     : 'result' valtype ')' '(' folded_then_else {
-        \ident -> [IfInstr ident [$2] (fst $5) (snd $5)]
+        \ident ->
+            let (pred, (trueBranch, falseBranch)) = $5 in
+            pred ++ [IfInstr ident [$2] trueBranch falseBranch]
     }
-    | 'result' valtype ')' '(' foldedinstr1 '(' folded_then_else {
-        \ident -> $5 ++ [IfInstr ident [$2] (fst $7) (snd $7)]
+    | folded_then_else {
+        \ident ->
+            let (pred, (trueBranch, falseBranch)) = $1 in
+            pred ++ [IfInstr ident [] trueBranch falseBranch]
     }
-    | folded_if { $1 }
 
-folded_if :: { Maybe Ident -> [Instruction] }
-    : folded_then_else { \ident -> [IfInstr ident [] (fst $1) (snd $1)] }
-    | foldedinstr1 '(' folded_then_else { \ident -> $1 ++ [IfInstr ident [] (fst $3) (snd $3)] }
-
-folded_then_else :: { ([Instruction], [Instruction]) }
-    : 'then' list(instruction) ')' folded_else { (concat $2, $4)}
+folded_then_else :: { ([Instruction], ([Instruction], [Instruction])) }
+    : 'then' list(instruction) ')' folded_else { ([], (concat $2, $4)) }
+    | foldedinstr1 '(' folded_then_else {
+        let (pred, branches) = $3 in
+        ($1 ++ pred, branches)
+    }
 
 folded_else :: { [Instruction] }
     : ')' { [] }
