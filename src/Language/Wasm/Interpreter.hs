@@ -226,21 +226,22 @@ data HostItem
 
 makeHostModule :: Store -> [(TL.Text, HostItem)] -> IO (Store, ModuleInstance)
 makeHostModule st items = do
-    let (st', inst') = makeHostFunctions st emptyModInstance
-    let (st'', inst'') = makeHostGlobals st' inst'
-    (st''', inst''') <- makeHostMems st'' inst''
-    makeHostTables st''' inst'''
+    (st, emptyModInstance)
+        |> makeHostFunctions
+        |> makeHostGlobals
+        |> makeHostMems
+        >>= makeHostTables
     where
-        hostFunctions :: [(TL.Text, HostItem)]
-        hostFunctions = filter isHostFunction items
+        (|>) = flip ($)
 
         isHostFunction :: (TL.Text, HostItem) -> Bool
         isHostFunction (_, (HostFunction _ _)) = True
         isHostFunction _ = False
 
-        makeHostFunctions :: Store -> ModuleInstance -> (Store, ModuleInstance)
-        makeHostFunctions st inst =
+        makeHostFunctions :: (Store, ModuleInstance) -> (Store, ModuleInstance)
+        makeHostFunctions (st, inst) =
             let funcLen = Vector.length $ funcInstances st in
+            let hostFunctions = filter isHostFunction items in
             let instances = map (\(_, (HostFunction t c)) -> HostInstance t c) hostFunctions in
             let types = map (\(_, (HostFunction t _)) -> t) hostFunctions in
             let exps = Vector.fromList $ zipWith (\(name, _) i -> ExportInstance name (ExternFunction i)) hostFunctions [funcLen..] in
@@ -252,17 +253,15 @@ makeHostModule st items = do
             in
             let st' = st { funcInstances = funcInstances st <> Vector.fromList instances } in
             (st', inst')
-        
-        hostGlobals :: [(TL.Text, HostItem)]
-        hostGlobals = filter isHostGlobal items
 
         isHostGlobal :: (TL.Text, HostItem) -> Bool
         isHostGlobal (_, (HostGlobal _)) = True
         isHostGlobal _ = False
         
-        makeHostGlobals :: Store -> ModuleInstance -> (Store, ModuleInstance)
-        makeHostGlobals st inst =
+        makeHostGlobals :: (Store, ModuleInstance) -> (Store, ModuleInstance)
+        makeHostGlobals (st, inst) =
             let globLen = Vector.length $ globalInstances st in
+            let hostGlobals = filter isHostGlobal items in
             let instances = map (\(_, (HostGlobal g)) -> g) hostGlobals in
             let exps = Vector.fromList $ zipWith (\(name, _) i -> ExportInstance name (ExternGlobal i)) hostGlobals [globLen..] in
             let inst' = inst {
@@ -273,16 +272,14 @@ makeHostModule st items = do
             let st' = st { globalInstances = globalInstances st <> Vector.fromList instances } in
             (st', inst')
 
-        hostMems :: [(TL.Text, HostItem)]
-        hostMems = filter isHostMem items
-
         isHostMem :: (TL.Text, HostItem) -> Bool
         isHostMem (_, (HostMemory _)) = True
         isHostMem _ = False
             
-        makeHostMems :: Store -> ModuleInstance -> IO (Store, ModuleInstance)
-        makeHostMems st inst = do
+        makeHostMems :: (Store, ModuleInstance) -> IO (Store, ModuleInstance)
+        makeHostMems (st, inst) = do
             let memLen = Vector.length $ memInstances st
+            let hostMems = filter isHostMem items
             instances <- allocMems $ map (\(_, (HostMemory lim)) -> Memory lim) hostMems
             let exps = Vector.fromList $ zipWith (\(name, _) i -> ExportInstance name (ExternMemory i)) hostMems [memLen..]
             let inst' = inst {
@@ -291,17 +288,15 @@ makeHostModule st items = do
                 }
             let st' = st { memInstances = memInstances st <> instances }
             return (st', inst')
-        
-        hostTables :: [(TL.Text, HostItem)]
-        hostTables = filter isHostTable items
 
         isHostTable :: (TL.Text, HostItem) -> Bool
         isHostTable (_, (HostTable _)) = True
         isHostTable _ = False
             
-        makeHostTables :: Store -> ModuleInstance -> IO (Store, ModuleInstance)
-        makeHostTables st inst = do
+        makeHostTables :: (Store, ModuleInstance) -> IO (Store, ModuleInstance)
+        makeHostTables (st, inst) = do
             let tableLen = Vector.length $ tableInstances st
+            let hostTables = filter isHostTable items
             let instances = allocTables $ map (\(_, (HostTable lim)) -> Table (TableType lim AnyFunc)) hostTables
             let exps = Vector.fromList $ zipWith (\(name, _) i -> ExportInstance name (ExternTable i)) hostTables [tableLen..]
             let inst' = inst {
@@ -512,9 +507,8 @@ initialize inst Module {elems, datas, start} store = do
             let last = from + length funcs
             let TableInstance lim elems = tableInstances st ! idx
             let len = Vector.length elems
-            if last > len
-            then throwError "elements segment does not fit"
-            else return (idx, from, funcs)
+            Monad.when (last > len) $ throwError "elements segment does not fit"
+            return (idx, from, funcs)
 
         initElem :: Store -> (Address, Int, [Address]) -> Initialize Store
         initElem st (idx, from, funcs) = do
@@ -531,9 +525,8 @@ initialize inst Module {elems, datas, start} store = do
             let MemoryInstance _ memory = memInstances st ! idx
             mem <- liftIO $ readIORef memory
             let len = IOVector.length mem
-            if last > len
-            then throwError "data segment does not fit"
-            else return (from, mem, chunk)
+            Monad.when (last > len) $ throwError "data segment does not fit"
+            return (from, mem, chunk)
         
         initData :: (Int, IOVector Word8, LBS.ByteString) -> Initialize ()
         initData (from, mem, chunk) =
@@ -605,7 +598,6 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
         go ctx [] = return $ Done ctx
         go ctx (instr:rest) = do
             res <- step ctx instr
-            -- case Debug.trace ("instr " ++ show instr ++ " --> " ++ show res) $ res of
             case res of
                 Done ctx' -> go ctx' rest
                 command -> return command
@@ -696,25 +688,22 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
         step ctx@EvalCtx{ stack = (VI32 v): rest } (CallIndirect typeIdx) = do
             let funcType = funcTypes moduleInstance ! fromIntegral typeIdx
             let TableInstance { elements } = tableInstances store ! (tableaddrs moduleInstance ! 0)
-            let funcAddr = elements !? fromIntegral v
-            case funcAddr of
-                Just (Just addr) -> do
-                    let funInst = funcInstances store ! addr
-                    let targetType = Language.Wasm.Interpreter.funcType funInst
-                    if targetType == funcType
-                    then do
-                        let args = params targetType
-                        if length args > length rest
-                        then return Trap
-                        else case sequence $ zipWith checkValType args $ reverse $ take (length args) rest of
-                            Just params -> do
-                                res <- eval (budget - 1) store funInst params
-                                case res of
-                                    Just res -> return $ Done ctx { stack = reverse res ++ (drop (length args) rest) }
-                                    Nothing -> return Trap
-                            Nothing -> return Trap
-                    else return Trap
-                _ -> return Trap
+            let checks = do
+                    addr <- Monad.join $ elements !? fromIntegral v
+                    let funcInst = funcInstances store ! addr
+                    let targetType = Language.Wasm.Interpreter.funcType funcInst
+                    Monad.guard $ targetType == funcType
+                    let args = params targetType
+                    Monad.guard $ length args <= length rest
+                    params <- sequence $ zipWith checkValType args $ reverse $ take (length args) rest
+                    return (funcInst, params)
+            case checks of
+                Just (funcInst, params) -> do
+                    res <- eval (budget - 1) store funcInst params
+                    case res of
+                        Just res -> return $ Done ctx { stack = reverse res ++ (drop (length params) rest) }
+                        Nothing -> return Trap
+                Nothing -> return Trap
         step ctx@EvalCtx{ stack = (_:rest) } Drop = return $ Done ctx { stack = rest }
         step ctx@EvalCtx{ stack = (VI32 test:val2:val1:rest) } Select =
             if test == 0
