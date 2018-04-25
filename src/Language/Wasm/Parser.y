@@ -627,7 +627,7 @@ memarg8 :: { MemArg }
 
 instruction :: { [Instruction] }
     : raw_instr { $1 }
-    | foldedinstr { $1 }
+    | folded_instr { $1 }
 
 raw_instr :: { [Instruction] }
     : plaininstr { [PlainInstr $1] }
@@ -658,7 +658,7 @@ raw_block1 :: { Maybe Ident -> Either String Instruction }
             then Right $ BlockInstr ident [$2] (concat $4)
             else Left "Block labels have to match"
     }
-    | foldedinstr1 list(instruction) 'end' opt(ident) {
+    | folded_instr1 list(instruction) 'end' opt(ident) {
         \ident ->
             if ident == $4 || isNothing $4
             then Right $ BlockInstr ident [] ($1 ++ concat $2)
@@ -687,7 +687,7 @@ raw_loop1 :: { Maybe Ident -> Either String Instruction }
             then Right $ LoopInstr ident [$2] (concat $4)
             else Left "Loop labels have to match"
     }
-    | foldedinstr1 list(instruction) 'end' opt(ident) {
+    | folded_instr1 list(instruction) 'end' opt(ident) {
         \ident ->
             if ident == $4 || isNothing $4
             then Right $ LoopInstr ident [] ($1 ++ concat $2)
@@ -716,7 +716,7 @@ raw_if_result1 :: { Maybe Ident -> Either String [Instruction] }
             then Right [IfInstr ident [$2] (concat $4) $ fst $5]
             else Left "If labels have to match"
     }
-    | foldedinstr1 list(instruction) raw_else {
+    | folded_instr1 list(instruction) raw_else {
         \ident ->
             if ident == (snd $3) || isNothing (snd $3)
             then Right [IfInstr ident [] ($1 ++ concat $2) $ fst $3]
@@ -763,13 +763,13 @@ raw_call_indirect_return_functype1 :: { (Maybe FuncType, [Instruction]) }
         let ft = fromMaybe emptyFuncType $ fst $4 in
         (Just $ ft { results = $2 ++ results ft }, snd $4)
     }
-    | foldedinstr1 { (Nothing, $1) }
+    | folded_instr1 { (Nothing, $1) }
 
-foldedinstr :: { [Instruction] }
-    : '(' foldedinstr1 { $2 }
+folded_instr :: { [Instruction] }
+    : '(' folded_instr1 { $2 }
 
-foldedinstr1 :: { [Instruction] }
-    : plaininstr list(foldedinstr) ')' { concat $2 ++ [PlainInstr $1] }
+folded_instr1 :: { [Instruction] }
+    : plaininstr list(folded_instr) ')' { concat $2 ++ [PlainInstr $1] }
     | 'call_indirect' folded_call_indirect { $2 }
     | 'block' opt(ident) folded_block { [$3 $2] }
     | 'loop' opt(ident) folded_loop { [$3 $2] }
@@ -782,7 +782,7 @@ folded_block :: { Maybe Ident -> Instruction }
 
 folded_block1 :: { Maybe Ident -> Instruction }
     : 'result' valtype ')' list(instruction) ')' { \ident -> BlockInstr ident [$2] (concat $4) }
-    | foldedinstr1 list(instruction) ')' { \ident -> BlockInstr ident [] ($1 ++ concat $2) }
+    | folded_instr1 list(instruction) ')' { \ident -> BlockInstr ident [] ($1 ++ concat $2) }
 
 folded_loop :: { Maybe Ident -> Instruction }
     : ')' { \ident -> LoopInstr ident [] [] }
@@ -791,7 +791,7 @@ folded_loop :: { Maybe Ident -> Instruction }
 
 folded_loop1 :: { Maybe Ident -> Instruction }
     : 'result' valtype ')' list(instruction) ')' { \ident -> LoopInstr ident [$2] (concat $4) }
-    | foldedinstr1 list(instruction) ')' { \ident -> LoopInstr ident [] ($1 ++ concat $2) }
+    | folded_instr1 list(instruction) ')' { \ident -> LoopInstr ident [] ($1 ++ concat $2) }
 
 folded_if_result :: { Maybe Ident -> [Instruction] }
     : 'result' valtype ')' '(' folded_then_else {
@@ -807,7 +807,7 @@ folded_if_result :: { Maybe Ident -> [Instruction] }
 
 folded_then_else :: { ([Instruction], ([Instruction], [Instruction])) }
     : 'then' list(instruction) ')' folded_else { ([], (concat $2, $4)) }
-    | foldedinstr1 '(' folded_then_else {
+    | folded_instr1 '(' folded_then_else {
         let (pred, branches) = $3 in
         ($1 ++ pred, branches)
     }
@@ -848,7 +848,7 @@ folded_call_indirect_return_functype1 :: { (Maybe FuncType, [Instruction]) }
         let ft = fromMaybe emptyFuncType $ fst $4 in
         (Just $ ft { results = $2 ++ results ft }, snd $4)
     }
-    | foldedinstr1 list(foldedinstr) ')' { (Nothing, $1 ++ concat $2) }
+    | folded_instr1 list(folded_instr) ')' { (Nothing, $1 ++ concat $2) }
 
 importdesc :: { ImportDesc }
     : 'func' opt(ident) typeuse ')' { ImportFunc $2 $3 }
@@ -925,7 +925,7 @@ locals_body :: { ([LocalType], [Instruction]) }
 locals_body1 :: { ([LocalType], [Instruction]) }
     : 'local' list(valtype) ')' locals_body { (map (LocalType Nothing) $2 ++ fst $4, snd $4) }
     | 'local' ident valtype ')' locals_body { (LocalType (Just $2) $3 : fst $5, snd $5) }
-    | foldedinstr1 list(instruction) ')' { ([], $1 ++ concat $2) }
+    | folded_instr1 list(instruction) ')' { ([], $1 ++ concat $2) }
 
 -- FUNCTION END --
 
@@ -1036,8 +1036,8 @@ start :: { StartFunction }
 -- but collection of testcases omits 'offset' in this position
 -- I am going to support both options for now, but maybe it has to be updated in future.
 offsetexpr :: { [Instruction] }
-    : 'offset' list(foldedinstr) ')' { concat $2 }
-    | foldedinstr1 { $1 }
+    : 'offset' list(folded_instr) ')' { concat $2 }
+    | folded_instr1 { $1 }
 
 elemsegment :: { ElemSegment }
     : 'elem' opt(index) '(' offsetexpr list(index) ')' { ElemSegment (fromMaybe (Index 0) $2) $4 $5 }
@@ -1094,11 +1094,11 @@ module1 :: { ModuleDef }
     | modulefield1 list(modulefield) {% RawModDef Nothing `fmap` (desugarize $ $1 ++ concat $2) }
 
 action1 :: { Action }
-    : 'invoke' opt(ident) string list(foldedinstr) ')' { Invoke $2 $3 (map (map constInstructionToValue) $4) }
+    : 'invoke' opt(ident) string list(folded_instr) ')' { Invoke $2 $3 (map (map constInstructionToValue) $4) }
     | 'get' opt(ident) string ')' { Get $2 $3 }
 
 assertion1 :: { Assertion }
-    : 'assert_return' '(' action1 list(foldedinstr) ')' { AssertReturn $3 (map (map constInstructionToValue) $4) }
+    : 'assert_return' '(' action1 list(folded_instr) ')' { AssertReturn $3 (map (map constInstructionToValue) $4) }
     | 'assert_return_canonical_nan' '(' action1 ')' { AssertReturnCanonicalNaN $3 }
     | 'assert_return_arithmetic_nan' '(' action1 ')' { AssertReturnArithmeticNaN $3 }
     | 'assert_trap' '(' assertion_trap string ')' { AssertTrap $3 $4 }
@@ -1152,9 +1152,6 @@ matchIdents Nothing _ = True
 matchIdents _ Nothing = True
 matchIdents a b = a == b
 
-asFloat32 :: Double -> Float
-asFloat32 v = doubleToFloat v
-
 asOffset :: LBS.ByteString -> Maybe Natural
 asOffset str = do
     num <- TL.stripPrefix "offset=" $ TLEncoding.decodeUtf8 str
@@ -1175,18 +1172,6 @@ parseMemArg defAlign optOffset optAlign = do
     if offset >= 2 ^ 32 || align >= 2 ^ 32
     then Left "u32 is out of boundaries"
     else return $ MemArg offset align
-
--- TODO: check name conditions.
--- Presuming the source text is itself encoded correctly,
--- strings that do not contain any uses of hexadecimal byte escapes are always valid names.
-asName :: LBS.ByteString -> Maybe TL.Text
-asName = Just . TLEncoding.decodeUtf8
-
-asString :: LBS.ByteString -> Maybe TL.Text
-asString bs =
-    case TLEncoding.decodeUtf8' bs of
-        Right t ->  Just t
-        Left err -> Nothing
 
 eitherToMaybe :: Either left right -> Maybe right
 eitherToMaybe = either (const Nothing) Just
