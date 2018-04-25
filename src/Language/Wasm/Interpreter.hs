@@ -330,7 +330,7 @@ emptyModInstance = ModuleInstance {
     exports = Vector.empty
 }
 
-calcInstance :: Store -> Imports -> Module -> Either String ModuleInstance
+calcInstance :: Store -> Imports -> Module -> Initialize ModuleInstance
 calcInstance (Store fs ts ms gs) imps Module {functions, types, tables, mems, globals, exports, imports} = do
     let funLen = length fs
     let tableLen = length ts
@@ -362,28 +362,28 @@ calcInstance (Store fs ts ms gs) imps Module {functions, types, tables, mems, gl
         exports = Vector.fromList $ map refExport exports
     }
     where
-        getImpIdx :: Import -> Either String ExternalValue
+        getImpIdx :: Import -> Initialize ExternalValue
         getImpIdx (Import m n _) =
             case Map.lookup (m, n) imps of
-                Just idx -> Right idx
-                Nothing -> Left $ "Cannot find import from module " ++ show m ++ " with name " ++ show n
+                Just idx -> return idx
+                Nothing -> throwError $ "Cannot find import from module " ++ show m ++ " with name " ++ show n
 
-        checkImportType :: Import -> Either String ExternalValue
+        checkImportType :: Import -> Initialize ExternalValue
         checkImportType imp@(Import _ _ (ImportFunc typeIdx)) = do
             idx <- getImpIdx imp
             funcAddr <- case idx of
-                ExternFunction funcAddr -> Right funcAddr
-                other -> Left "incompatible import type"
+                ExternFunction funcAddr -> return funcAddr
+                other -> throwError "incompatible import type"
             let expectedType = types !! fromIntegral typeIdx
             let actualType = Language.Wasm.Interpreter.funcType $ fs ! funcAddr
             if expectedType == actualType
-            then Right idx
-            else Left "incompatible import type"
+            then return idx
+            else throwError "incompatible import type"
         checkImportType imp@(Import _ _ (ImportGlobal globalType)) = do
-            let err = Left "incompatible import type"
+            let err = throwError "incompatible import type"
             idx <- getImpIdx imp
             globalAddr <- case idx of
-                ExternGlobal globalAddr -> Right globalAddr
+                ExternGlobal globalAddr -> return globalAddr
                 _ -> err
             let globalInst = gs ! globalAddr
             let vt = case globalType of
@@ -392,25 +392,25 @@ calcInstance (Store fs ts ms gs) imps Module {functions, types, tables, mems, gl
             let vt' = case globalInst of
                     GIConst vt _ -> vt
                     GIMut vt _ -> vt
-            if vt == vt' then Right idx else err
+            if vt == vt' then return idx else err
         checkImportType imp@(Import _ _ (ImportMemory limit)) = do
             idx <- getImpIdx imp
             memAddr <- case idx of
-                ExternMemory memAddr -> Right memAddr
-                _ -> Left "incompatible import type"
+                ExternMemory memAddr -> return memAddr
+                _ -> throwError "incompatible import type"
             let MemoryInstance { lim } = ms ! memAddr
             if limitMatch lim limit
-            then Right idx
-            else Left "incompatible import type"
+            then return idx
+            else throwError "incompatible import type"
         checkImportType imp@(Import _ _ (ImportTable (TableType limit _))) = do
             idx <- getImpIdx imp
             tableAddr <- case idx of
-                ExternTable tableAddr -> Right tableAddr
-                _ -> Left "incompatible import type"
+                ExternTable tableAddr -> return tableAddr
+                _ -> throwError "incompatible import type"
             let TableInstance { lim } = ts ! tableAddr
             if limitMatch lim limit
-            then Right idx
-            else Left "incompatible import type"
+            then return idx
+            else throwError "incompatible import type"
     
         limitMatch :: Limit -> Limit -> Bool
         limitMatch (Limit n1 m1) (Limit n2 m2) = n1 >= n2 && (isNothing m2 || fromMaybe False ((<=) <$> m1 <*> m2))
@@ -490,10 +490,10 @@ type Initialize = ExceptT String IO
 
 initialize :: ModuleInstance -> Module -> Store -> Initialize Store
 initialize inst Module {elems, datas, start} store = do
-    checkedMems <- Monad.foldM checkData store datas
-    checkedTables <- Monad.foldM checkElem checkedMems elems
-    storeWithTables <- Monad.foldM initElem checkedMems elems
-    st <- Monad.foldM initData storeWithTables datas
+    checkedMems <- mapM (checkData store) datas
+    checkedTables <- mapM (checkElem store) elems
+    mapM_ initData checkedMems
+    st <- Monad.foldM initElem store checkedTables
     case start of
         Just (StartFunction idx) -> do
             let funInst = funcInstances store ! (funcaddrs inst ! fromIntegral idx)
@@ -503,7 +503,7 @@ initialize inst Module {elems, datas, start} store = do
                 _ -> throwError "Start function terminated with trap"
         Nothing -> return st
     where
-        checkElem :: Store -> ElemSegment -> Initialize Store
+        checkElem :: Store -> ElemSegment -> Initialize (Address, Int, [Address])
         checkElem st ElemSegment {tableIndex, offset, funcIndexes} = do
             VI32 val <- liftIO $ evalConstExpr inst st offset
             let from = fromIntegral val
@@ -514,24 +514,15 @@ initialize inst Module {elems, datas, start} store = do
             let len = Vector.length elems
             if last > len
             then throwError "elements segment does not fit"
-            else return st
+            else return (idx, from, funcs)
 
-        initElem :: Store -> ElemSegment -> Initialize Store
-        initElem st ElemSegment {tableIndex, offset, funcIndexes} = do
-            VI32 val <- liftIO $ evalConstExpr inst st offset
-            let from = fromIntegral val
-            let funcs = map ((funcaddrs inst !) . fromIntegral) funcIndexes
-            let idx = tableaddrs inst ! fromIntegral tableIndex
-            let last = from + length funcs
+        initElem :: Store -> (Address, Int, [Address]) -> Initialize Store
+        initElem st (idx, from, funcs) = do
             let TableInstance lim elems = tableInstances st ! idx
-            let len = Vector.length elems
-            if last > len
-            then throwError "elements segment does not fit"
-            else do
-                let table = TableInstance lim (elems // zip [from..] (map Just funcs))
-                return st { tableInstances = tableInstances st Vector.// [(idx, table)] }
+            let table = TableInstance lim (elems // zip [from..] (map Just funcs))
+            return st { tableInstances = tableInstances st Vector.// [(idx, table)] }
 
-        checkData :: Store -> DataSegment -> Initialize Store
+        checkData :: Store -> DataSegment -> Initialize (Int, IOVector Word8, LBS.ByteString)
         checkData st DataSegment {memIndex, offset, chunk} = do
             VI32 val <- liftIO $ evalConstExpr inst st offset
             let from = fromIntegral val
@@ -542,35 +533,26 @@ initialize inst Module {elems, datas, start} store = do
             let len = IOVector.length mem
             if last > len
             then throwError "data segment does not fit"
-            else return st
-
-        initData :: Store -> DataSegment -> Initialize Store
-        initData st DataSegment {memIndex, offset, chunk} = do
-            VI32 val <- liftIO $ evalConstExpr inst st offset
-            let from = fromIntegral val
-            let idx = memaddrs inst ! fromIntegral memIndex
-            let last = from + (fromIntegral $ LBS.length chunk)
-            let MemoryInstance _ memory = memInstances st ! idx
-            mem <- liftIO $ readIORef memory
+            else return (from, mem, chunk)
+        
+        initData :: (Int, IOVector Word8, LBS.ByteString) -> Initialize ()
+        initData (from, mem, chunk) =
             mapM_ (\(i,b) -> IOVector.write mem i b) $ zip [from..] $ LBS.unpack chunk
-            return st
 
 instantiate :: Store -> Imports -> Module -> IO (Either String (ModuleInstance, Store))
-instantiate st imps m =
-    case calcInstance st imps m of
-        Left err -> return $ Left err
-        Right inst -> do
-            let functions = funcInstances st <> (allocFunctions inst $ Struct.functions m)
-            globals <- (globalInstances st <>) <$> (allocAndInitGlobals inst st $ Struct.globals m)
-            let tables = tableInstances st <> (allocTables $ Struct.tables m)
-            mems <- (memInstances st <>) <$> (allocMems $ Struct.mems m)
-            st' <- runExceptT $ initialize inst m $ st {
-                funcInstances = functions,
-                tableInstances = tables,
-                memInstances = mems,
-                globalInstances = globals
-            }
-            return $ (,) inst <$> st'
+instantiate st imps m = runExceptT $ do
+    inst <- calcInstance st imps m
+    let functions = funcInstances st <> (allocFunctions inst $ Struct.functions m)
+    globals <- liftIO $ (globalInstances st <>) <$> (allocAndInitGlobals inst st $ Struct.globals m)
+    let tables = tableInstances st <> (allocTables $ Struct.tables m)
+    mems <- liftIO $ (memInstances st <>) <$> (allocMems $ Struct.mems m)
+    st' <- initialize inst m $ st {
+        funcInstances = functions,
+        tableInstances = tables,
+        memInstances = mems,
+        globalInstances = globals
+    }
+    return $ (inst, st')
 
 type Stack = [Value]
 
