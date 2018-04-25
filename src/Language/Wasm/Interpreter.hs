@@ -644,6 +644,21 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
             else cont rest . sum <$> mapM readByte [0..byteWidth-1]
         makeLoadInstr _ _ _ _ = error "Incorrect value on top of stack for memory instruction"
 
+        makeStoreInstr :: (Bits i, Integral i) => EvalCtx -> Natural -> Int -> i -> IO EvalResult
+        makeStoreInstr ctx@EvalCtx{ stack = (VI32 va:rest) } offset byteWidth v = do
+            let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
+            memory <- readIORef memoryRef
+            let addr = fromIntegral $ va + fromIntegral offset
+            let writeByte idx = do
+                    let byte = fromIntegral $ v `shiftR` (idx * 8) .&. 0xFF
+                    IOVector.write memory (addr + idx) byte
+            if addr + byteWidth > IOVector.length memory
+            then return Trap
+            else do
+                mapM_ writeByte [0..byteWidth-1]
+                return $ Done ctx { stack = rest }
+        makeStoreInstr _ _ _ _ = error "Incorrect value on top of stack for memory instruction"
+
         step :: EvalCtx -> Instruction -> IO EvalResult
         step _ Unreachable = return Trap
         step ctx Nop = return $ Done ctx
@@ -784,116 +799,24 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
             makeLoadInstr ctx offset 4 $ (\rest val ->
                 let signed = asWord64 $ fromIntegral $ asInt32 val in
                 Done ctx { stack = VI64 signed : rest })
-        step ctx@EvalCtx{ stack = (VI32 v:VI32 va:rest) } (I32Store MemArg { offset }) = do
-            let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
-            memory <- readIORef memoryRef
-            let addr = fromIntegral $ va + fromIntegral offset
-            let writeByte idx = do
-                    let byte = fromIntegral $ v `shiftR` (idx * 8) .&. 0xFF
-                    IOVector.write memory (addr + idx) byte
-            if addr + 4 > IOVector.length memory
-            then return Trap
-            else do
-                mapM_ writeByte [0..3]
-                return $ Done ctx { stack = rest }
-        step ctx@EvalCtx{ stack = (VI64 v:VI32 va:rest) } (I64Store MemArg { offset }) = do
-            let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
-            memory <- readIORef memoryRef
-            let addr = fromIntegral $ va + fromIntegral offset
-            let writeByte idx = do
-                    let byte = fromIntegral $ v `shiftR` (idx * 8) .&. 0xFF
-                    IOVector.write memory (addr + idx) byte
-            if addr + 8 > IOVector.length memory
-            then return Trap
-            else do
-                mapM_ writeByte [0..7]
-                return $ Done ctx { stack = rest }
-        step ctx@EvalCtx{ stack = (VF32 f:VI32 va:rest) } (F32Store MemArg { offset }) = do
-            let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
-            memory <- readIORef memoryRef
-            let addr = fromIntegral $ va + fromIntegral offset
-            let v = floatToWord f
-            let writeByte idx = do
-                    let byte = fromIntegral $ v `shiftR` (idx * 8) .&. 0xFF
-                    IOVector.write memory (addr + idx) byte
-            if addr + 4 > IOVector.length memory
-            then return Trap
-            else do
-                mapM_ writeByte [0..3]
-                return $ Done ctx { stack = rest }
-        step ctx@EvalCtx{ stack = (VF64 f:VI32 va:rest) } (F64Store MemArg { offset }) = do
-            let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
-            memory <- readIORef memoryRef
-            let addr = fromIntegral $ va + fromIntegral offset
-            let v = doubleToWord f
-            let writeByte idx = do
-                    let byte = fromIntegral $ v `shiftR` (idx * 8) .&. 0xFF
-                    IOVector.write memory (addr + idx) byte
-            if addr + 8 > IOVector.length memory
-            then return Trap
-            else do
-                mapM_ writeByte [0..7]
-                return $ Done ctx { stack = rest }
-        step ctx@EvalCtx{ stack = (VI32 v:VI32 va:rest) } (I32Store8 MemArg { offset }) = do
-            let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
-            memory <- readIORef memoryRef
-            let addr = fromIntegral $ va + fromIntegral offset
-            let writeByte idx = do
-                    let byte = fromIntegral $ v `shiftR` (idx * 8) .&. 0xFF
-                    IOVector.write memory (addr + idx) byte
-            if addr + 1 > IOVector.length memory
-            then return Trap
-            else do
-                mapM_ writeByte [0]
-                return $ Done ctx { stack = rest }
-        step ctx@EvalCtx{ stack = (VI32 v:VI32 va:rest) } (I32Store16 MemArg { offset }) = do
-            let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
-            memory <- readIORef memoryRef
-            let addr = fromIntegral $ va + fromIntegral offset
-            let writeByte idx = do
-                    let byte = fromIntegral $ v `shiftR` (idx * 8) .&. 0xFF
-                    IOVector.write memory (addr + idx) byte
-            if addr + 2 > IOVector.length memory
-            then return Trap
-            else do
-                mapM_ writeByte [0, 1]
-                return $ Done ctx { stack = rest }
-        step ctx@EvalCtx{ stack = (VI64 v:VI32 va:rest) } (I64Store8 MemArg { offset }) = do
-            let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
-            memory <- readIORef memoryRef
-            let addr = fromIntegral $ va + fromIntegral offset
-            let writeByte idx = do
-                    let byte = fromIntegral $ v `shiftR` (idx * 8) .&. 0xFF
-                    IOVector.write memory (addr + idx) byte
-            if addr + 1 > IOVector.length memory
-            then return Trap
-            else do
-                mapM_ writeByte [0]
-                return $ Done ctx { stack = rest }
-        step ctx@EvalCtx{ stack = (VI64 v:VI32 va:rest) } (I64Store16 MemArg { offset }) = do
-            let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
-            memory <- readIORef memoryRef
-            let addr = fromIntegral $ va + fromIntegral offset
-            let writeByte idx = do
-                    let byte = fromIntegral $ v `shiftR` (idx * 8) .&. 0xFF
-                    IOVector.write memory (addr + idx) byte
-            if addr + 2 > IOVector.length memory
-            then return Trap
-            else do
-                mapM_ writeByte [0, 1]
-                return $ Done ctx { stack = rest }
-        step ctx@EvalCtx{ stack = (VI64 v:VI32 va:rest) } (I64Store32 MemArg { offset }) = do
-            let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
-            memory <- readIORef memoryRef
-            let addr = fromIntegral $ va + fromIntegral offset
-            let writeByte idx = do
-                    let byte = fromIntegral $ v `shiftR` (idx * 8) .&. 0xFF
-                    IOVector.write memory (addr + idx) byte
-            if addr + 4 > IOVector.length memory
-            then return Trap
-            else do
-                mapM_ writeByte [0..3]
-                return $ Done ctx { stack = rest }
+        step ctx@EvalCtx{ stack = (VI32 v:rest) } (I32Store MemArg { offset }) =
+            makeStoreInstr ctx { stack = rest } offset 4 v
+        step ctx@EvalCtx{ stack = (VI64 v:rest) } (I64Store MemArg { offset }) =
+            makeStoreInstr ctx { stack = rest } offset 8 v
+        step ctx@EvalCtx{ stack = (VF32 f:rest) } (F32Store MemArg { offset }) =
+            makeStoreInstr ctx { stack = rest } offset 4 $ floatToWord f
+        step ctx@EvalCtx{ stack = (VF64 f:rest) } (F64Store MemArg { offset }) =
+            makeStoreInstr ctx { stack = rest } offset 8 $ doubleToWord f
+        step ctx@EvalCtx{ stack = (VI32 v:rest) } (I32Store8 MemArg { offset }) =
+            makeStoreInstr ctx { stack = rest } offset 1 v
+        step ctx@EvalCtx{ stack = (VI32 v:rest) } (I32Store16 MemArg { offset }) =
+            makeStoreInstr ctx { stack = rest } offset 2 v
+        step ctx@EvalCtx{ stack = (VI64 v:rest) } (I64Store8 MemArg { offset }) =
+            makeStoreInstr ctx { stack = rest } offset 1 v
+        step ctx@EvalCtx{ stack = (VI64 v:rest) } (I64Store16 MemArg { offset }) =
+            makeStoreInstr ctx { stack = rest } offset 2 v
+        step ctx@EvalCtx{ stack = (VI64 v:rest) } (I64Store32 MemArg { offset }) =
+            makeStoreInstr ctx { stack = rest } offset 4 v
         step ctx@EvalCtx{ stack = st } CurrentMemory = do
             let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
             memory <- readIORef memoryRef
