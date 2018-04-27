@@ -857,30 +857,34 @@ importdesc :: { ImportDesc }
     | 'global' opt(ident) globaltype ')' { ImportGlobal $2 $3 }
 
 import :: { Import }
-    : 'import' name name '(' importdesc ')' { Import $2 $3 $5 }
+    : 'import' name name '(' importdesc ')' { Import [] $2 $3 $5 }
 
 -- FUNCTION --
-function :: { [ModuleField] }
+function :: { ModuleField }
     : 'func' opt(ident) export_import_typeuse_locals_body { $3 $2 }
 
-export_import_typeuse_locals_body :: { Maybe Ident -> [ModuleField] }
-    : ')' { \i -> [MFFunc Nothing $ emptyFunction { ident = i }] }
+export_import_typeuse_locals_body :: { Maybe Ident -> ModuleField }
+    : ')' { \i -> MFFunc emptyFunction { ident = i } }
     | raw_instr list(instruction) ')' {
-        \i -> [MFFunc Nothing $ emptyFunction { ident = i, body = $1 ++ concat $2 }]
+        \i -> MFFunc emptyFunction { ident = i, body = $1 ++ concat $2 }
     }
     | '(' export_import_typeuse_locals_body1 { $2 }
 
-export_import_typeuse_locals_body1 :: { Maybe Ident -> [ModuleField] }
+export_import_typeuse_locals_body1 :: { Maybe Ident -> ModuleField }
     : 'export' name ')' export_import_typeuse_locals_body {
-        \ident -> (MFExport $ Export $2 $ ExportFunc (Named `fmap` ident)) : ($4 ident)
+        \ident ->
+            case $4 ident of
+                MFImport imp -> MFImport imp { reExportAs = $2 : reExportAs imp }
+                MFFunc func -> MFFunc func { exportFuncAs = $2 : exportFuncAs func }
+                _ -> error "unexpected field"
     }
-    | import_typeuse_locals_body1 { \ident -> [$1 ident] }
+    | import_typeuse_locals_body1 { $1 }
 
 import_typeuse_locals_body1 :: { Maybe Ident -> ModuleField }
     : 'import' name name ')' typeuse ')' {
-        \ident -> MFImport $ Import $2 $3 $ ImportFunc ident $5
+        \ident -> MFImport $ Import [] $2 $3 $ ImportFunc ident $5
     }
-    | typeuse_locals_body1 { MFFunc Nothing . $1 }
+    | typeuse_locals_body1 { MFFunc . $1 }
 
 typeuse_locals_body1 :: { Maybe Ident -> Function }
     : 'type' index ')' signature_locals_body {
@@ -931,24 +935,28 @@ locals_body1 :: { ([LocalType], [Instruction]) }
 
 -- GLOBAL --
 
-global :: { [ModuleField] }
+global :: { ModuleField }
     : 'global' opt(ident) global_type_export_import { $3 $2 }
 
 globaltype :: { GlobalType }
     : valtype { Const $1 }
     | '(' 'mut' valtype ')' { Mut $3 }
 
-global_type_export_import :: { Maybe Ident -> [ModuleField] }
-    : valtype list(instruction) ')' { \ident -> [MFGlobal $ Global ident (Const $1) $ concat $2] }
+global_type_export_import :: { Maybe Ident -> ModuleField }
+    : valtype list(instruction) ')' { \ident -> MFGlobal $ Global [] ident (Const $1) $ concat $2 }
     | '(' global_mut_export_import { $2 }
 
-global_mut_export_import :: { Maybe Ident -> [ModuleField] }
-    : 'mut' valtype ')' list(instruction) ')' { \ident -> [MFGlobal $ Global ident (Mut $2) $ concat $4] }
+global_mut_export_import :: { Maybe Ident -> ModuleField }
+    : 'mut' valtype ')' list(instruction) ')' { \ident -> MFGlobal $ Global [] ident (Mut $2) $ concat $4 }
     | 'export' name ')' global_type_export_import {
-        \ident -> (MFExport $ Export $2 $ ExportGlobal $ Named `fmap` ident) : ($4 ident)
+        \ident ->
+            case $4 ident of
+                MFImport imp -> MFImport imp { reExportAs = $2 : reExportAs imp }
+                MFGlobal global -> MFGlobal global { exportGlobalAs = $2 : exportGlobalAs global }
+                _ -> error "unexpected field"
     }
     | 'import' name name ')' globaltype ')' {
-        \ident -> [MFImport $ Import $2 $3 $ ImportGlobal ident $5]
+        \ident -> MFImport $ Import [] $2 $3 $ ImportGlobal ident $5
     }
 
 -- GLOBAL END --
@@ -967,22 +975,26 @@ datastring :: { LBS.ByteString }
 
 memory_limits_export_import1 :: { Maybe Ident -> [ModuleField] }
     : 'export' name ')' memory_limits_export_import {
-        \ident -> (MFExport $ Export $2 $ ExportMemory $ Named `fmap` ident) : $4 ident
+        \ident ->
+            case $4 ident of
+                [MFImport imp] -> [MFImport imp { reExportAs = $2 : reExportAs imp }]
+                (MFMem (Memory exps i l)):rest -> (MFMem (Memory ($2:exps) i l)):rest
+                _ -> error "unexpected field"
     }
     | 'import' name name ')' limits ')' {
-        \ident -> [MFImport $ Import $2 $3 $ ImportMemory ident $5]
+        \ident -> [MFImport $ Import [] $2 $3 $ ImportMemory ident $5]
     }
     | 'data' datastring ')' ')' {
         \ident ->
             let m = fromIntegral $ LBS.length $2 in
             [
-                MFMem $ Memory ident $ Limit m $ Just m,
+                MFMem $ Memory [] ident $ Limit m $ Just m,
                 MFData $ DataSegment (fromMaybe (Index 0) $ Named `fmap` ident) [PlainInstr $ I32Const 0] $2
             ]
     }
 
 memory_limits :: { Maybe Ident -> [ModuleField] }
-    : limits ')' { \ident -> [MFMem $ Memory ident $1] }
+    : limits ')' { \ident -> [MFMem $ Memory [] ident $1] }
 
 -- MEMOTY END --
 
@@ -1000,11 +1012,11 @@ table :: { [ModuleField] }
     : 'table' opt(ident) limits_elemtype_elem { $3 $2 }
 
 limits_elemtype_elem :: { Maybe Ident -> [ModuleField] }
-    : tabletype ')' { \ident -> [MFTable $ Table ident $1] }
+    : tabletype ')' { \ident -> [MFTable $ Table [] ident $1] }
     | elemtype '(' 'elem' list(index) ')' ')' {
         \ident ->
             let funcsLen = fromIntegral $ length $4 in [
-                MFTable $ Table ident $ TableType (Limit funcsLen (Just funcsLen)) $1,
+                MFTable $ Table [] ident $ TableType (Limit funcsLen (Just funcsLen)) $1,
                 MFElem $ ElemSegment (fromMaybe (Index 0) $ Named `fmap` ident) [PlainInstr $ I32Const 0] $4
             ]
     }
@@ -1012,19 +1024,23 @@ limits_elemtype_elem :: { Maybe Ident -> [ModuleField] }
 
 import_export_table :: { Maybe Ident -> [ModuleField] }
     : 'import' name name ')' tabletype ')' {
-        \ident -> [MFImport $ Import $2 $3 $ ImportTable ident $5]
+        \ident -> [MFImport $ Import [] $2 $3 $ ImportTable ident $5]
     }
     | 'export' name ')' limits_elemtype_elem {
-        \ident -> (MFExport $ Export $2 $ ExportTable $ Named `fmap` ident) : ($4 ident)
+        \ident ->
+            case $4 ident of
+                [MFImport imp] -> [MFImport imp { reExportAs = $2 : reExportAs imp }]
+                (MFTable (Table exps i t)):rest -> (MFTable (Table ($2:exps) i t)):rest
+                _ -> error "unexpected field"
     }
 
 -- TABLE END --
 
 exportdesc :: { ExportDesc }
-    : 'func' index ')' { ExportFunc (Just $2) }
-    | 'table' index ')' { ExportTable (Just $2) }
-    | 'memory' index ')' { ExportMemory (Just $2) }
-    | 'global' index ')' { ExportGlobal (Just $2) }
+    : 'func' index ')' { ExportFunc $2 }
+    | 'table' index ')' { ExportTable $2 }
+    | 'memory' index ')' { ExportMemory $2 }
+    | 'global' index ')' { ExportGlobal $2 }
 
 export :: { Export }
     : 'export' name '(' exportdesc ')' { Export $2 $4 }
@@ -1052,12 +1068,12 @@ modulefield1_single :: { ModuleField }
     | start { MFStart $1 }
     | elemsegment { MFElem $1 }
     | datasegment { MFData $1 }
+    | function { $1 }
+    | global { $1 }
 
 modulefield1_multi :: { [ModuleField] }
-    : function { $1 }
-    | table { $1 }
+    : table { $1 }
     | memory { $1 }
-    | global { $1 }
 
 modulefield1 :: { [ModuleField] }
     : modulefield1_single { [$1] }
@@ -1309,6 +1325,7 @@ data Instruction =
     deriving (Show, Eq, Generic, NFData)
 
 data Import = Import {
+        reExportAs :: [TL.Text],
         sourceModule :: TL.Text,
         name :: TL.Text,
         desc :: ImportDesc
@@ -1327,6 +1344,7 @@ data LocalType = LocalType {
     } deriving (Show, Eq, Generic, NFData)
 
 data Function = Function {
+        exportFuncAs :: [TL.Text],
         ident :: Maybe Ident,
         funcType :: TypeUse,
         locals :: [LocalType],
@@ -1337,6 +1355,7 @@ data Function = Function {
 emptyFunction :: Function
 emptyFunction =
     Function {
+        exportFuncAs = [],
         ident = Nothing,
         funcType = AnonimousTypeUse emptyFuncType,
         locals = [],
@@ -1344,21 +1363,22 @@ emptyFunction =
     }
 
 data Global = Global {
+        exportGlobalAs :: [TL.Text],
         ident :: Maybe Ident,
         globalType :: GlobalType,
         initializer :: [Instruction]
     }
     deriving (Show, Eq, Generic, NFData)
 
-data Memory = Memory (Maybe Ident) Limit deriving (Show, Eq, Generic, NFData)
+data Memory = Memory [TL.Text] (Maybe Ident) Limit deriving (Show, Eq, Generic, NFData)
 
-data Table = Table (Maybe Ident) TableType deriving (Show, Eq, Generic, NFData)
+data Table = Table [TL.Text] (Maybe Ident) TableType deriving (Show, Eq, Generic, NFData)
 
 data ExportDesc =
-    ExportFunc (Maybe FuncIndex)
-    | ExportTable (Maybe TableIndex)
-    | ExportMemory (Maybe MemoryIndex)
-    | ExportGlobal (Maybe GlobalIndex)
+    ExportFunc FuncIndex
+    | ExportTable TableIndex
+    | ExportMemory MemoryIndex
+    | ExportGlobal GlobalIndex
     deriving (Show, Eq, Generic, NFData)
 
 data Export = Export {
@@ -1386,7 +1406,7 @@ data DataSegment = DataSegment {
 data ModuleField =
     MFType TypeDef
     | MFImport Import
-    | MFFunc (Maybe Int) Function
+    | MFFunc Function
     | MFTable Table
     | MFMem Memory
     | MFGlobal Global
@@ -1505,7 +1525,7 @@ desugarize fields = do
         S.mems = map synMemoryToStruct $ mems mod,
         S.globals = globs,
         S.start = fmap (synStartToStruct mod) $ start mod,
-        S.exports = synExportsToStruct mod $ appendIndexToFuncs fields
+        S.exports = synExportsToStruct mod $ extractExports mod fields
     }
     where
         -- utils
@@ -1533,7 +1553,7 @@ desugarize fields = do
                     if nonImportOccured
                     then Left "Import sections have to be before any definition"
                     else Right False
-                checkDef _ (MFFunc _ _) = return True
+                checkDef _ (MFFunc _) = return True
                 checkDef _ (MFGlobal _) = return True
                 checkDef _ (MFMem _) = return True
                 checkDef _ (MFTable _) = return True
@@ -1543,7 +1563,7 @@ desugarize fields = do
         extractTypeDef defs (MFType _) = defs -- should be extracted before implicit defs
         extractTypeDef defs (MFImport Import { desc = ImportFunc _ typeUse }) =
             matchTypeUse defs typeUse
-        extractTypeDef defs (MFFunc _ Function { funcType, body }) =
+        extractTypeDef defs (MFFunc Function { funcType, body }) =
             extractTypeDefFromInstructions (matchTypeUse defs funcType) body
         extractTypeDef defs (MFGlobal Global { initializer }) =
             extractTypeDefFromInstructions defs initializer
@@ -1598,15 +1618,15 @@ desugarize fields = do
         
         -- imports
         synImportToStruct :: [TypeDef] -> Import -> S.Import
-        synImportToStruct defs (Import mod name (ImportFunc _ typeUse)) =
+        synImportToStruct defs (Import _ mod name (ImportFunc _ typeUse)) =
             case getTypeIndex defs typeUse of
                 Just idx -> S.Import mod name $ S.ImportFunc idx
                 Nothing -> error $ "cannot find type index for function import: " ++ show typeUse
-        synImportToStruct _ (Import mod name (ImportTable _ tableType)) =
+        synImportToStruct _ (Import _ mod name (ImportTable _ tableType)) =
             S.Import mod name $ S.ImportTable tableType
-        synImportToStruct _ (Import mod name (ImportMemory _ limit)) =
+        synImportToStruct _ (Import _ mod name (ImportMemory _ limit)) =
             S.Import mod name $ S.ImportMemory limit
-        synImportToStruct _ (Import mod name (ImportGlobal _ globalType)) =
+        synImportToStruct _ (Import _ mod name (ImportGlobal _ globalType)) =
             S.Import mod name $ S.ImportGlobal globalType
 
         extractImport :: [Import] -> ModuleField -> [Import]
@@ -1746,7 +1766,7 @@ desugarize fields = do
             }
 
         extractFunction :: [Function] -> ModuleField -> [Function]
-        extractFunction funcs (MFFunc _ fun) = fun : funcs
+        extractFunction funcs (MFFunc fun) = fun : funcs
         extractFunction funcs _ = funcs
 
         getLabelIdx :: FunCtx -> LabelIndex -> Maybe Natural
@@ -1780,7 +1800,7 @@ desugarize fields = do
 
         -- tables
         synTableToStruct :: Table -> S.Table
-        synTableToStruct (Table _ tableType) = S.Table tableType
+        synTableToStruct (Table _ _ tableType) = S.Table tableType
 
         extractTable :: [Table] -> ModuleField -> [Table]
         extractTable tables (MFTable table) = table : tables
@@ -1796,13 +1816,13 @@ desugarize fields = do
             case findIndex (\(Import { desc = ImportTable ident _ }) -> ident == Just id) tableImports of
                 Just idx -> return $ fromIntegral idx
                 Nothing ->
-                    let isIdent (Table (Just id) _) = True in
+                    let isIdent (Table _ (Just id) _) = True in
                     fromIntegral . (+ length tableImports) <$> findIndex isIdent tables
         getTableIndex Module { imports, tables } (Index idx) = Just idx
 
         -- memory
         synMemoryToStruct :: Memory -> S.Memory
-        synMemoryToStruct (Memory _ limits) = S.Memory limits
+        synMemoryToStruct (Memory _ _ limits) = S.Memory limits
 
         extractMemory :: [Memory] -> ModuleField -> [Memory]
         extractMemory mems (MFMem mem) = mem : mems
@@ -1818,7 +1838,7 @@ desugarize fields = do
             case findIndex (\(Import { desc = ImportMemory ident _ }) -> ident == Just id) memImports of
                 Just idx -> return $ fromIntegral idx
                 Nothing ->
-                    let isIdent (Memory (Just id) _) = True in
+                    let isIdent (Memory _ (Just id) _) = True in
                     fromIntegral . (+ length memImports) <$> findIndex isIdent mems
         getMemIndex Module { imports, mems } (Index idx) = Just idx
 
@@ -1884,88 +1904,42 @@ desugarize fields = do
         extractStart' start _ = start
 
         -- exports
-        appendIndexToFuncs :: [ModuleField] -> [ModuleField]
-        appendIndexToFuncs mf = reverse $ snd $ foldl' appendIndexToFunc (0, []) mf
+        extractExports :: Module -> [ModuleField] -> [ModuleField]
+        extractExports mod mf =
+            let initial = (funcImportLength, globImportLength, memImportLength, tableImportLength, []) in
+            let (_, _, _, _, result) = foldl' extractExport initial mf in
+            reverse result
             where
-                appendIndexToFunc :: (Int, [ModuleField]) -> ModuleField -> (Int, [ModuleField])
-                appendIndexToFunc (idx, mf) (MFFunc _ fun) = (idx + 1, (MFFunc (Just idx) fun):mf)
-                appendIndexToFunc (idx, mf) f = (idx, f:mf)
+                funcImportLength = fromIntegral $ length $ filter isFuncImport $ imports mod
+                globImportLength = fromIntegral $ length $ filter isGlobalImport $ imports mod
+                memImportLength = fromIntegral $ length $ filter isMemImport $ imports mod
+                tableImportLength = fromIntegral $ length $ filter isTableImport $ imports mod
+
+                extractExport (fidx, gidx, midx, tidx, mf) (MFFunc fun@Function{ exportFuncAs }) =
+                    let exports = map (\name -> MFExport $ Export name $ ExportFunc $ Index fidx) exportFuncAs in
+                    (fidx + 1, gidx, midx, tidx, [MFFunc fun] ++ exports ++ mf)
+                extractExport (fidx, gidx, midx, tidx, mf) (MFGlobal glob@Global{ exportGlobalAs }) =
+                    let exports = map (\name -> MFExport $ Export name $ ExportGlobal $ Index gidx) exportGlobalAs in
+                    (fidx, gidx + 1, midx, tidx, [MFGlobal glob] ++ exports ++ mf)
+                extractExport (fidx, gidx, midx, tidx, mf) (MFMem (Memory exps i l)) =
+                    let exports = map (\name -> MFExport $ Export name $ ExportMemory $ Index midx) exps in
+                    (fidx, gidx, midx + 1, tidx, [MFMem (Memory exps i l)] ++ exports ++ mf)
+                extractExport (fidx, gidx, midx, tidx, mf) (MFTable (Table exps i t)) =
+                    let exports = map (\name -> MFExport $ Export name $ ExportTable $ Index tidx) exps in
+                    (fidx, gidx, midx, tidx + 1, [MFTable (Table exps i t)] ++ exports ++ mf)
+                extractExport (fidx, gidx, midx, tidx, mf) f = (fidx, gidx, midx, tidx, f:mf)
  
         synExportsToStruct :: Module -> [ModuleField] -> [S.Export]
-        synExportsToStruct mod (MFExport Export { name, desc = ExportFunc Nothing } : rest) =
-            let
-                isFuncExport (MFExport Export { desc = ExportFunc Nothing }) = True
-                isFuncExport _ = False
-            in
-            let getName (MFExport Export { name }) = name in
-            let names = name : (map getName $ takeWhile isFuncExport rest) in
-            let funImports = filter isFuncImport $ imports mod in
-            let rest' =  dropWhile isFuncExport rest in
-            let 
-                idx = fromIntegral $ case head rest' of
-                    MFImport imp -> fromJust $ findIndex (== imp) funImports
-                    MFFunc (Just idx) fun -> length funImports + idx
-                    _ -> error "export statement without index has to be followed with import or function"
-            in
-            map (\name -> S.Export name $ S.ExportFunc idx) names ++ synExportsToStruct mod rest'
-        synExportsToStruct mod (MFExport Export { name, desc = ExportFunc (Just idx) } : rest) =
+        synExportsToStruct mod (MFExport Export { name, desc = ExportFunc idx } : rest) =
             let exp = S.Export name $ S.ExportFunc $ fromJust $ getFuncIndex mod idx in
             exp : synExportsToStruct mod rest
-        synExportsToStruct mod (MFExport Export { name, desc = ExportTable Nothing } : rest) =
-            let
-                isTableExport (MFExport Export { desc = ExportTable Nothing }) = True
-                isTableExport _ = False
-            in
-            let getName (MFExport Export { name }) = name in
-            let names = name : (map getName $ takeWhile isTableExport rest) in
-            let tableImports = filter isTableImport $ imports mod in
-            let rest' =  dropWhile isTableExport rest in
-            let 
-                idx = fromIntegral $ case head rest' of
-                    MFImport imp -> fromJust $ findIndex (== imp) tableImports
-                    MFTable tab -> length tableImports + (fromJust $ findIndex (== tab) $ tables mod)
-                    _ -> error "export statement without index has to be followed with import or table"
-            in
-            map (\name -> S.Export name $ S.ExportTable idx) names ++ synExportsToStruct mod rest'
-        synExportsToStruct mod (MFExport Export { name, desc = ExportTable (Just idx) } : rest) =
+        synExportsToStruct mod (MFExport Export { name, desc = ExportTable idx } : rest) =
             let exp = S.Export name $ S.ExportTable $ fromJust $ getTableIndex mod idx in
             exp : synExportsToStruct mod rest
-        synExportsToStruct mod (MFExport Export { name, desc = ExportMemory Nothing } : rest) =
-            let
-                isMemExport (MFExport Export { desc = ExportMemory Nothing }) = True
-                isMemExport _ = False
-            in
-            let getName (MFExport Export { name }) = name in
-            let names = name : (map getName $ takeWhile isMemExport rest) in
-            let memImports = filter isMemImport $ imports mod in
-            let rest' =  dropWhile isMemExport rest in
-            let 
-                idx = fromIntegral $ case head rest' of
-                    MFImport imp -> fromJust $ findIndex (== imp) memImports
-                    MFMem mem -> length memImports + (fromJust $ findIndex (== mem) $ mems mod)
-                    _ -> error "export statement without index has to be followed with import or memory"
-            in
-            map (\name -> S.Export name $ S.ExportMemory idx) names ++ synExportsToStruct mod rest'
-        synExportsToStruct mod (MFExport Export { name, desc = ExportMemory (Just idx) } : rest) =
+        synExportsToStruct mod (MFExport Export { name, desc = ExportMemory idx } : rest) =
             let exp = S.Export name $ S.ExportMemory $ fromJust $ getMemIndex mod idx in
             exp : synExportsToStruct mod rest
-        synExportsToStruct mod (MFExport Export { name, desc = ExportGlobal Nothing } : rest) =
-            let
-                isGlobalExport (MFExport Export { desc = ExportGlobal Nothing }) = True
-                isGlobalExport _ = False
-            in
-            let getName (MFExport Export { name }) = name in
-            let names = name : (map getName $ takeWhile isGlobalExport rest) in
-            let globalImports = filter isGlobalImport $ imports mod in
-            let rest' =  dropWhile isGlobalExport rest in
-            let 
-                idx = fromIntegral $ case head rest' of
-                    MFImport imp -> fromJust $ findIndex (== imp) globalImports
-                    MFGlobal global -> length globalImports + (fromJust $ findIndex (== global) $ globals mod)
-                    _ -> error "export statement without index has to be followed with import or memory"
-            in
-            map (\name -> S.Export name $ S.ExportGlobal idx) names ++ synExportsToStruct mod rest'
-        synExportsToStruct mod (MFExport Export { name, desc = ExportGlobal (Just idx) } : rest) =
+        synExportsToStruct mod (MFExport Export { name, desc = ExportGlobal idx } : rest) =
             let exp = S.Export name $ S.ExportGlobal $ fromJust $ getGlobalIndex mod idx in
             exp : synExportsToStruct mod rest
         synExportsToStruct mod (_ : rest) = synExportsToStruct mod rest
