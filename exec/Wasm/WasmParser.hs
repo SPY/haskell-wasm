@@ -3,6 +3,13 @@ module Wasm.WasmParser where
 import Options.Applicative
 import Data.Semigroup ((<>))
 
+data WasmFileFormat = WasmText | WasmBinary | WasmScript deriving (Read, Show)
+
+instance Read WasmFileFormat where
+    readsPrec _ ("WAT":xs) = [ (WasmText, xs) ]
+    readsPrec _ ("WAST":xs) = [ (WasmScript, xs) ]
+    readsPrec _ ("WASM":xs) = [ (WasmBinary, xs) ]
+
 data WasmParser = WasmParser
   { hello      :: String
   , quiet      :: Bool
