@@ -34,7 +34,7 @@ library:
 executables:
   wasm:
     source-dirs: exec
-    main: Wasm.hs
+    main: Main.hs
     dependencies: 
     - wasm == 0.1.0
     - base
