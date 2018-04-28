@@ -31,6 +31,15 @@ library:
   - containers           >= 0.5  && <0.6
   - utf8-string          >= 1.0
 
+executables:
+  wasm:
+    source-dirs: exec
+    main: Wasm.hs
+    dependencies: 
+    - wasm == 0.1.0
+    - base
+    - optparse-applicative
+
 tests:
   test:
     main: Test.hs
