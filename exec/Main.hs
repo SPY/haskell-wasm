@@ -11,6 +11,8 @@ import Options.Applicative
 import Data.Semigroup ((<>))
 import Wasm.WasmParser
 
+import Data.Maybe (fromMaybe)
+
 data OutputMode = WasmBinary | JSWrapper deriving (Show, Eq)
 
 data WasmConfig = WasmConfig {
@@ -28,15 +30,22 @@ compile input output = do
     Left reason ->
       putStrLn $ "Cannot complie module: " ++ reason
 
-
 main :: IO ()
-main = parseArgs =<< execParser opts
-  where
-    opts = info (sample <**> helper)
-      ( fullDesc
-     <> progDesc "Print a greeting for TARGET"
-     <> header "hello - a test for optparse-applicative" )
+main = do
+     config <- execParser opts
+     process config
+   where
+     opts = info (sample <**> helper)
+       ( fullDesc
+      <> progDesc "Haskell WebAssembly Toolkit"
+      <> header "Compile WebAssembly code into binary" )
 
-parseArgs :: WasmParser -> IO ()
-parseArgs (WasmParser h False n) = putStrLn $ "Hello, " ++ h ++ replicate n '!'
-parseArgs _ = return ()
+process :: WasmParser -> IO ()
+
+process (WasmParser (Just output) input) =
+  compile input output
+
+process (WasmParser Nothing input) =
+  compile input "out.wasm"
+
+process _ = return ()

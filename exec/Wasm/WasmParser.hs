@@ -3,31 +3,23 @@ module Wasm.WasmParser where
 import Options.Applicative
 import Data.Semigroup ((<>))
 
-data WasmFileFormat = WasmText | WasmBinary | WasmScript deriving (Read, Show)
-
-instance Read WasmFileFormat where
-    readsPrec _ ("WAT":xs) = [ (WasmText, xs) ]
-    readsPrec _ ("WAST":xs) = [ (WasmScript, xs) ]
-    readsPrec _ ("WASM":xs) = [ (WasmBinary, xs) ]
+--data WasmFileFormat = WasmText | WasmBinary | WasmScript deriving (Read, Show)
+--
+--instance Read WasmFileFormat where
+--    readsPrec _ ("WAT":xs) = [ (WasmText, xs) ]
+--    readsPrec _ ("WAST":xs) = [ (WasmScript, xs) ]
+--    readsPrec _ ("WASM":xs) = [ (WasmBinary, xs) ]
 
 data WasmParser = WasmParser
-  { hello      :: String
-  , quiet      :: Bool
-  , enthusiasm :: Int }
+  { output     :: Maybe String
+  , input      :: String }
 
 sample :: Parser WasmParser
 sample = WasmParser
-      <$> strOption
-          ( long "hello"
-         <> metavar "TARGET"
-         <> help "Target for the greeting" )
-      <*> switch
-          ( long "quiet"
-         <> short 'q'
-         <> help "Whether to be quiet" )
-      <*> option auto
-          ( long "enthusiasm"
-         <> help "How enthusiastically to greet"
-         <> showDefault
-         <> value 1
-         <> metavar "INT" )
+      <$> option (maybeReader (Just . Just))
+          ( long "output"
+         <> short 'o'
+         <> metavar "OUTPUT_FILE"
+         <> help "Output filename"
+         <> value Nothing )
+      <*> argument str (metavar "INPUT_FILE")
