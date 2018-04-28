@@ -7,6 +7,10 @@ import qualified Language.Wasm.Lexer as Lexer
 import qualified Language.Wasm.Parser as Parser
 import qualified Language.Wasm.Binary as Binary
 
+import Options.Applicative
+import Data.Semigroup ((<>))
+import Wasm.WasmParser
+
 data OutputMode = WasmBinary | JSWrapper deriving (Show, Eq)
 
 data WasmConfig = WasmConfig {
@@ -24,6 +28,15 @@ compile input output = do
     Left reason ->
       putStrLn $ "Cannot complie module: " ++ reason
 
+
 main :: IO ()
-main = do
-    putStrLn "There is no WASM!"
+main = parseArgs =<< execParser opts
+  where
+    opts = info (sample <**> helper)
+      ( fullDesc
+     <> progDesc "Print a greeting for TARGET"
+     <> header "hello - a test for optparse-applicative" )
+
+parseArgs :: WasmParser -> IO ()
+parseArgs (WasmParser h False n) = putStrLn $ "Hello, " ++ h ++ replicate n '!'
+parseArgs _ = return ()
