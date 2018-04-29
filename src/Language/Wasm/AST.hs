@@ -2,11 +2,9 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE RankNTypes #-}
 
 module Language.Wasm.AST (
 
@@ -75,6 +73,10 @@ type family LabelAsArgs (label :: Maybe ValueType) :: [VType] where
     LabelAsArgs (Just val) = '[Val val]
     LabelAsArgs Nothing = '[]
 
+type family AsVType (values :: [ValueType]) :: [VType] where
+    AsVType (v : vs) = Val v : AsVType vs
+    AsVType '[] = '[]
+
 class KnownNats ns where
     natVals :: Proxy ns -> [Integer]
 
@@ -87,70 +89,104 @@ instance (KnownNat n, KnownNats ns) => KnownNats (n : ns) where
             dup :: Proxy (n : ns) -> (Proxy n, Proxy ns)
             dup _ = (Proxy, Proxy)
 
-data InstrSeq (stack :: [VType]) (locals :: [VType]) (globals :: [GlobalType]) (labels :: [Maybe ValueType]) where
-    Empty :: InstrSeq '[] locals globals labels
-    Unreachable :: InstrSeq stack locals globals labels -> InstrSeq '[Any] locals globals labels
-    Nop :: InstrSeq stack locals globals labels -> InstrSeq stack locals globals labels
+data Ctx (locals :: [VType]) (globals :: [GlobalType]) (labels :: [Maybe ValueType]) (returns :: [ValueType])
+
+type family GetLocals ctx :: [VType] where
+    GetLocals (Ctx locals globals labels returns) = locals
+
+type family GetGlobals ctx :: [GlobalType] where
+    GetGlobals (Ctx locals globals labels returns) = globals
+
+type family GetLabels ctx :: [Maybe ValueType] where
+    GetLabels (Ctx locals globals labels returns) = labels
+
+type family WithLabel ctx (label :: Maybe ValueType) where
+    WithLabel (Ctx locals globals labels returns) label = Ctx locals globals (label : labels) returns
+
+type family GetReturns ctx :: [ValueType] where
+    GetReturns (Ctx locals globals labels returns) = returns
+
+data InstrSeq (stack :: [VType]) ctx where
+    Empty :: InstrSeq '[] ctx
+    Unreachable :: InstrSeq stack ctx -> InstrSeq '[Any] ctx
+    Nop :: InstrSeq stack ctx -> InstrSeq stack ctx
     Block :: (IsLabelMatch label result ~ True) =>
-        InstrSeq result locals globals (label : labels) ->
-        InstrSeq stack locals globals labels ->
-        InstrSeq (result :++ stack) locals globals labels
+        Proxy (label :: Maybe ValueType) ->
+        InstrSeq result (WithLabel ctx label) ->
+        InstrSeq stack ctx ->
+        InstrSeq (result :++ stack) ctx
     Loop :: (IsLabelMatch label result ~ True) =>
-        InstrSeq result locals globals (label : labels) ->
-        InstrSeq stack locals globals labels ->
-        InstrSeq (result :++ stack) locals globals labels
+        Proxy (label :: Maybe ValueType) ->
+        InstrSeq result (WithLabel ctx label) ->
+        InstrSeq stack ctx ->
+        InstrSeq (result :++ stack) ctx
     If :: (IsLabelMatch label result ~ True, MatchStack '[Val I32] stack ~ True) =>
-        InstrSeq result locals globals (label : labels) ->
-        InstrSeq result locals globals (label : labels) ->
-        InstrSeq stack locals globals labels ->
-        InstrSeq (Consume '[Val I32] stack result) locals globals labels
-    Br :: (KnownNat label, MatchStack (LabelAsArgs (labels :!! label)) stack ~ True) =>
+        Proxy (label :: Maybe ValueType) ->
+        InstrSeq result (WithLabel ctx label) ->
+        InstrSeq result (WithLabel ctx label) ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32] stack result) ctx
+    Br :: (KnownNat label, MatchStack (LabelAsArgs ((GetLabels ctx) :!! label)) stack ~ True) =>
         Proxy label ->
-        InstrSeq stack locals globals lables ->
-        InstrSeq '[Any] locals globals labels
-    BrIf :: (KnownNat label, MatchStack ((LabelAsArgs (labels :!! label)) :++ '[Val I32]) stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq '[Any] ctx
+    BrIf :: (KnownNat label, MatchStack ((LabelAsArgs ((GetLabels ctx) :!! label)) :++ '[Val I32]) stack ~ True) =>
         Proxy label ->
-        InstrSeq stack locals globals lables ->
-        InstrSeq (Consume ((LabelAsArgs (labels :!! label)) :++ '[Val I32]) stack (LabelAsArgs (labels :!! label))) locals globals labels
-    BrTable :: (KnownNat defaultLabel, KnownNats localLabels, MatchStack ((LabelAsArgs (labels :!! defaultLabel)) :++ '[Val I32]) stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume ((LabelAsArgs ((GetLabels ctx) :!! label)) :++ '[Val I32]) stack (LabelAsArgs ((GetLabels ctx) :!! label))) ctx
+    BrTable :: (
+            KnownNat defaultLabel,
+            KnownNats localLabels,
+            MatchStack ((LabelAsArgs ((GetLabels ctx) :!! defaultLabel)) :++ '[Val I32]) stack ~ True
+        ) =>
         Proxy (localLabels :: [Nat]) ->
         Proxy defaultLabel ->
-        InstrSeq stack locals globals lables ->
-        InstrSeq (Consume ((LabelAsArgs (labels :!! defaultLabel)) :++ '[Val I32]) stack '[Any]) locals globals labels
-    Drop :: InstrSeq (any : stack) locals globals labels -> InstrSeq stack locals globals labels
+        InstrSeq stack ctx ->
+        InstrSeq (Consume ((LabelAsArgs ((GetLabels ctx) :!! defaultLabel)) :++ '[Val I32]) stack '[Any]) ctx
+    Return :: (MatchStack (AsVType (GetReturns ctx)) stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume (AsVType (GetReturns ctx)) stack '[Any]) ctx
+    -- Call :: (MatchStack (AsVType returns) stack ~ True) =>
+    --     Proxy function ->
+    --     InstrSeq stack locals globals lables returns ->
+    Drop :: InstrSeq (any : stack) ctx -> InstrSeq stack ctx
     Select :: (MatchStack '[Var, Var, Val I32] stack ~ True) =>
-        InstrSeq stack locals globals labels ->
-        InstrSeq (Consume '[Var, Var, Val I32] stack '[Var]) locals globals labels
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Var, Var, Val I32] stack '[Var]) ctx
     GetLocal :: (KnownNat local) =>
         Proxy local ->
-        InstrSeq stack locals globals labels ->
-        InstrSeq ((locals :!! local) : stack) locals globals labels
-    SetLocal :: (KnownNat local, MatchStack '[locals :!! local] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (((GetLocals ctx) :!! local) : stack) ctx
+    SetLocal :: (KnownNat local, MatchStack '[(GetLocals ctx) :!! local] stack ~ True) =>
         Proxy local ->
-        InstrSeq stack locals globals labels ->
-        InstrSeq (Consume '[locals :!! local] stack '[]) locals globals labels
-    TeeLocal :: (KnownNat local, MatchStack '[locals :!! local] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[(GetLocals ctx) :!! local] stack '[]) ctx
+    TeeLocal :: (KnownNat local, MatchStack '[(GetLocals ctx) :!! local] stack ~ True) =>
         Proxy local ->
-        InstrSeq stack locals globals labels ->
-        InstrSeq (Consume '[locals :!! local] stack '[locals :!! local]) locals globals labels
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[(GetLocals ctx) :!! local] stack '[(GetLocals ctx) :!! local]) ctx
     GetGlobal :: (KnownNat global) =>
         Proxy global ->
-        InstrSeq stack locals globals labels ->
-        InstrSeq ((GetGlobalType (globals :!! global)) : stack) locals globals labels
-    SetGlobal :: (KnownNat global, MatchStack '[GetGlobalType (globals :!! global)] stack ~ True, IsMutable (globals :!! global) ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq ((GetGlobalType ((GetGlobals ctx) :!! global)) : stack) ctx
+    SetGlobal :: (
+            KnownNat global,
+            MatchStack '[GetGlobalType ((GetGlobals ctx) :!! global)] stack ~ True,
+            IsMutable ((GetGlobals ctx) :!! global) ~ True
+        ) =>
         Proxy global ->
-        InstrSeq stack locals globals labels ->
-        InstrSeq (Consume '[GetGlobalType (globals :!! global)] stack '[]) locals globals labels
-    I32Const :: InstrSeq stack locals globals labels -> InstrSeq (Val I32 : stack) locals globals labels
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[GetGlobalType ((GetGlobals ctx) :!! global)] stack '[]) ctx
+    I32Const :: InstrSeq stack ctx -> InstrSeq (Val I32 : stack) ctx
     I32UnOp :: (MatchStack '[Val I32] stack ~ True) =>
         IUnOp ->
-        InstrSeq stack locals globals labels ->
-        InstrSeq (Consume '[Val I32] stack '[Val I32]) locals globals labels
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32] stack '[Val I32]) ctx
     I32BinOp :: (MatchStack '[Val I32, Val I32] stack ~ True) =>
         IBinOp ->
-        InstrSeq stack locals globals labels ->
-        InstrSeq (Consume '[Val I32, Val I32] stack '[Val I32]) locals globals labels
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32, Val I32] stack '[Val I32]) ctx
     I32RelOp :: (MatchStack '[Val I32, Val I32] stack ~ True) =>
         IRelOp ->
-        InstrSeq stack locals globals labels ->
-        InstrSeq (Consume '[Val I32, Val I32] stack '[Val I32]) locals globals labels
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32, Val I32] stack '[Val I32]) ctx
