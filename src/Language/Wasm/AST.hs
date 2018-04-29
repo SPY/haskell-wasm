@@ -5,6 +5,7 @@
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TypeInType #-}
 
 module Language.Wasm.AST (
 
@@ -16,6 +17,7 @@ import Data.Promotion.Prelude.List
 
 import Language.Wasm.Structure (
         ValueType(..),
+        FuncType(..),
         GlobalType(..),
         IUnOp(..),
         IBinOp(..),
@@ -89,22 +91,53 @@ instance (KnownNat n, KnownNats ns) => KnownNats (n : ns) where
             dup :: Proxy (n : ns) -> (Proxy n, Proxy ns)
             dup _ = (Proxy, Proxy)
 
-data Ctx (locals :: [VType]) (globals :: [GlobalType]) (labels :: [Maybe ValueType]) (returns :: [ValueType])
+type family GetParams (ft :: FuncType) :: [ValueType] where
+    GetParams ('FuncType params results) = params
 
-type family GetLocals ctx :: [VType] where
-    GetLocals (Ctx locals globals labels returns) = locals
+type family GetResults (ft :: FuncType) :: [ValueType] where
+    GetResults ('FuncType params results) = results
 
-type family GetGlobals ctx :: [GlobalType] where
-    GetGlobals (Ctx locals globals labels returns) = globals
+data Ctx = Ctx {
+    locals :: [VType],
+    globals :: [GlobalType],
+    labels :: [Maybe ValueType],
+    returns :: [ValueType],
+    functions :: [FuncType],
+    types :: [FuncType]
+}
 
-type family GetLabels ctx :: [Maybe ValueType] where
-    GetLabels (Ctx locals globals labels returns) = labels
+type family GetLocals (ctx :: Ctx) :: [VType] where
+    GetLocals ('Ctx locals globals labels returns functions types) = locals
 
-type family WithLabel ctx (label :: Maybe ValueType) where
-    WithLabel (Ctx locals globals labels returns) label = Ctx locals globals (label : labels) returns
+type family GetGlobals (ctx :: Ctx) :: [GlobalType] where
+    GetGlobals ('Ctx locals globals labels returns functions types) = globals
 
-type family GetReturns ctx :: [ValueType] where
-    GetReturns (Ctx locals globals labels returns) = returns
+type family GetLabels (ctx :: Ctx) :: [Maybe ValueType] where
+    GetLabels ('Ctx locals globals labels returns functions types) = labels
+
+type family WithLabel (ctx :: Ctx) (label :: Maybe ValueType) where
+    WithLabel ('Ctx locals globals labels returns functions types) label = 'Ctx locals globals (label : labels) returns functions types
+
+type family GetReturns (ctx :: Ctx) :: [ValueType] where
+    GetReturns ('Ctx locals globals labels returns functions types) = returns
+
+type family GetFunctions (ctx :: Ctx) :: [FuncType] where
+    GetFunctions ('Ctx locals globals labels returns functions types) = functions
+
+type family GetTypes (ctx :: Ctx) :: [FuncType] where
+    GetTypes ('Ctx locals globals labels returns functions types) = types
+
+type family GetFTParams (ctx :: Ctx) (function :: Nat) :: [VType] where
+    GetFTParams ctx function = AsVType (GetParams ((GetFunctions ctx) :!! function))
+
+type family GetFTResults (ctx :: Ctx) (function :: Nat) :: [VType] where
+    GetFTResults ctx function = AsVType (GetResults ((GetFunctions ctx) :!! function))
+
+type family GetTParams (ctx :: Ctx) (typeIdx :: Nat) :: [VType] where
+    GetTParams ctx typeIdx = AsVType (GetParams ((GetTypes ctx) :!! typeIdx))
+
+type family GetTResults (ctx :: Ctx) (typeIdx :: Nat) :: [VType] where
+    GetTResults ctx typeIdx = AsVType (GetResults ((GetTypes ctx) :!! typeIdx))
 
 data InstrSeq (stack :: [VType]) ctx where
     Empty :: InstrSeq '[] ctx
@@ -146,9 +179,14 @@ data InstrSeq (stack :: [VType]) ctx where
     Return :: (MatchStack (AsVType (GetReturns ctx)) stack ~ True) =>
         InstrSeq stack ctx ->
         InstrSeq (Consume (AsVType (GetReturns ctx)) stack '[Any]) ctx
-    -- Call :: (MatchStack (AsVType returns) stack ~ True) =>
-    --     Proxy function ->
-    --     InstrSeq stack locals globals lables returns ->
+    Call :: (KnownNat function, MatchStack (GetFTParams ctx function) stack ~ True) =>
+        Proxy function ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume (GetFTParams ctx function) stack (GetFTResults ctx function)) ctx
+    CallIndirect :: (KnownNat typeIdx, MatchStack (GetTParams ctx typeIdx) stack ~ True) =>
+        Proxy typeIdx ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume (GetTParams ctx typeIdx) stack (GetTResults ctx typeIdx)) ctx
     Drop :: InstrSeq (any : stack) ctx -> InstrSeq stack ctx
     Select :: (MatchStack '[Var, Var, Val I32] stack ~ True) =>
         InstrSeq stack ctx ->
