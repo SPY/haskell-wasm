@@ -14,6 +14,7 @@ module Language.Wasm.AST (
 import GHC.TypeLits
 import Data.Proxy
 import Data.Promotion.Prelude.List
+import Data.Word (Word32, Word64)
 
 import Language.Wasm.Structure (
         ValueType(..),
@@ -27,7 +28,7 @@ import Language.Wasm.Structure (
 data VType = Val ValueType | Var | Any
 
 type family MatchStack (args :: [VType]) (stack :: [VType]) :: Bool where
-    MatchStack (Val I32 : args) (Val I32 : stack) = MatchStack args stack
+    MatchStack (Val v : args) (Val v : stack) = MatchStack args stack
     MatchStack (Val v : args) (Var : stack) = MatchStack args stack
     MatchStack (Var : args) (val : stack) = MatchStack (ReplaceVar args val) (ReplaceVar stack val)
     MatchStack (val : args) (Var : stack) = MatchStack (ReplaceVar args val) (ReplaceVar stack val)
@@ -40,7 +41,7 @@ type family MatchStack (args :: [VType]) (stack :: [VType]) :: Bool where
         )
 
 type family Consume (args :: [VType]) (stack :: [VType]) (result :: [VType]) :: [VType] where
-    Consume (Val I32 : args) (Val I32 : stack) result = Consume args stack result
+    Consume (Val v : args) (Val v : stack) result = Consume args stack result
     Consume (Var : args) (val : stack) result = Consume (ReplaceVar args val) (ReplaceVar stack val) (ReplaceVar result val)
     Consume (val : args) (Var : stack) result = Consume (ReplaceVar args val) (ReplaceVar stack val) (ReplaceVar result val)
     Consume '[] stack result = result :++ stack
@@ -215,7 +216,7 @@ data InstrSeq (stack :: [VType]) ctx where
         Proxy global ->
         InstrSeq stack ctx ->
         InstrSeq (Consume '[GetGlobalType ((GetGlobals ctx) :!! global)] stack '[]) ctx
-    I32Const :: InstrSeq stack ctx -> InstrSeq (Val I32 : stack) ctx
+    I32Const :: Word32 -> InstrSeq stack ctx -> InstrSeq (Val I32 : stack) ctx
     I32UnOp :: (MatchStack '[Val I32] stack ~ True) =>
         IUnOp ->
         InstrSeq stack ctx ->
@@ -228,3 +229,52 @@ data InstrSeq (stack :: [VType]) ctx where
         IRelOp ->
         InstrSeq stack ctx ->
         InstrSeq (Consume '[Val I32, Val I32] stack '[Val I32]) ctx
+    I64Const :: Word64 -> InstrSeq stack ctx -> InstrSeq (Val I64 : stack) ctx
+    I64UnOp :: (MatchStack '[Val I64] stack ~ True) =>
+        IUnOp ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I64] stack '[Val I64]) ctx
+    I64BinOp :: (MatchStack '[Val I64, Val I64] stack ~ True) =>
+        IBinOp ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32, Val I32] stack '[Val I64]) ctx
+    I64RelOp :: (MatchStack '[Val I64, Val I64] stack ~ True) =>
+        IRelOp ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I64, Val I64] stack '[Val I32]) ctx
+
+-- (func (export "fac-rec") (param i64) (result i64)
+--     (if (result i64) (i64.eq (get_local 0) (i64.const 0))
+--       (then (i64.const 1))
+--       (else
+--         (i64.mul (get_local 0) (call 0 (i64.sub (get_local 0) (i64.const 1))))
+--       )
+--     )
+-- )
+
+facRec :: InstrSeq '[Val I32] ('Ctx '[Val I32] '[] '[] '[I32] '[('FuncType '[I32] '[I32])] '[])
+facRec = define
+    & GetLocal idx0
+    & I32Const 0
+    & I32RelOp IEq
+    & (If resI32
+        (then'
+            & I32Const 1
+        )
+        (else'
+            & GetLocal idx0
+            & I32Const 1
+            & GetLocal idx0
+            & I32BinOp ISub
+            & Call idx0
+            & I32BinOp IMul
+        )
+    )
+    where
+        resI32 = Proxy :: Proxy ('Just I32)
+        idx0 = Proxy :: Proxy 0
+        define = Empty
+        else' = Empty
+        then' = Empty
+        infixl 1 &
+        x & f = f x
