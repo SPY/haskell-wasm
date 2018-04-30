@@ -19,6 +19,7 @@ import Data.Word (Word32, Word64)
 import Language.Wasm.Structure (
         ValueType(..),
         FuncType(..),
+        MemArg(..),
         GlobalType(..),
         IUnOp(..),
         IBinOp(..),
@@ -216,6 +217,102 @@ data InstrSeq (stack :: [VType]) ctx where
         Proxy global ->
         InstrSeq stack ctx ->
         InstrSeq (Consume '[GetGlobalType ((GetGlobals ctx) :!! global)] stack '[]) ctx
+    I32Load :: (MatchStack '[Val I32] stack ~ True) =>
+        MemArg ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32] stack '[Val I32]) ctx
+    I64Load :: (MatchStack '[Val I32] stack ~ True) =>
+        MemArg ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32] stack '[Val I64]) ctx
+    F32Load :: (MatchStack '[Val I32] stack ~ True) =>
+        MemArg ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32] stack '[Val F32]) ctx
+    F64Load :: (MatchStack '[Val I32] stack ~ True) =>
+        MemArg ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32] stack '[Val F64]) ctx
+    I32Load8S :: (MatchStack '[Val I32] stack ~ True) =>
+        MemArg ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32] stack '[Val I32]) ctx
+    I32Load8U :: (MatchStack '[Val I32] stack ~ True) =>
+        MemArg ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32] stack '[Val I32]) ctx
+    I32Load16S :: (MatchStack '[Val I32] stack ~ True) =>
+        MemArg ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32] stack '[Val I32]) ctx
+    I32Load16U :: (MatchStack '[Val I32] stack ~ True) =>
+        MemArg ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32] stack '[Val I32]) ctx
+    I64Load8S :: (MatchStack '[Val I32] stack ~ True) =>
+        MemArg ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32] stack '[Val I64]) ctx
+    I64Load8U :: (MatchStack '[Val I32] stack ~ True) =>
+        MemArg ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32] stack '[Val I64]) ctx
+    I64Load16S :: (MatchStack '[Val I32] stack ~ True) =>
+        MemArg ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32] stack '[Val I64]) ctx
+    I64Load16U :: (MatchStack '[Val I32] stack ~ True) =>
+        MemArg ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32] stack '[Val I64]) ctx
+    I64Load32S :: (MatchStack '[Val I32] stack ~ True) =>
+        MemArg ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32] stack '[Val I64]) ctx
+    I64Load32U :: (MatchStack '[Val I32] stack ~ True) =>
+        MemArg ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32] stack '[Val I64]) ctx
+    I32Store :: (MatchStack '[Val I32, Val I32] stack ~ True) =>
+        MemArg ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32, Val I32] stack '[]) ctx
+    I64Store :: (MatchStack '[Val I32, Val I64] stack ~ True) =>
+        MemArg ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32, Val I64] stack '[]) ctx
+    F32Store  :: (MatchStack '[Val I32, Val F32] stack ~ True) =>
+        MemArg ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32, Val F32] stack '[]) ctx
+    F64Store  :: (MatchStack '[Val I32, Val F64] stack ~ True) =>
+        MemArg ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32, Val F64] stack '[]) ctx
+    I32Store8  :: (MatchStack '[Val I32, Val I32] stack ~ True) =>
+        MemArg ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32, Val I32] stack '[]) ctx
+    I32Store16  :: (MatchStack '[Val I32, Val I32] stack ~ True) =>
+        MemArg ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32, Val I32] stack '[]) ctx
+    I64Store8 :: (MatchStack '[Val I32, Val I64] stack ~ True) =>
+        MemArg ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32, Val I64] stack '[]) ctx
+    I64Store16 :: (MatchStack '[Val I32, Val I64] stack ~ True) =>
+        MemArg ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32, Val I64] stack '[]) ctx
+    I64Store32 :: (MatchStack '[Val I32, Val I64] stack ~ True) =>
+        MemArg ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32, Val I64] stack '[]) ctx
+    CurrentMemory :: InstrSeq stack ctx -> InstrSeq (Val I32 : stack) ctx
+    GrowMemory :: (MatchStack '[Val I32] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32] stack '[Val I32]) ctx
     I32Const :: Word32 -> InstrSeq stack ctx -> InstrSeq (Val I32 : stack) ctx
     I32UnOp :: (MatchStack '[Val I32] stack ~ True) =>
         IUnOp ->
