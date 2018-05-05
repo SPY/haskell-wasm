@@ -23,7 +23,10 @@ import Language.Wasm.Structure (
         GlobalType(..),
         IUnOp(..),
         IBinOp(..),
-        IRelOp(..)
+        IRelOp(..),
+        FUnOp(..),
+        FBinOp(..),
+        FRelOp(..)
     )
 
 data VType = Val ValueType | Var | Any
@@ -326,6 +329,9 @@ data InstrSeq (stack :: [VType]) ctx where
         IRelOp ->
         InstrSeq stack ctx ->
         InstrSeq (Consume '[Val I32, Val I32] stack '[Val I32]) ctx
+    I32Eqz :: (MatchStack '[Val I32] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32] stack '[Val I32]) ctx
     I64Const :: Word64 -> InstrSeq stack ctx -> InstrSeq (Val I64 : stack) ctx
     I64UnOp :: (MatchStack '[Val I64] stack ~ True) =>
         IUnOp ->
@@ -339,6 +345,110 @@ data InstrSeq (stack :: [VType]) ctx where
         IRelOp ->
         InstrSeq stack ctx ->
         InstrSeq (Consume '[Val I64, Val I64] stack '[Val I32]) ctx
+    I64Eqz :: (MatchStack '[Val I64] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I64] stack '[Val I32]) ctx
+    F32Const :: Float -> InstrSeq stack ctx -> InstrSeq (Val F32 : stack) ctx
+    F32UnOp :: (MatchStack '[Val F32] stack ~ True) =>
+        FUnOp ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val F32] stack '[Val F32]) ctx
+    F32BinOp :: (MatchStack '[Val F32, Val F32] stack ~ True) =>
+        FBinOp ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val F32, Val F32] stack '[Val F32]) ctx
+    F32RelOp :: (MatchStack '[Val F32, Val F32] stack ~ True) =>
+        FRelOp ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val F32, Val F32] stack '[Val I32]) ctx
+    F64Const :: Double -> InstrSeq stack ctx -> InstrSeq (Val F64 : stack) ctx
+    F64UnOp :: (MatchStack '[Val F64] stack ~ True) =>
+        FUnOp ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val F64] stack '[Val F64]) ctx
+    F64BinOp :: (MatchStack '[Val F32, Val F32] stack ~ True) =>
+        FBinOp ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val F64, Val F64] stack '[Val F64]) ctx
+    F64RelOp :: (MatchStack '[Val F64, Val F64] stack ~ True) =>
+        FRelOp ->
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val F64, Val F64] stack '[Val I32]) ctx
+    I32WrapI64 :: (MatchStack '[Val I64] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I64] stack '[Val I32]) ctx
+    I32TruncF32U :: (MatchStack '[Val F32] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val F32] stack '[Val I32]) ctx
+    I32TruncF64U :: (MatchStack '[Val F64] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val F64] stack '[Val I32]) ctx
+    I64TruncF32U :: (MatchStack '[Val F32] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val F32] stack '[Val I64]) ctx
+    I64TruncF64U :: (MatchStack '[Val F64] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val F64] stack '[Val I64]) ctx
+    I32TruncF32S :: (MatchStack '[Val F32] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val F32] stack '[Val I32]) ctx
+    I32TruncF64S :: (MatchStack '[Val F64] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val F64] stack '[Val I32]) ctx
+    I64TruncF32S :: (MatchStack '[Val F32] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val F32] stack '[Val I64]) ctx
+    I64TruncF64S :: (MatchStack '[Val F64] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val F64] stack '[Val I64]) ctx
+    I64ExtendI32U :: (MatchStack '[Val I32] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32] stack '[Val I64]) ctx
+    I64ExtendI32S :: (MatchStack '[Val I32] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32] stack '[Val I64]) ctx
+    F32ConvertI32U :: (MatchStack '[Val I32] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32] stack '[Val F32]) ctx
+    F32ConvertI64U :: (MatchStack '[Val I64] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I64] stack '[Val F32]) ctx
+    F64ConvertI32U :: (MatchStack '[Val I32] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32] stack '[Val F64]) ctx
+    F64ConvertI64U :: (MatchStack '[Val I64] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I64] stack '[Val F64]) ctx
+    F32ConvertI32S :: (MatchStack '[Val I32] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32] stack '[Val F32]) ctx
+    F32ConvertI64S :: (MatchStack '[Val I64] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I64] stack '[Val F32]) ctx
+    F64ConvertI32S :: (MatchStack '[Val I32] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32] stack '[Val F64]) ctx
+    F64ConvertI64S :: (MatchStack '[Val I64] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I64] stack '[Val F64]) ctx
+    F32DemoteF64 :: (MatchStack '[Val F64] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val F64] stack '[Val F32]) ctx
+    F64PromoteF32 :: (MatchStack '[Val F32] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val F32] stack '[Val F64]) ctx
+    I32ReinterpretF32 :: (MatchStack '[Val F32] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val F32] stack '[Val I32]) ctx
+    I64ReinterpretF64 :: (MatchStack '[Val F64] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val F64] stack '[Val I64]) ctx
+    F32ReinterpretI32 :: (MatchStack '[Val I32] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I32] stack '[Val F32]) ctx
+    F64ReinterpretI64 :: (MatchStack '[Val I64] stack ~ True) =>
+        InstrSeq stack ctx ->
+        InstrSeq (Consume '[Val I64] stack '[Val F64]) ctx
 
 -- (func (export "fac-rec") (param i64) (result i64)
 --     (if (result i64) (i64.eq (get_local 0) (i64.const 0))
@@ -368,8 +478,8 @@ facRec = define
         )
     )
     where
-        resI32 = Proxy :: Proxy ('Just I32)
-        idx0 = Proxy :: Proxy 0
+        resI32 = Proxy @('Just I32)
+        idx0 = Proxy @0
         define = Empty
         else' = Empty
         then' = Empty
