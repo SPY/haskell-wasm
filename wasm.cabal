@@ -50,6 +50,16 @@ library
       Paths_wasm
   default-language: Haskell2010
 
+executable wasm
+  main-is: Main.hs
+  hs-source-dirs: exec
+  build-depends:
+      base >=4.6 && <5.0
+    , wasm ==0.1.0
+    , optparse-applicative >= 0.14
+    , bytestring >=0.10 && <0.11
+    , base64-bytestring >= 1.0
+
 test-suite test
   type: exitcode-stdio-1.0
   main-is: Test.hs
