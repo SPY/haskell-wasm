@@ -12,13 +12,25 @@ import Language.Wasm.Structure
 
 import Numeric.Natural (Natural)
 import Data.Bits
-import Data.Word (Word8)
-import Data.Int (Int8)
+import Data.Word (Word8, Word32, Word64)
+import Data.Int (Int8, Int32, Int64)
 import Data.Serialize
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TLEncoding
+
+asInt32 :: Word32 -> Int32
+asInt32 w =
+    if w < 0x80000000
+    then fromIntegral w
+    else -1 * fromIntegral (0xFFFFFFFF - w + 1)
+
+asInt64 :: Word64 -> Int64
+asInt64 w =
+    if w < 0x8000000000000000
+    then fromIntegral w
+    else -1 * fromIntegral (0xFFFFFFFFFFFFFFFF - w + 1)
 
 getULEB128 :: (Integral a, Bits a) => Int -> Get a
 getULEB128 bitsBudget = do
@@ -348,8 +360,8 @@ instance Serialize Instruction where
     put CurrentMemory = putWord8 0x3F >> putWord8 0x00
     put GrowMemory = putWord8 0x40 >> putWord8 0x00
     -- Numeric instructions
-    put (I32Const val) = putWord8 0x41 >> putSLEB128 val
-    put (I64Const val) = putWord8 0x42 >> putSLEB128 val
+    put (I32Const val) = putWord8 0x41 >> putSLEB128 (asInt32 val)
+    put (I64Const val) = putWord8 0x42 >> putSLEB128 (asInt64 val)
     put (F32Const val) = putWord8 0x43 >> putFloat32le val
     put (F64Const val) = putWord8 0x44 >> putFloat64le val
     put I32Eqz = putWord8 0x45
