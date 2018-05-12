@@ -13,7 +13,7 @@ module Language.Wasm.AST (
 
 import GHC.TypeLits
 import Data.Proxy
-import Data.Promotion.Prelude.List
+import Data.Promotion.Prelude.List ((:++), (:!!))
 import Data.Word (Word32, Word64)
 
 import Language.Wasm.Structure (
@@ -55,6 +55,17 @@ type family Consume (args :: [VType]) (stack :: [VType]) (result :: [VType]) :: 
             Text "Expected arguments: " :<>: ShowType args :$$:
             Text "Actual stack: " :<>: ShowType stack
         )
+
+type family IsRetMatch (stack :: [VType]) (ret :: [ValueType]) :: Bool where
+    IsRetMatch stack ret = Or (Equal (Consume (AsVType ret) stack '[]) '[]) (Equal (Consume (AsVType ret) stack '[]) '[Any])
+
+type family Or (l :: Bool) (r :: Bool) :: Bool where
+    Or False r = r
+    Or True r = True
+
+type family Equal a b :: Bool where
+    Equal a a = True
+    Equal a b = False
 
 type family ReplaceVar (types :: [VType]) (val :: VType) :: [VType] where
     ReplaceVar '[] val = '[]
@@ -450,17 +461,35 @@ data InstrSeq (stack :: [VType]) ctx where
         InstrSeq stack ctx ->
         InstrSeq (Consume '[Val I64] stack '[Val F64]) ctx
 
--- (func (export "fac-rec") (param i64) (result i64)
---     (if (result i64) (i64.eq (get_local 0) (i64.const 0))
---       (then (i64.const 1))
---       (else
---         (i64.mul (get_local 0) (call 0 (i64.sub (get_local 0) (i64.const 1))))
---       )
---     )
--- )
+{-
+(func $alloc (param $size i32) (result i32)
+    (local $aligned-size i32)
+    (local $addr i32)
+    (set_local $aligned-size (call $alligned (get_local $size)))
+    (if (i32.lt_u (i32.add (get_global $heap-next) (get_local $aligned-size)) (get_global $heap-end))
+        (then
+            (set_local $addr (get_global $heap-next))
+            (set_global $heap-next (i32.add (get_global $heap-next) (get_local $aligned-size)))
+            (get_local $addr)
+        )
+        (else
+            (call $run-gc)
+            (call $alloc (get_local $size))
+        )
+    )
+)
+-}
 
-facRec :: InstrSeq '[Val I32] ('Ctx '[Val I32] '[] '[] '[I32] '[('FuncType '[I32] '[I32])] '[])
-facRec = define
+data Function params results globals funcs types where
+    Function :: (IsRetMatch stack ret ~ True)
+        => Proxy (params :: [ValueType])
+        -> Proxy (locals :: [ValueType])
+        -> Proxy (ret :: [ValueType])
+        -> InstrSeq stack ('Ctx ((AsVType params) :++ (AsVType locals)) globals '[] ret funcs types)
+        -> Function params ret globals funcs types
+
+facRec :: Function '[I32] '[I32] '[] '[('FuncType '[I32] '[I32])] '[]
+facRec = Function (Proxy @'[I32]) (Proxy @'[]) (Proxy @'[I32]) $ body
     & GetLocal idx0
     & I32Const 0
     & I32RelOp IEq
@@ -480,7 +509,7 @@ facRec = define
     where
         resI32 = Proxy @('Just I32)
         idx0 = Proxy @0
-        define = Empty
+        body = Empty
         else' = Empty
         then' = Empty
         infixl 1 &
