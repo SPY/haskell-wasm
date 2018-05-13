@@ -18,7 +18,7 @@ module Language.Wasm.Builder (
 import Prelude hiding (and)
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
-import Control.Monad.State (State, execState, get, put, modify)
+import Control.Monad.State (State, execState, get, gets, put, modify)
 import Numeric.Natural
 import Data.Word (Word32, Word64)
 import Data.Int (Int32, Int64)
@@ -106,14 +106,38 @@ getSize I64 = BS32
 getSize F32 = BS64
 getSize F64 = BS64
 
-binOp :: (Producer a, Producer b, OutType a ~ OutType b) => IBinOp -> a -> b -> GenFun (OutType a)
-binOp op a b = produce a >> after [IBinOp (getSize $ asValueType a) op] (produce b)
+iBinOp :: (Producer a, Producer b, OutType a ~ OutType b) => IBinOp -> a -> b -> GenFun (OutType a)
+iBinOp op a b = produce a >> after [IBinOp (getSize $ asValueType a) op] (produce b)
 
-plus :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (OutType a)
-plus = binOp IAdd
+add :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (OutType a)
+add a b = do
+    produce a
+    case asValueType a of
+        I32 -> after [IBinOp BS32 IAdd] (produce b)
+        I64 -> after [IBinOp BS64 IAdd] (produce b)
+        F32 -> after [FBinOp BS32 FAdd] (produce b)
+        F64 -> after [FBinOp BS64 FAdd] (produce b)
+
+sub :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (OutType a)
+sub a b = do
+    produce a
+    case asValueType a of
+        I32 -> after [IBinOp BS32 ISub] (produce b)
+        I64 -> after [IBinOp BS64 ISub] (produce b)
+        F32 -> after [FBinOp BS32 FSub] (produce b)
+        F64 -> after [FBinOp BS64 FSub] (produce b)
+
+mul :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (OutType a)
+mul a b = do
+    produce a
+    case asValueType a of
+        I32 -> after [IBinOp BS32 IMul] (produce b)
+        I64 -> after [IBinOp BS64 IMul] (produce b)
+        F32 -> after [FBinOp BS32 FMul] (produce b)
+        F64 -> after [FBinOp BS64 FMul] (produce b)
 
 and :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (OutType a)
-and = binOp IAnd
+and = iBinOp IAnd
 
 relOp :: (Producer a, Producer b, OutType a ~ OutType b) => IRelOp -> a -> b -> GenFun (Proxy I32)
 relOp op a b = do
@@ -196,6 +220,15 @@ importFunc mod name t = do
     }
     return funcIdx
 
+importGlobal :: (ValueTypeable t) => TL.Text -> TL.Text -> Proxy t -> GenMod Natural
+importGlobal mod name t = do
+    st@GenModState { target = m@Module { imports }, globIdx } <- get
+    put $ st {
+        target = m { imports = imports ++ [Import mod name $ ImportGlobal $ Const $ getValueType t] },
+        globIdx = globIdx + 1
+    }
+    return globIdx
+
 class ValueTypeable a where
     type ValType a
     getValueType :: (Proxy a) -> ValueType
@@ -230,12 +263,18 @@ newtype Glob t = Glob Natural deriving (Show, Eq)
 
 global :: (ValueTypeable t) => (ValueType -> GlobalType) -> Proxy t -> (ValType t) -> GenMod (Glob t)
 global mkType t val = do
-    st@GenModState { target = m@Module { globals }, globIdx } <- get
-    put $ st {
-        target = m { globals = globals ++ [Global (mkType $ getValueType t) (initWith t val)] },
-        globIdx = globIdx + 1
+    idx <- gets globIdx
+    modify $ \(st@GenModState { target = m }) -> st {
+        target = m { globals = globals m ++ [Global (mkType $ getValueType t) (initWith t val)] },
+        globIdx = idx + 1
     }
-    return $ Glob globIdx
+    return $ Glob idx
+
+memory :: Natural -> Maybe Natural -> GenMod ()
+memory min max = do
+    modify $ \(st@GenModState { target = m }) -> st {
+        target = m { mems = mems m ++ [Memory $ Limit min max] }
+    }
 
 asWord32 :: Int32 -> Word32
 asWord32 i
@@ -250,6 +289,7 @@ asWord64 i
 rts :: Module
 rts = genMod $ do
     gc <- importFunc "rts" "gc" (FuncType [I32] [])
+    memory 10 Nothing
 
     stackStart <- global Const i32 0
     stackEnd <- global Const i32 0
@@ -265,16 +305,16 @@ rts = genMod $ do
 
     aligned <- fun $ do
         size <- param i32
-        (size `plus` i32const 3) `and` i32const 0xFFFFFFFC
+        (size `add` i32const 3) `and` i32const 0xFFFFFFFC
     alloc <- funRec $ \self -> do
         size <- param i32
         alignedSize <- local i32
         addr <- local i32
         alignedSize .= call i32 aligned [arg size]
-        ifExpr i32 ((heapNext `plus` alignedSize) `lt_u` heapEnd)
+        ifExpr i32 ((heapNext `add` alignedSize) `lt_u` heapEnd)
             (do
                 addr .= heapNext
-                heapNext .= (heapNext `plus` alignedSize)
+                heapNext .= (heapNext `add` alignedSize)
                 ret addr
             )
             (do
@@ -282,22 +322,3 @@ rts = genMod $ do
                 call i32 self [arg size]
             )
     return ()
-
-{-
-    (func $alloc (param $size i32) (result i32)
-        (local $aligned-size i32)
-        (local $addr i32)
-        (set_local $aligned-size (call $alligned (get_local $size)))
-        (if (i32.lt_u (i32.add (get_global $heap-next) (get_local $aligned-size)) (get_global $heap-end))
-            (then
-                (set_local $addr (get_global $heap-next))
-                (set_global $heap-next (i32.add (get_global $heap-next) (get_local $aligned-size)))
-                (get_local $addr)
-            )
-            (else
-                (call $run-gc)
-                (call $alloc (get_local $size))
-            )
-        )
-    )
--}
