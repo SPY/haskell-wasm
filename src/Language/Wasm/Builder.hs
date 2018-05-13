@@ -37,6 +37,9 @@ data FuncDef = FuncDef {
 
 type GenFun = State FuncDef
 
+genExpr :: GenFun a -> Expression
+genExpr gen = instrs $ execState gen $ FuncDef [] [] [] []
+
 newtype Loc t = Loc Natural deriving (Show, Eq)
 
 param :: (ValueTypeable t) => Proxy t -> GenFun (Loc t)
@@ -91,8 +94,8 @@ instance (ValueTypeable t) => Producer (GenFun (Proxy t)) where
             t _ = Proxy
     produce = id
 
-ret :: (Producer expr) => expr -> GenFun ()
-ret e = produce e >> return ()
+ret :: (Producer expr) => expr -> GenFun (OutType expr)
+ret = produce
 
 arg :: (Producer expr) => expr -> GenFun ()
 arg e = produce e >> return ()
@@ -106,21 +109,47 @@ getSize F64 = BS64
 binOp :: (Producer a, Producer b, OutType a ~ OutType b) => IBinOp -> a -> b -> GenFun (OutType a)
 binOp op a b = produce a >> after [IBinOp (getSize $ asValueType a) op] (produce b)
 
-add :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (OutType a)
-add = binOp IAdd
+plus :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (OutType a)
+plus = binOp IAdd
 
 and :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (OutType a)
 and = binOp IAnd
 
+relOp :: (Producer a, Producer b, OutType a ~ OutType b) => IRelOp -> a -> b -> GenFun (Proxy I32)
+relOp op a b = do
+    produce a
+    produce b
+    appendExpr [IRelOp (getSize $ asValueType a) op]
+    return Proxy
+
+lt_s :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (Proxy I32)
+lt_s = relOp ILtS
+
+lt_u :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (Proxy I32)
+lt_u = relOp ILtS
+
+eq :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (Proxy I32)
+eq = relOp IEq
+
 i32const :: (Integral i) => i -> GenFun (Proxy I32)
 i32const i = appendExpr [I32Const $ asWord32 $ fromIntegral i] >> return Proxy
+
+invoke :: Natural -> [GenFun a] -> GenFun ()
+invoke idx args = sequence_ args >> appendExpr [Call idx]
 
 call :: Proxy t -> Natural -> [GenFun a] -> GenFun (Proxy t)
 call t idx args = sequence_ args >> appendExpr [Call idx] >> return t
 
--- if' :: (Producer pred, OutType pred ~ I32, OutType true ~ OutType false) => pred -> true -> false -> GenFun (OutType true)
--- if' pred true false = do
---     appendExpr [If idx]
+ifExpr :: (Producer pred, OutType pred ~ Proxy I32, ValueTypeable t, Producer true, OutType true ~ Proxy t, Producer false, OutType false ~ Proxy t)
+    => Proxy t
+    -> pred
+    -> true
+    -> false
+    -> GenFun (Proxy t)
+ifExpr t pred true false = do
+    produce pred
+    appendExpr [If [getValueType t] (genExpr $ produce true) (genExpr $ produce false)]
+    return Proxy
 
 class Consumer loc where
     (.=) :: (Producer expr) => loc -> expr -> GenFun ()
@@ -131,8 +160,8 @@ instance Consumer (Loc t) where
 instance Consumer (Glob t) where
     (.=) (Glob i) expr = produce expr >> appendExpr [SetGlobal i]
 
-fun :: (Natural -> GenFun a) -> GenMod Natural
-fun generator = do
+funRec :: (Natural -> GenFun a) -> GenMod Natural
+funRec generator = do
     st@GenModState { target = m@Module { types, functions }, funcIdx } <- get
     let FuncDef { args, results, locals, instrs } = execState (generator funcIdx) $ FuncDef [] [] [] []
     let t = FuncType args results
@@ -142,6 +171,9 @@ fun generator = do
         funcIdx = funcIdx + 1
     }
     return funcIdx
+
+fun :: GenFun a -> GenMod Natural
+fun = funRec . const
 
 data GenModState = GenModState {
     funcIdx :: Natural,
@@ -230,25 +262,25 @@ rts = genMod $ do
     heapStart <- global Mut i32 0
     heapNext <- global Mut i32 0
     heapEnd <- global Mut i32 0
-    aligned <- fun $ \_ -> do
+
+    aligned <- fun $ do
         size <- param i32
-        (size `add` i32const 3) `and` i32const 0xFFFFFFFC
-    alloc <- fun $ \self -> do
+        (size `plus` i32const 3) `and` i32const 0xFFFFFFFC
+    alloc <- funRec $ \self -> do
         size <- param i32
         alignedSize <- local i32
         addr <- local i32
         alignedSize .= call i32 aligned [arg size]
-        -- if' ((heapNext `plus` alignedSize) `lt_u` heapEnd)
-        --     (do
-        --         addr .= nextHeap
-        --         nextHeap .= nextHeap `plus` alignedSize
-        --         ret addr
-        --     )
-        --     (do
-        --         call gc []
-        --         call alloc [ref size]
-        --     )
-        ret addr
+        ifExpr i32 ((heapNext `plus` alignedSize) `lt_u` heapEnd)
+            (do
+                addr .= heapNext
+                heapNext .= (heapNext `plus` alignedSize)
+                ret addr
+            )
+            (do
+                invoke gc []
+                call i32 self [arg size]
+            )
     return ()
 
 {-
