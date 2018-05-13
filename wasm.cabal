@@ -45,6 +45,7 @@ library
       Language.Wasm.Interpreter
       Language.Wasm.Script
       Language.Wasm.FloatUtils
+      Language.Wasm.Builder
       Language.Wasm
   other-modules:
       Paths_wasm

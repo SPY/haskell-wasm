@@ -177,7 +177,7 @@ checkMemoryInstr size memarg = do
     Ctx { mems } <- ask 
     if length mems < 1 then throwError MemoryIndexOutOfRange else return ()
 
-getInstrType :: Instruction -> Checker Arrow
+getInstrType :: Instruction Natural -> Checker Arrow
 getInstrType Unreachable = return $ Any ==> Any
 getInstrType Nop = return $ empty ==> empty
 getInstrType Block { result, body } = do
@@ -375,10 +375,10 @@ replace :: (Eq a) => a -> a -> [a] -> [a]
 replace _ _ [] = []
 replace x y (v:r) = (if x == v then y else v) : replace x y r
 
-getExpressionType :: [Instruction] -> Checker Arrow
+getExpressionType :: Expression -> Checker Arrow
 getExpressionType = fmap ([] `Arrow`) . foldM go []
     where
-        go :: [VType] -> Instruction -> Checker [VType]
+        go :: [VType] -> Instruction Natural -> Checker [VType]
         go stack instr = do
             (f `Arrow` t) <- getInstrType instr
             matchStack stack (reverse f) t
@@ -397,7 +397,7 @@ getExpressionType = fmap ([] `Arrow`) . foldM go []
         matchStack [] args res = throwError $ TypeMismatch ((reverse args) `Arrow` res) ([] `Arrow` [])
         matchStack _ _ _ = error "inconsistent checker state"
 
-isConstExpression :: [Instruction] -> Checker ()
+isConstExpression :: Expression -> Checker ()
 isConstExpression [] = return ()
 isConstExpression ((I32Const _):rest) = isConstExpression rest
 isConstExpression ((I64Const _):rest) = isConstExpression rest

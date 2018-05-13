@@ -102,28 +102,28 @@ type LocalsType = [ValueType]
 
 data FuncType = FuncType { params :: ParamsType, results :: ResultType } deriving (Show, Eq, Generic, NFData)
 
-data Instruction =
+data Instruction index =
     -- Control instructions
     Unreachable
     | Nop
     | Block { result :: ResultType, body :: Expression }
     | Loop { result :: ResultType, body :: Expression }
     | If { result :: ResultType, true :: Expression, false :: Expression }
-    | Br LabelIndex
-    | BrIf LabelIndex
-    | BrTable [LabelIndex] LabelIndex
+    | Br index
+    | BrIf index
+    | BrTable [index] index
     | Return
-    | Call FuncIndex
-    | CallIndirect TypeIndex
+    | Call index
+    | CallIndirect index
     -- Parametric instructions
     | Drop
     | Select
     -- Variable instructions
-    | GetLocal LocalIndex
-    | SetLocal LocalIndex
-    | TeeLocal LocalIndex
-    | GetGlobal GlobalIndex
-    | SetGlobal GlobalIndex
+    | GetLocal index
+    | SetLocal index
+    | TeeLocal index
+    | GetGlobal index
+    | SetGlobal index
     -- Memory instructions
     | I32Load MemArg
     | I64Load MemArg
@@ -176,7 +176,7 @@ data Instruction =
     | FReinterpretI BitSize
     deriving (Show, Eq, Generic, NFData)
 
-type Expression = [Instruction]
+type Expression = [Instruction Natural]
 
 data Function = Function {
     funcType :: TypeIndex,
@@ -203,7 +203,7 @@ data Global = Global {
 
 data ElemSegment = ElemSegment {
     tableIndex :: TableIndex,
-    offset :: [Instruction],
+    offset :: Expression,
     funcIndexes :: [FuncIndex]
 } deriving (Show, Eq, Generic, NFData)
 

@@ -1440,8 +1440,6 @@ data Module = Module {
 
 type Script = [Command]
 
-type Expression = [Instruction]
-
 data ModuleDef
     = RawModDef (Maybe Ident) S.Module
     | TextModDef (Maybe Ident) TL.Text
@@ -1457,14 +1455,14 @@ data Command
     deriving (Show, Eq)
 
 data Action
-    = Invoke (Maybe Ident) TL.Text [[S.Instruction]]
+    = Invoke (Maybe Ident) TL.Text [S.Expression]
     | Get (Maybe Ident) TL.Text
     deriving (Show, Eq)
 
 type FailureString = TL.Text
 
 data Assertion
-    = AssertReturn Action [[S.Instruction]]
+    = AssertReturn Action [S.Expression]
     | AssertReturnCanonicalNaN Action
     | AssertReturnArithmeticNaN Action
     | AssertTrap (Either Action ModuleDef) FailureString
@@ -1489,7 +1487,7 @@ data FunCtx = FunCtx {
     ctxParams :: [ParamType]
 } deriving (Eq, Show)
 
-constInstructionToValue :: Instruction -> S.Instruction
+constInstructionToValue :: Instruction -> S.Instruction Natural
 constInstructionToValue (PlainInstr (I32Const v)) = S.I32Const $ integerToWord32 v
 constInstructionToValue (PlainInstr (F32Const v)) = S.F32Const v
 constInstructionToValue (PlainInstr (I64Const v)) = S.I64Const $ integerToWord64 v
@@ -1639,7 +1637,7 @@ desugarize fields = do
                 Nothing -> Left "unknown label"
 
         -- functions
-        synInstrToStruct :: FunCtx -> Instruction -> Either String S.Instruction
+        synInstrToStruct :: FunCtx -> Instruction -> Either String (S.Instruction Natural)
         synInstrToStruct _ (PlainInstr Unreachable) = return S.Unreachable
         synInstrToStruct _ (PlainInstr Nop) = return S.Nop
         synInstrToStruct ctx (PlainInstr (Br labelIdx)) =

@@ -431,7 +431,7 @@ getGlobalValue inst store idx =
         GIMut _ ref -> readIORef ref
 
 -- due the validation there can be only these instructions
-evalConstExpr :: ModuleInstance -> Store -> [Instruction] -> IO Value
+evalConstExpr :: ModuleInstance -> Store -> Expression -> IO Value
 evalConstExpr _ _ [I32Const v] = return $ VI32 v
 evalConstExpr _ _ [I64Const v] = return $ VI64 v
 evalConstExpr _ _ [F32Const v] = return $ VF32 v
@@ -442,7 +442,7 @@ evalConstExpr _ _ instrs = error $ "Global initializer contains unsupported inst
 allocAndInitGlobals :: ModuleInstance -> Store -> [Global] -> IO (Vector GlobalInstance)
 allocAndInitGlobals inst store globs = Vector.fromList <$> mapM allocGlob globs
     where
-        runIniter :: [Instruction] -> IO Value
+        runIniter :: Expression -> IO Value
         -- the spec says get global can ref only imported globals
         -- only they are in store for this moment
         runIniter = evalConstExpr inst store
@@ -594,7 +594,7 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
         initLocal F32 = VF32 0
         initLocal F64 = VF64 0
 
-        go :: EvalCtx -> [Instruction] -> IO EvalResult
+        go :: EvalCtx -> Expression -> IO EvalResult
         go ctx [] = return $ Done ctx
         go ctx (instr:rest) = do
             res <- step ctx instr
@@ -630,7 +630,7 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
                 return $ Done ctx { stack = rest }
         makeStoreInstr _ _ _ _ = error "Incorrect value on top of stack for memory instruction"
 
-        step :: EvalCtx -> Instruction -> IO EvalResult
+        step :: EvalCtx -> Instruction Natural -> IO EvalResult
         step _ Unreachable = return Trap
         step ctx Nop = return $ Done ctx
         step ctx (Block resType expr) = do

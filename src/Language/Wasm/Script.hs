@@ -106,7 +106,7 @@ runScript onAssertFail script = do
         getModule st (Just (Ident i)) = Map.lookup i (modules st)
         getModule st Nothing = lastModule st
 
-        asArg :: [Struct.Instruction] -> Interpreter.Value
+        asArg :: Struct.Expression -> Interpreter.Value
         asArg [Struct.I32Const v] = Interpreter.VI32 v
         asArg [Struct.F32Const v] = Interpreter.VF32 v
         asArg [Struct.I64Const v] = Interpreter.VI64 v

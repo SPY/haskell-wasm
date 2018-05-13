@@ -1,5 +1,6 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 module Language.Wasm.Binary (
     dumpModule,
@@ -297,7 +298,7 @@ instance Serialize MemArg where
     put (MemArg align offset) = putULEB128 align >> putULEB128 offset
     get = MemArg <$> getULEB128 32 <*> getULEB128 32
 
-instance Serialize Instruction where
+instance Serialize (Instruction Natural) where
     put Unreachable = putWord8 0x00
     put Nop = putWord8 0x01
     put (Block result body) = do
@@ -682,7 +683,7 @@ putExpression expr = do
 getExpression :: Get Expression
 getExpression = go []
     where
-        go :: [Instruction] -> Get Expression
+        go :: Expression -> Get Expression
         go acc = do
             nextByte <- lookAhead getWord8
             if nextByte == 0x0B -- END OF EXPR
@@ -692,7 +693,7 @@ getExpression = go []
 getTrueBranch :: Get (Expression, Bool)
 getTrueBranch = go []
     where
-        go :: [Instruction] -> Get (Expression, Bool)
+        go :: Expression -> Get (Expression, Bool)
         go acc = do
             nextByte <- lookAhead getWord8
             case nextByte of
