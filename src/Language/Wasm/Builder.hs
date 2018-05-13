@@ -13,6 +13,22 @@
 {-# LANGUAGE FlexibleInstances #-}
 
 module Language.Wasm.Builder (
+    GenMod,
+    genMod,
+    global, fun, funRec, table, memory, dataSegment,
+    importFunction, importGlobal, importMemory, importTable,
+    GenFun,
+    param,
+    local,
+    ret,
+    arg,
+    i32, i64, f32, f64,
+    i32c, i64c, f32c, f64c,
+    add, sub, mul, and,
+    eq, lt_s, lt_u,
+    load, store,
+    call, invoke,
+    ifExpr, ifStmt
 ) where
 
 import Prelude hiding (and)
@@ -25,6 +41,7 @@ import Data.Int (Int32, Int64)
 import Data.Proxy
 
 import qualified Data.Text.Lazy as TL
+import qualified Data.ByteString.Lazy as LBS
 
 import Language.Wasm.Structure
 
@@ -155,8 +172,47 @@ lt_u = relOp ILtS
 eq :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (Proxy I32)
 eq = relOp IEq
 
-i32const :: (Integral i) => i -> GenFun (Proxy I32)
-i32const i = appendExpr [I32Const $ asWord32 $ fromIntegral i] >> return Proxy
+i32c :: (Integral i) => i -> GenFun (Proxy I32)
+i32c i = appendExpr [I32Const $ asWord32 $ fromIntegral i] >> return Proxy
+
+i64c :: (Integral i) => i -> GenFun (Proxy I64)
+i64c i = appendExpr [I64Const $ asWord64 $ fromIntegral i] >> return Proxy
+
+f32c :: Float -> GenFun (Proxy F32)
+f32c f = appendExpr [F32Const f] >> return Proxy
+
+f64c :: Double -> GenFun (Proxy F64)
+f64c d = appendExpr [F64Const d] >> return Proxy
+
+load :: (ValueTypeable t, Producer addr, OutType addr ~ Proxy I32, Integral offset, Integral align)
+    => Proxy t
+    -> addr
+    -> offset
+    -> align
+    -> GenFun (Proxy t)
+load t addr offset align = do
+    produce addr
+    case getValueType t of
+        I32 -> appendExpr [I32Load $ MemArg (fromIntegral offset) (fromIntegral align)]
+        I64 -> appendExpr [I64Load $ MemArg (fromIntegral offset) (fromIntegral align)]
+        F32 -> appendExpr [F32Load $ MemArg (fromIntegral offset) (fromIntegral align)]
+        F64 -> appendExpr [F64Load $ MemArg (fromIntegral offset) (fromIntegral align)]
+    return Proxy
+
+store :: (Producer addr, OutType addr ~ Proxy I32, Producer val, Integral offset, Integral align)
+    => addr
+    -> val
+    -> offset
+    -> align
+    -> GenFun ()
+store addr val offset align = do
+    produce val
+    produce addr
+    case asValueType val of
+        I32 -> appendExpr [I32Store $ MemArg (fromIntegral offset) (fromIntegral align)]
+        I64 -> appendExpr [I64Store $ MemArg (fromIntegral offset) (fromIntegral align)]
+        F32 -> appendExpr [F32Store $ MemArg (fromIntegral offset) (fromIntegral align)]
+        F64 -> appendExpr [F64Store $ MemArg (fromIntegral offset) (fromIntegral align)]
 
 invoke :: Natural -> [GenFun a] -> GenFun ()
 invoke idx args = sequence_ args >> appendExpr [Call idx]
@@ -174,6 +230,16 @@ ifExpr t pred true false = do
     produce pred
     appendExpr [If [getValueType t] (genExpr $ produce true) (genExpr $ produce false)]
     return Proxy
+
+ifStmt :: (Producer pred, OutType pred ~ Proxy I32)
+    => Proxy t
+    -> pred
+    -> GenFun a
+    -> GenFun a
+    -> GenFun ()
+ifStmt t pred true false = do
+    produce pred
+    appendExpr [If [] (genExpr true) (genExpr false)]
 
 class Consumer loc where
     (.=) :: (Producer expr) => loc -> expr -> GenFun ()
@@ -210,8 +276,8 @@ type GenMod = State GenModState
 genMod :: GenMod a -> Module
 genMod = target . flip execState (GenModState 0 0 emptyModule)
 
-importFunc :: TL.Text -> TL.Text -> FuncType -> GenMod Natural
-importFunc mod name t = do
+importFunction :: TL.Text -> TL.Text -> FuncType -> GenMod Natural
+importFunction mod name t = do
     st@GenModState { target = m@Module { types, imports }, funcIdx } <- get
     let (idx, inserted) = Maybe.fromMaybe (length types, types ++ [t]) $ (\i -> (i, types)) <$> List.findIndex (== t) types
     put $ st {
@@ -228,6 +294,18 @@ importGlobal mod name t = do
         globIdx = globIdx + 1
     }
     return globIdx
+
+importMemory :: TL.Text -> TL.Text -> Natural -> Maybe Natural -> GenMod ()
+importMemory mod name min max = do
+    modify $ \(st@GenModState { target = m }) -> st {
+        target = m { imports = imports m ++ [Import mod name $ ImportMemory $ Limit min max] }
+    }
+
+importTable :: TL.Text -> TL.Text -> Natural -> Maybe Natural -> GenMod ()
+importTable mod name min max = do
+    modify $ \(st@GenModState { target = m }) -> st {
+        target = m { imports = imports m ++ [Import mod name $ ImportTable $ TableType (Limit min max) AnyFunc] }
+    }
 
 class ValueTypeable a where
     type ValType a
@@ -276,6 +354,18 @@ memory min max = do
         target = m { mems = mems m ++ [Memory $ Limit min max] }
     }
 
+table :: Natural -> Maybe Natural -> GenMod ()
+table min max = do
+    modify $ \(st@GenModState { target = m }) -> st {
+        target = m { tables = tables m ++ [Table $ TableType (Limit min max) AnyFunc] }
+    }
+
+dataSegment :: (Producer offset, OutType offset ~ Proxy I32) => offset -> LBS.ByteString -> GenMod ()
+dataSegment offset bytes =
+    modify $ \(st@GenModState { target = m }) -> st {
+        target = m { datas = datas m ++ [DataSegment 0 (genExpr (produce offset)) bytes] }
+    }
+
 asWord32 :: Int32 -> Word32
 asWord32 i
     | i >= 0 = fromIntegral i
@@ -288,7 +378,7 @@ asWord64 i
 
 rts :: Module
 rts = genMod $ do
-    gc <- importFunc "rts" "gc" (FuncType [I32] [])
+    gc <- importFunction "rts" "gc" (FuncType [I32] [])
     memory 10 Nothing
 
     stackStart <- global Const i32 0
@@ -305,7 +395,7 @@ rts = genMod $ do
 
     aligned <- fun $ do
         size <- param i32
-        (size `add` i32const 3) `and` i32const 0xFFFFFFFC
+        (size `add` i32c 3) `and` i32c 0xFFFFFFFC
     alloc <- funRec $ \self -> do
         size <- param i32
         alignedSize <- local i32
