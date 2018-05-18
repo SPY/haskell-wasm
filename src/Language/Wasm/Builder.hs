@@ -32,6 +32,7 @@ module Language.Wasm.Builder (
     eq, lt_s, lt_u,
     load, load8u, load8s, load16u, load16s, load32u, load32s,
     store, store8, store16, store32,
+    nop,
     call, invoke,
     ifExpr, ifStmt, loopExpr, loopStmt, for,
     trap, unreachable,
