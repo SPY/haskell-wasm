@@ -19,6 +19,7 @@ module Language.Wasm.Builder (
     genMod,
     global, typedef, fun, funRec, table, memory, dataSegment,
     importFunction, importGlobal, importMemory, importTable,
+    exportFunction, exportGlobal, exportMemory, exportTable,
     nextFuncIndex, setGlobalInitializer,
     GenFun,
     Glob, Loc,
@@ -30,6 +31,7 @@ module Language.Wasm.Builder (
     i32c, i64c, f32c, f64c,
     add, sub, mul, and,
     eq, lt_s, lt_u,
+    extend_s, extend_u,
     load, load8u, load8s, load16u, load16s, load32u, load32s,
     store, store8, store16, store32,
     nop,
@@ -207,6 +209,18 @@ f32c f = appendExpr [F32Const f] >> return Proxy
 
 f64c :: Double -> GenFun (Proxy F64)
 f64c d = appendExpr [F64Const d] >> return Proxy
+
+extend_u :: (Producer i, OutType i ~ Proxy I32) => i -> GenFun (Proxy I64)
+extend_u small = do
+    produce small
+    appendExpr [I64ExtendUI32]
+    return Proxy
+
+extend_s :: (Producer i, OutType i ~ Proxy I32) => i -> GenFun (Proxy I64)
+extend_s small = do
+    produce small
+    appendExpr [I64ExtendUI32]
+    return Proxy
 
 load :: (ValueTypeable t, Producer addr, OutType addr ~ Proxy I32, Integral offset, Integral align)
     => Proxy t
@@ -479,17 +493,47 @@ importGlobal mod name t = do
     }
     return $ Glob globIdx
 
-importMemory :: TL.Text -> TL.Text -> Natural -> Maybe Natural -> GenMod ()
+importMemory :: TL.Text -> TL.Text -> Natural -> Maybe Natural -> GenMod Natural
 importMemory mod name min max = do
     modify $ \(st@GenModState { target = m }) -> st {
         target = m { imports = imports m ++ [Import mod name $ ImportMemory $ Limit min max] }
     }
+    return 0
 
-importTable :: TL.Text -> TL.Text -> Natural -> Maybe Natural -> GenMod ()
+importTable :: TL.Text -> TL.Text -> Natural -> Maybe Natural -> GenMod Natural
 importTable mod name min max = do
     modify $ \(st@GenModState { target = m }) -> st {
         target = m { imports = imports m ++ [Import mod name $ ImportTable $ TableType (Limit min max) AnyFunc] }
     }
+    return 0
+
+exportFunction :: TL.Text -> Natural -> GenMod Natural
+exportFunction name funIdx = do
+    modify $ \(st@GenModState { target = m }) -> st {
+        target = m { exports = exports m ++ [Export name $ ExportFunc funIdx] }
+    }
+    return funIdx
+
+exportGlobal :: TL.Text -> (Glob t) -> GenMod (Glob t)
+exportGlobal name g@(Glob idx) = do
+    modify $ \(st@GenModState { target = m }) -> st {
+        target = m { exports = exports m ++ [Export name $ ExportGlobal idx] }
+    }
+    return g
+
+exportMemory :: TL.Text -> Natural -> GenMod Natural
+exportMemory name memIdx = do
+    modify $ \(st@GenModState { target = m }) -> st {
+        target = m { exports = exports m ++ [Export name $ ExportMemory memIdx] }
+    }
+    return memIdx
+
+exportTable :: TL.Text -> Natural -> GenMod Natural
+exportTable name tableIdx = do
+    modify $ \(st@GenModState { target = m }) -> st {
+        target = m { exports = exports m ++ [Export name $ ExportTable tableIdx] }
+    }
+    return tableIdx
 
 class ValueTypeable a where
     type ValType a
@@ -541,17 +585,19 @@ setGlobalInitializer (Glob idx) val = do
             target = m { globals = h ++ [glob { initializer = initWith (Proxy @t) val }] ++ t }
         }
 
-memory :: Natural -> Maybe Natural -> GenMod ()
+memory :: Natural -> Maybe Natural -> GenMod Natural
 memory min max = do
     modify $ \(st@GenModState { target = m }) -> st {
         target = m { mems = mems m ++ [Memory $ Limit min max] }
     }
+    return 0
 
-table :: Natural -> Maybe Natural -> GenMod ()
+table :: Natural -> Maybe Natural -> GenMod Natural
 table min max = do
     modify $ \(st@GenModState { target = m }) -> st {
         target = m { tables = tables m ++ [Table $ TableType (Limit min max) AnyFunc] }
     }
+    return 0
 
 dataSegment :: (Producer offset, OutType offset ~ Proxy I32) => offset -> LBS.ByteString -> GenMod ()
 dataSegment offset bytes =
