@@ -106,9 +106,9 @@ data Instruction index =
     -- Control instructions
     Unreachable
     | Nop
-    | Block { result :: ResultType, body :: Expression }
-    | Loop { result :: ResultType, body :: Expression }
-    | If { result :: ResultType, true :: Expression, false :: Expression }
+    | Block { resultType :: ResultType, body :: Expression }
+    | Loop { resultType :: ResultType, body :: Expression }
+    | If { resultType :: ResultType, true :: Expression, false :: Expression }
     | Br index
     | BrIf index
     | BrTable [index] index

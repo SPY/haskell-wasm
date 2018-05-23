@@ -180,24 +180,24 @@ checkMemoryInstr size memarg = do
 getInstrType :: Instruction Natural -> Checker Arrow
 getInstrType Unreachable = return $ Any ==> Any
 getInstrType Nop = return $ empty ==> empty
-getInstrType Block { result, body } = do
-    let blockType = empty ==> result
-    t <- withLabel result $ getExpressionType body
+getInstrType Block { resultType, body } = do
+    let blockType = empty ==> resultType
+    t <- withLabel resultType $ getExpressionType body
     if isArrowMatch t blockType
-    then return $ empty ==> result
+    then return $ empty ==> resultType
     else throwError $ TypeMismatch t blockType
-getInstrType Loop { result, body } = do
-    let blockType = empty ==> result
+getInstrType Loop { resultType, body } = do
+    let blockType = empty ==> resultType
     t <- withLabel [] $ getExpressionType body
     if isArrowMatch t blockType
-    then return $ empty ==> result
+    then return $ empty ==> resultType
     else throwError $ TypeMismatch t blockType
-getInstrType If { result, true, false } = do
-    let blockType = empty ==> result
-    l <- withLabel result $ getExpressionType true
-    r <- withLabel result $ getExpressionType false
+getInstrType If { resultType, true, false } = do
+    let blockType = empty ==> resultType
+    l <- withLabel resultType $ getExpressionType true
+    r <- withLabel resultType $ getExpressionType false
     if isArrowMatch l blockType
-    then (if isArrowMatch r blockType then (return $ I32 ==> result) else (throwError $ TypeMismatch r blockType))
+    then (if isArrowMatch r blockType then (return $ I32 ==> resultType) else (throwError $ TypeMismatch r blockType))
     else throwError $ TypeMismatch l blockType
 getInstrType (Br lbl) = do
     r <- map Val . maybeToList <$> getLabel lbl

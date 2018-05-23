@@ -23,8 +23,7 @@ module Language.Wasm.Builder (
     nextFuncIndex, setGlobalInitializer,
     GenFun,
     Glob, Loc,
-    param,
-    local,
+    param, local, result,
     ret,
     arg,
     i32, i64, f32, f64,
@@ -59,7 +58,7 @@ import Language.Wasm.Structure
 
 data FuncDef = FuncDef {
     args :: [ValueType],
-    results :: [ValueType],
+    returns :: [ValueType],
     locals :: [ValueType],
     instrs :: Expression
 } deriving (Show, Eq)
@@ -82,6 +81,11 @@ local t = do
     f@FuncDef { args, locals } <- get
     put $ f { locals = locals ++ [getValueType t]}
     return $ Loc $ fromIntegral $ length args + length locals
+
+result :: (ValueTypeable t) => Proxy t -> GenFun ()
+result t = do
+    f@FuncDef { returns } <- get
+    put $ f { returns = returns ++ [getValueType t] }
 
 appendExpr :: Expression -> GenFun ()
 appendExpr expr = do
@@ -131,8 +135,8 @@ arg e = produce e >> return ()
 
 getSize :: ValueType -> BitSize
 getSize I32 = BS32
-getSize I64 = BS32
-getSize F32 = BS64
+getSize I64 = BS64
+getSize F32 = BS32
 getSize F64 = BS64
 
 type family IsInt i :: Bool where
@@ -322,8 +326,8 @@ store :: (Producer addr, OutType addr ~ Proxy I32, Producer val, Integral offset
     -> align
     -> GenFun ()
 store addr val offset align = do
-    produce val
     produce addr
+    produce val
     case asValueType val of
         I32 -> appendExpr [I32Store $ MemArg (fromIntegral offset) (fromIntegral align)]
         I64 -> appendExpr [I64Store $ MemArg (fromIntegral offset) (fromIntegral align)]
@@ -337,8 +341,8 @@ store8 :: (Producer addr, OutType addr ~ Proxy I32, Producer val, IsInt (OutType
     -> align
     -> GenFun ()
 store8 addr val offset align = do
-    produce val
     produce addr
+    produce val
     case asValueType val of
         I32 -> appendExpr [I32Store8 $ MemArg (fromIntegral offset) (fromIntegral align)]
         I64 -> appendExpr [I64Store8 $ MemArg (fromIntegral offset) (fromIntegral align)]
@@ -351,8 +355,8 @@ store16 :: (Producer addr, OutType addr ~ Proxy I32, Producer val, IsInt (OutTyp
     -> align
     -> GenFun ()
 store16 addr val offset align = do
-    produce val
     produce addr
+    produce val
     case asValueType val of
         I32 -> appendExpr [I32Store16 $ MemArg (fromIntegral offset) (fromIntegral align)]
         I64 -> appendExpr [I64Store16 $ MemArg (fromIntegral offset) (fromIntegral align)]
@@ -365,8 +369,8 @@ store32 :: (Producer addr, OutType addr ~ Proxy I32, Producer val, OutType val ~
     -> align
     -> GenFun ()
 store32 addr val offset align = do
-    produce val
     produce addr
+    produce val
     appendExpr [I64Store32 $ MemArg (fromIntegral offset) (fromIntegral align)]
 
 invoke :: Natural -> [GenFun a] -> GenFun ()
@@ -448,8 +452,8 @@ typedef t = do
 funRec :: (Natural -> GenFun a) -> GenMod Natural
 funRec generator = do
     st@GenModState { target = m@Module { types, functions }, funcIdx } <- get
-    let FuncDef { args, results, locals, instrs } = execState (runReaderT (generator funcIdx) 0) $ FuncDef [] [] [] []
-    let t = FuncType args results
+    let FuncDef { args, returns, locals, instrs } = execState (runReaderT (generator funcIdx) 0) $ FuncDef [] [] [] []
+    let t = FuncType args returns
     let (idx, inserted) = Maybe.fromMaybe (length types, types ++ [t]) $ (\i -> (i, types)) <$> List.findIndex (== t) types
     put $ st {
         target = m { functions = functions ++ [Function (fromIntegral idx) locals instrs], types = inserted },

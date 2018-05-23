@@ -295,7 +295,7 @@ instance Serialize Index where
     get = Index <$> getULEB128 32
 
 instance Serialize MemArg where
-    put (MemArg align offset) = putULEB128 align >> putULEB128 offset
+    put MemArg { align, offset } = putULEB128 align >> putULEB128 offset
     get = MemArg <$> getULEB128 32 <*> getULEB128 32
 
 instance Serialize (Instruction Natural) where
@@ -309,13 +309,13 @@ instance Serialize (Instruction Natural) where
         putWord8 0x03
         putResultType result
         putExpression body
-    put If {result, true, false = []} = do
+    put If {resultType, true, false = []} = do
         putWord8 0x04
-        putResultType result
+        putResultType resultType
         putExpression true
-    put If {result, true, false} = do
+    put If {resultType, true, false} = do
         putWord8 0x04
-        putResultType result
+        putResultType resultType
         mapM_ put true
         putWord8 0x05 -- ELSE
         putExpression false
