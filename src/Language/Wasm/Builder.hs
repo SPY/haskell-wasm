@@ -28,8 +28,8 @@ module Language.Wasm.Builder (
     arg,
     i32, i64, f32, f64,
     i32c, i64c, f32c, f64c,
-    add, sub, mul, and,
-    eq, lt_s, lt_u,
+    add, sub, mul, div_u, div_s, rem_u, rem_s, and, or, xor, shl, shr_u, shr_s, rotl, rotr,
+    eq, ne, lt_s, lt_u, gt_s, gt_u, le_s, le_u, ge_s, ge_u,
     extend_s, extend_u,
     load, load8u, load8s, load16u, load16s, load32u, load32s,
     store, store8, store16, store32,
@@ -41,7 +41,7 @@ module Language.Wasm.Builder (
     Producer, OutType, produce, Consumer, (.=)
 ) where
 
-import Prelude hiding (and)
+import Prelude hiding (and, or)
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
 import Control.Monad.State (State, execState, get, gets, put, modify)
@@ -177,6 +177,18 @@ mul a b = do
         F32 -> after [FBinOp BS32 FMul] (produce b)
         F64 -> after [FBinOp BS64 FMul] (produce b)
 
+div_u :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (OutType a)
+div_u = iBinOp IDivU
+
+div_s :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (OutType a)
+div_s = iBinOp IDivS
+
+rem_u :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (OutType a)
+rem_u = iBinOp IRemU
+
+rem_s :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (OutType a)
+rem_s = iBinOp IRemS
+
 and :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (OutType a)
 and = iBinOp IAnd
 
@@ -186,6 +198,21 @@ or = iBinOp IOr
 xor :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (OutType a)
 xor = iBinOp IXor
 
+shl :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (OutType a)
+shl = iBinOp IShl
+
+shr_u :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (OutType a)
+shr_u = iBinOp IShrU
+
+shr_s :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (OutType a)
+shr_s = iBinOp IShrS
+
+rotl :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (OutType a)
+rotl = iBinOp IRotl
+
+rotr :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (OutType a)
+rotr = iBinOp IRotr 
+
 relOp :: (Producer a, Producer b, OutType a ~ OutType b) => IRelOp -> a -> b -> GenFun (Proxy I32)
 relOp op a b = do
     produce a
@@ -193,14 +220,51 @@ relOp op a b = do
     appendExpr [IRelOp (getSize $ asValueType a) op]
     return Proxy
 
-lt_s :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (Proxy I32)
+eq :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (Proxy I32)
+eq a b = do
+    produce a
+    produce b
+    case asValueType a of
+        I32 -> appendExpr [IRelOp BS32 IEq]
+        I64 -> appendExpr [IRelOp BS64 IEq]
+        F32 -> appendExpr [FRelOp BS32 FEq]
+        F64 -> appendExpr [FRelOp BS64 FEq]
+    return Proxy
+
+ne :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (Proxy I32)
+ne a b = do
+    produce a
+    produce b
+    case asValueType a of
+        I32 -> appendExpr [IRelOp BS32 INe]
+        I64 -> appendExpr [IRelOp BS64 INe]
+        F32 -> appendExpr [FRelOp BS32 FNe]
+        F64 -> appendExpr [FRelOp BS64 FNe]
+    return Proxy
+
+lt_s :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
 lt_s = relOp ILtS
 
-lt_u :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (Proxy I32)
+lt_u :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
 lt_u = relOp ILtS
 
-eq :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (Proxy I32)
-eq = relOp IEq
+gt_s :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
+gt_s = relOp IGtS
+
+gt_u :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
+gt_u = relOp IGtU
+
+le_s :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
+le_s = relOp ILeS
+
+le_u :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
+le_u = relOp ILeS
+
+ge_s :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
+ge_s = relOp IGeS
+
+ge_u :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
+ge_u = relOp IGeU
 
 i32c :: (Integral i) => i -> GenFun (Proxy I32)
 i32c i = appendExpr [I32Const $ asWord32 $ fromIntegral i] >> return Proxy
