@@ -296,7 +296,10 @@ instance Serialize Index where
 
 instance Serialize MemArg where
     put MemArg { align, offset } = putULEB128 align >> putULEB128 offset
-    get = MemArg <$> getULEB128 32 <*> getULEB128 32
+    get = do
+        align <- getULEB128 32
+        offset <- getULEB128 32
+        return $ MemArg { align, offset }
 
 instance Serialize (Instruction Natural) where
     put Unreachable = putWord8 0x00
