@@ -28,14 +28,15 @@ module Language.Wasm.Builder (
     arg,
     i32, i64, f32, f64,
     i32c, i64c, f32c, f64c,
-    add, sub, mul, div_u, div_s, rem_u, rem_s, and, or, xor, shl, shr_u, shr_s, rotl, rotr,
+    add, inc, sub, dec, mul, div_u, div_s, rem_u, rem_s, and, or, xor, shl, shr_u, shr_s, rotl, rotr,
     eq, ne, lt_s, lt_u, gt_s, gt_u, le_s, le_u, ge_s, ge_u,
+    eqz,
     extend_s, extend_u,
     load, load8u, load8s, load16u, load16s, load32u, load32s,
     store, store8, store16, store32,
     nop,
     call, invoke,
-    ifExpr, ifStmt, loopExpr, loopStmt, for,
+    ifExpr, ifStmt, loopExpr, loopStmt, for, while,
     trap, unreachable,
     appendExpr, after,
     Producer, OutType, produce, Consumer, (.=)
@@ -159,6 +160,9 @@ add a b = do
         F32 -> after [FBinOp BS32 FAdd] (produce b)
         F64 -> after [FBinOp BS64 FAdd] (produce b)
 
+inc :: (Consumer a, Producer a, OutType a ~ Proxy I32, Integral i) => i -> a -> GenFun ()
+inc i a = a .= (a `add` i32c i)
+
 sub :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (OutType a)
 sub a b = do
     produce a
@@ -167,6 +171,9 @@ sub a b = do
         I64 -> after [IBinOp BS64 ISub] (produce b)
         F32 -> after [FBinOp BS32 FSub] (produce b)
         F64 -> after [FBinOp BS64 FSub] (produce b)
+
+dec :: (Consumer a, Producer a, OutType a ~ Proxy I32, Integral i) => i -> a -> GenFun ()
+dec i a = a .= (a `sub` i32c i)
 
 mul :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (OutType a)
 mul a b = do
@@ -265,6 +272,15 @@ ge_s = relOp IGeS
 
 ge_u :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
 ge_u = relOp IGeU
+
+eqz :: (Producer a, IsInt (OutType a) ~ True) => a -> GenFun (Proxy I32)
+eqz a = do
+    produce a
+    case asValueType a of
+        I32 -> appendExpr [I32Eqz]
+        I64 -> appendExpr [I64Eqz]
+        _ -> error "Impossible by type constraint"
+    return Proxy
 
 i32c :: (Integral i) => i -> GenFun (Proxy I32)
 i32c i = appendExpr [I32Const $ asWord32 $ fromIntegral i] >> return Proxy
@@ -476,7 +492,12 @@ for :: (Producer pred, OutType pred ~ Proxy I32) => GenFun () -> pred -> GenFun 
 for initer pred after body = do
     initer
     let loopBody lbl = body lbl >> after >> ifStmt pred (const $ br lbl) (const nop)
-    ifStmt pred (const $ loopStmt loopBody) (const nop)
+    ifStmt pred (const $ loopStmt loopBody) (const $ return ())
+
+while :: (Producer pred, OutType pred ~ Proxy I32) => pred -> (Label () -> GenFun ()) -> GenFun ()
+while pred body = do
+    let loopBody lbl = body lbl >> ifStmt pred (const $ br lbl) (const $ return ())
+    ifStmt pred (const $ loopStmt loopBody) (const $ return ())
 
 loopExpr :: (Producer body, OutType body ~ Proxy t, ValueTypeable t) => Proxy t -> (Label t -> body) -> GenFun (OutType body)
 loopExpr t body = do
