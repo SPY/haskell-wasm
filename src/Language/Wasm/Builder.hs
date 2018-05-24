@@ -35,8 +35,8 @@ module Language.Wasm.Builder (
     load, load8u, load8s, load16u, load16s, load32u, load32s,
     store, store8, store16, store32,
     nop,
-    call, invoke,
-    ifExpr, ifStmt, loopExpr, loopStmt, for, while,
+    call, invoke, finish,
+    ifExpr, ifStmt, when, loopExpr, loopStmt, for, while,
     trap, unreachable,
     appendExpr, after,
     Producer, OutType, produce, Consumer, (.=)
@@ -464,6 +464,11 @@ br (Label labelDeep) = do
     deep <- ask
     appendExpr [Br $ deep - labelDeep]
 
+finish :: (Producer val) => val -> GenFun ()
+finish val = do
+    produce val
+    appendExpr [Return]
+
 newtype Label i = Label Natural deriving (Show, Eq)
 
 ifExpr :: (Producer pred, OutType pred ~ Proxy I32, ValueTypeable t, Producer true, OutType true ~ Proxy t, Producer false, OutType false ~ Proxy t)
@@ -487,6 +492,12 @@ ifStmt pred true false = do
     produce pred
     deep <- (+1) <$> ask
     appendExpr [If [] (genExpr deep $ true $ Label deep) (genExpr deep $ false $ Label deep)]
+
+when :: (Producer pred, OutType pred ~ Proxy I32)
+    => pred
+    -> GenFun ()
+    -> GenFun ()
+when pred body = ifStmt pred (const $ body) (const $ return ())
 
 for :: (Producer pred, OutType pred ~ Proxy I32) => GenFun () -> pred -> GenFun () -> (Label () -> GenFun ()) -> GenFun ()
 for initer pred after body = do
