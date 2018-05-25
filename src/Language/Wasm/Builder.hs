@@ -31,7 +31,7 @@ module Language.Wasm.Builder (
     add, inc, sub, dec, mul, div_u, div_s, rem_u, rem_s, and, or, xor, shl, shr_u, shr_s, rotl, rotr,
     eq, ne, lt_s, lt_u, gt_s, gt_u, le_s, le_u, ge_s, ge_u,
     eqz,
-    extend_s, extend_u,
+    extend_s, extend_u, wrap,
     load, load8u, load8s, load16u, load16s, load32u, load32s,
     store, store8, store16, store32,
     nop,
@@ -304,6 +304,12 @@ extend_s :: (Producer i, OutType i ~ Proxy I32) => i -> GenFun (Proxy I64)
 extend_s small = do
     produce small
     appendExpr [I64ExtendUI32]
+    return Proxy
+
+wrap :: (Producer i, OutType i ~ Proxy I64) => i -> GenFun (Proxy I32)
+wrap big = do
+    produce big
+    appendExpr [I32WrapI64]
     return Proxy
 
 load :: (ValueTypeable t, Producer addr, OutType addr ~ Proxy I32, Integral offset, Integral align)
