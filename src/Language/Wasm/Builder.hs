@@ -94,13 +94,28 @@ after instr expr = do
     modify $ \def -> def { instrs = instrs def ++ instr }
     return res
 
+data TypedExpr
+    = ExprI32 (GenFun (Proxy I32))
+    | ExprI64 (GenFun (Proxy I64))
+    | ExprF32 (GenFun (Proxy F32))
+    | ExprF64 (GenFun (Proxy F64))
+
 class Producer expr where
     type OutType expr
+    asTypedExpr :: expr -> TypedExpr
     asValueType :: expr -> ValueType
     produce :: expr -> GenFun (OutType expr)
 
 instance (ValueTypeable t) => Producer (Loc t) where
     type OutType (Loc t) = Proxy t
+    asTypedExpr e = case getValueType (t e) of
+        I32 -> ExprI32 (produce e >> return Proxy)
+        I64 -> ExprI64 (produce e >> return Proxy)
+        F32 -> ExprF32 (produce e >> return Proxy)
+        F64 -> ExprF64 (produce e >> return Proxy)
+        where
+            t :: Loc t -> Proxy t
+            t _ = Proxy
     asValueType e = getValueType (t e)
         where
             t :: Loc t -> Proxy t
@@ -109,6 +124,14 @@ instance (ValueTypeable t) => Producer (Loc t) where
 
 instance (ValueTypeable t) => Producer (Glob t) where
     type OutType (Glob t) = Proxy t
+    asTypedExpr e = case getValueType (t e) of
+        I32 -> ExprI32 (produce e >> return Proxy)
+        I64 -> ExprI64 (produce e >> return Proxy)
+        F32 -> ExprF32 (produce e >> return Proxy)
+        F64 -> ExprF64 (produce e >> return Proxy)
+        where
+            t :: Glob t -> Proxy t
+            t _ = Proxy
     asValueType e = getValueType (t e)
         where
             t :: Glob t -> Proxy t
@@ -117,6 +140,14 @@ instance (ValueTypeable t) => Producer (Glob t) where
 
 instance (ValueTypeable t) => Producer (GenFun (Proxy t)) where
     type OutType (GenFun (Proxy t)) = Proxy t
+    asTypedExpr e = case getValueType (t e) of
+        I32 -> ExprI32 (produce e >> return Proxy)
+        I64 -> ExprI64 (produce e >> return Proxy)
+        F32 -> ExprF32 (produce e >> return Proxy)
+        F64 -> ExprF64 (produce e >> return Proxy)
+        where
+            t :: GenFun (Proxy t) -> Proxy t
+            t _ = Proxy
     asValueType e = getValueType (t e)
         where
             t :: GenFun (Proxy t) -> Proxy t
@@ -155,8 +186,12 @@ add a b = do
         F32 -> after [FBinOp BS32 FAdd] (produce b)
         F64 -> after [FBinOp BS64 FAdd] (produce b)
 
-inc :: (Consumer a, Producer a, OutType a ~ Proxy I32, Integral i) => i -> a -> GenFun ()
-inc i a = a .= (a `add` i32c i)
+inc :: (Consumer a, Producer a, Integral i) => i -> a -> GenFun ()
+inc i a = case asTypedExpr a of
+    ExprI32 e -> a .= (e `add` i32c i)
+    ExprI64 e -> a .= (e `add` i64c i)
+    ExprF32 e -> a .= (e `add` f32c (fromIntegral i))
+    ExprF64 e -> a .= (e `add` f64c (fromIntegral i))
 
 sub :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (OutType a)
 sub a b = do
@@ -167,8 +202,12 @@ sub a b = do
         F32 -> after [FBinOp BS32 FSub] (produce b)
         F64 -> after [FBinOp BS64 FSub] (produce b)
 
-dec :: (Consumer a, Producer a, OutType a ~ Proxy I32, Integral i) => i -> a -> GenFun ()
-dec i a = a .= (a `sub` i32c i)
+dec :: (Consumer a, Producer a, Integral i) => i -> a -> GenFun ()
+dec i a = case asTypedExpr a of
+    ExprI32 e -> a .= (e `sub` i32c i)
+    ExprI64 e -> a .= (e `sub` i64c i)
+    ExprF32 e -> a .= (e `sub` f32c (fromIntegral i))
+    ExprF64 e -> a .= (e `sub` f64c (fromIntegral i))
 
 mul :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (OutType a)
 mul a b = do
@@ -481,12 +520,16 @@ for initer pred after body = do
     let loopBody = do
             body
             after
-            if' () pred (label >>= br) (return ())
+            loopLabel <- label
+            if' () pred (br loopLabel) (return ())
     if' () pred (loop () loopBody) (return ())
 
 while :: (Producer pred, OutType pred ~ Proxy I32) => pred -> GenFun () -> GenFun ()
 while pred body = do
-    let loopBody = body >> if' () pred (label >>= br) (return ())
+    let loopBody = do
+            body
+            loopLabel <- label
+            if' () pred (br loopLabel) (return ())
     if' () pred (loop () loopBody) (return ())
 
 label :: GenFun (Label t)
