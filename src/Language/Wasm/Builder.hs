@@ -19,10 +19,10 @@ module Language.Wasm.Builder (
     genMod,
     global, typedef, fun, funRec, table, memory, dataSegment,
     importFunction, importGlobal, importMemory, importTable,
-    exportFunction, exportGlobal, exportMemory, exportTable,
+    export,
     nextFuncIndex, setGlobalInitializer,
     GenFun,
-    Glob, Loc, Fn(..),
+    Glob, Loc, Fn(..), Mem, Tbl,
     param, local, label,
     ret,
     arg,
@@ -525,6 +525,7 @@ unreachable :: GenFun ()
 unreachable = appendExpr [Unreachable]
 
 class Consumer loc where
+    infixr 2 .=
     (.=) :: (Producer expr) => loc -> expr -> GenFun ()
 
 instance Consumer (Loc t) where
@@ -603,47 +604,61 @@ importGlobal mod name t = do
     }
     return $ Glob globIdx
 
-importMemory :: TL.Text -> TL.Text -> Natural -> Maybe Natural -> GenMod Natural
+importMemory :: TL.Text -> TL.Text -> Natural -> Maybe Natural -> GenMod Mem
 importMemory mod name min max = do
     modify $ \(st@GenModState { target = m }) -> st {
         target = m { imports = imports m ++ [Import mod name $ ImportMemory $ Limit min max] }
     }
-    return 0
+    return $ Mem 0
 
-importTable :: TL.Text -> TL.Text -> Natural -> Maybe Natural -> GenMod Natural
+importTable :: TL.Text -> TL.Text -> Natural -> Maybe Natural -> GenMod Tbl
 importTable mod name min max = do
     modify $ \(st@GenModState { target = m }) -> st {
         target = m { imports = imports m ++ [Import mod name $ ImportTable $ TableType (Limit min max) AnyFunc] }
     }
-    return 0
+    return $ Tbl 0
 
-exportFunction :: TL.Text -> Fn t -> GenMod (Fn t)
-exportFunction name (Fn funIdx) = do
-    modify $ \(st@GenModState { target = m }) -> st {
-        target = m { exports = exports m ++ [Export name $ ExportFunc funIdx] }
-    }
-    return (Fn funIdx)
+class Exportable e where
+    type AfterExport e
+    export :: TL.Text -> e -> GenMod (AfterExport e)
 
-exportGlobal :: TL.Text -> (Glob t) -> GenMod (Glob t)
-exportGlobal name g@(Glob idx) = do
-    modify $ \(st@GenModState { target = m }) -> st {
-        target = m { exports = exports m ++ [Export name $ ExportGlobal idx] }
-    }
-    return g
+instance (Exportable e) => Exportable (GenMod e) where
+    type AfterExport (GenMod e) = AfterExport e
+    export name def = do
+        ent <- def
+        export name ent
 
-exportMemory :: TL.Text -> Natural -> GenMod Natural
-exportMemory name memIdx = do
-    modify $ \(st@GenModState { target = m }) -> st {
-        target = m { exports = exports m ++ [Export name $ ExportMemory memIdx] }
-    }
-    return memIdx
+instance Exportable (Fn t) where
+    type AfterExport (Fn t) = Fn t
+    export name (Fn funIdx) = do
+        modify $ \(st@GenModState { target = m }) -> st {
+            target = m { exports = exports m ++ [Export name $ ExportFunc funIdx] }
+        }
+        return (Fn funIdx)
 
-exportTable :: TL.Text -> Natural -> GenMod Natural
-exportTable name tableIdx = do
-    modify $ \(st@GenModState { target = m }) -> st {
-        target = m { exports = exports m ++ [Export name $ ExportTable tableIdx] }
-    }
-    return tableIdx
+instance Exportable (Glob t) where
+    type AfterExport (Glob t) = Glob t
+    export name g@(Glob idx) = do
+        modify $ \(st@GenModState { target = m }) -> st {
+            target = m { exports = exports m ++ [Export name $ ExportGlobal idx] }
+        }
+        return g
+
+instance Exportable Mem where
+    type AfterExport Mem = Mem
+    export name (Mem memIdx) = do
+        modify $ \(st@GenModState { target = m }) -> st {
+            target = m { exports = exports m ++ [Export name $ ExportMemory memIdx] }
+        }
+        return (Mem memIdx)
+
+instance Exportable Tbl where
+    type AfterExport Tbl = Tbl
+    export name (Tbl tableIdx) = do
+        modify $ \(st@GenModState { target = m }) -> st {
+            target = m { exports = exports m ++ [Export name $ ExportTable tableIdx] }
+        }
+        return (Tbl tableIdx)
 
 class ValueTypeable a where
     type ValType a
@@ -695,19 +710,23 @@ setGlobalInitializer (Glob idx) val = do
             target = m { globals = h ++ [glob { initializer = initWith (Proxy @t) val }] ++ t }
         }
 
-memory :: Natural -> Maybe Natural -> GenMod Natural
+newtype Mem = Mem Natural deriving (Show, Eq)
+
+memory :: Natural -> Maybe Natural -> GenMod Mem
 memory min max = do
     modify $ \(st@GenModState { target = m }) -> st {
         target = m { mems = mems m ++ [Memory $ Limit min max] }
     }
-    return 0
+    return $ Mem 0
 
-table :: Natural -> Maybe Natural -> GenMod Natural
+newtype Tbl = Tbl Natural deriving (Show, Eq)
+
+table :: Natural -> Maybe Natural -> GenMod Tbl
 table min max = do
     modify $ \(st@GenModState { target = m }) -> st {
         target = m { tables = tables m ++ [Table $ TableType (Limit min max) AnyFunc] }
     }
-    return 0
+    return $ Tbl 0
 
 dataSegment :: (Producer offset, OutType offset ~ Proxy I32) => offset -> LBS.ByteString -> GenMod ()
 dataSegment offset bytes =
@@ -753,7 +772,7 @@ rts = genMod $ do
         if' i32 ((heapNext `add` alignedSize) `lt_u` heapEnd)
             (do
                 addr .= heapNext
-                heapNext .= (heapNext `add` alignedSize)
+                heapNext .= heapNext `add` alignedSize
                 ret addr
             )
             (do
