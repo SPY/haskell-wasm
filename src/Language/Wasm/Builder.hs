@@ -22,8 +22,8 @@ module Language.Wasm.Builder (
     exportFunction, exportGlobal, exportMemory, exportTable,
     nextFuncIndex, setGlobalInitializer,
     GenFun,
-    Glob, Loc,
-    param, local, result,
+    Glob, Loc, Fn(..),
+    param, local, label,
     ret,
     arg,
     i32, i64, f32, f64,
@@ -35,8 +35,8 @@ module Language.Wasm.Builder (
     load, load8u, load8s, load16u, load16s, load32u, load32s,
     store, store8, store16, store32,
     nop,
-    call, invoke, finish,
-    ifExpr, ifStmt, when, loopExpr, loopStmt, for, while,
+    call, finish,
+    if', loop, block, when, for, while,
     trap, unreachable,
     appendExpr, after,
     Producer, OutType, produce, Consumer, (.=)
@@ -82,11 +82,6 @@ local t = do
     f@FuncDef { args, locals } <- get
     put $ f { locals = locals ++ [getValueType t]}
     return $ Loc $ fromIntegral $ length args + length locals
-
-result :: (ValueTypeable t) => Proxy t -> GenFun ()
-result t = do
-    f@FuncDef { returns } <- get
-    put $ f { returns = returns ++ [getValueType t] }
 
 appendExpr :: Expression -> GenFun ()
 appendExpr expr = do
@@ -459,11 +454,8 @@ store32 addr val offset align = do
     produce val
     appendExpr [I64Store32 $ MemArg (fromIntegral offset) (fromIntegral align)]
 
-invoke :: Natural -> [GenFun a] -> GenFun ()
-invoke idx args = sequence_ args >> appendExpr [Call idx]
-
-call :: Proxy t -> Natural -> [GenFun a] -> GenFun (Proxy t)
-call t idx args = sequence_ args >> appendExpr [Call idx] >> return t
+call :: (Returnable res) => Fn res -> [GenFun a] -> GenFun res
+call (Fn idx) args = sequence_ args >> appendExpr [Call idx] >> return returnableValue
 
 br :: Label t -> GenFun ()
 br (Label labelDeep) = do
@@ -477,55 +469,52 @@ finish val = do
 
 newtype Label i = Label Natural deriving (Show, Eq)
 
-ifExpr :: (Producer pred, OutType pred ~ Proxy I32, ValueTypeable t, Producer true, OutType true ~ Proxy t, Producer false, OutType false ~ Proxy t)
-    => Proxy t
-    -> pred
-    -> (Label t -> true)
-    -> (Label t -> false)
-    -> GenFun (Proxy t)
-ifExpr t pred true false = do
-    produce pred
-    deep <- (+1) <$> ask
-    appendExpr [If [getValueType t] (genExpr deep $ produce $ true $ Label deep) (genExpr deep $ produce $ false $ Label deep)]
-    return Proxy
-
-ifStmt :: (Producer pred, OutType pred ~ Proxy I32)
-    => pred
-    -> (Label () -> GenFun a)
-    -> (Label () -> GenFun a)
-    -> GenFun ()
-ifStmt pred true false = do
-    produce pred
-    deep <- (+1) <$> ask
-    appendExpr [If [] (genExpr deep $ true $ Label deep) (genExpr deep $ false $ Label deep)]
-
 when :: (Producer pred, OutType pred ~ Proxy I32)
     => pred
     -> GenFun ()
     -> GenFun ()
-when pred body = ifStmt pred (const $ body) (const $ return ())
+when pred body = if' () pred body (return ())
 
-for :: (Producer pred, OutType pred ~ Proxy I32) => GenFun () -> pred -> GenFun () -> (Label () -> GenFun ()) -> GenFun ()
+for :: (Producer pred, OutType pred ~ Proxy I32) => GenFun () -> pred -> GenFun () -> GenFun () -> GenFun ()
 for initer pred after body = do
     initer
-    let loopBody lbl = body lbl >> after >> ifStmt pred (const $ br lbl) (const nop)
-    ifStmt pred (const $ loopStmt loopBody) (const $ return ())
+    let loopBody = do
+            body
+            after
+            if' () pred (label >>= br) (return ())
+    if' () pred (loop () loopBody) (return ())
 
-while :: (Producer pred, OutType pred ~ Proxy I32) => pred -> (Label () -> GenFun ()) -> GenFun ()
+while :: (Producer pred, OutType pred ~ Proxy I32) => pred -> GenFun () -> GenFun ()
 while pred body = do
-    let loopBody lbl = body lbl >> ifStmt pred (const $ br lbl) (const $ return ())
-    ifStmt pred (const $ loopStmt loopBody) (const $ return ())
+    let loopBody = body >> if' () pred (label >>= br) (return ())
+    if' () pred (loop () loopBody) (return ())
 
-loopExpr :: (Producer body, OutType body ~ Proxy t, ValueTypeable t) => Proxy t -> (Label t -> body) -> GenFun (OutType body)
-loopExpr t body = do
-    deep <- (+1) <$> ask
-    appendExpr [Loop [getValueType t] (genExpr deep $ produce $ body $ Label deep)]
-    return t
+label :: GenFun (Label t)
+label = Label <$> ask
 
-loopStmt :: (Label () -> GenFun ()) -> GenFun ()
-loopStmt body = do
+if' :: (Producer pred, OutType pred ~ Proxy I32, Returnable res)
+    => res
+    -> pred
+    -> GenFun res
+    -> GenFun res
+    -> GenFun res
+if' res pred true false = do
+    produce pred
     deep <- (+1) <$> ask
-    appendExpr [Loop [] (genExpr deep $ body $ Label deep)]
+    appendExpr [If (asResultValue res) (genExpr deep $ true) (genExpr deep $ false)]
+    return returnableValue
+
+loop :: (Returnable res) => res -> GenFun res -> GenFun res
+loop res body = do
+    deep <- (+1) <$> ask
+    appendExpr [Loop (asResultValue res) (genExpr deep $ body)]
+    return returnableValue
+
+block :: (Returnable res) => res -> GenFun res -> GenFun res
+block res body = do
+    deep <- (+1) <$> ask
+    appendExpr [Block (asResultValue res) (genExpr deep $ body)]
+    return returnableValue
 
 trap :: Proxy t -> GenFun (Proxy t)
 trap t = do
@@ -551,20 +540,34 @@ typedef t = do
     put $ st { target = m { types = inserted } }
     return $ fromIntegral idx
 
-funRec :: (Natural -> GenFun a) -> GenMod Natural
-funRec generator = do
+newtype Fn a = Fn Natural deriving (Show, Eq)
+
+class Returnable a where
+    asResultValue :: a -> [ValueType]
+    returnableValue :: a
+
+instance (ValueTypeable t) => Returnable (Proxy t) where
+    asResultValue t = [getValueType t]
+    returnableValue = Proxy
+
+instance Returnable () where
+    asResultValue _ = []
+    returnableValue = ()
+
+funRec :: (Returnable res) => res -> (Fn res -> GenFun res) -> GenMod (Fn res)
+funRec res generator = do
     st@GenModState { target = m@Module { types, functions }, funcIdx } <- get
-    let FuncDef { args, returns, locals, instrs } = execState (runReaderT (generator funcIdx) 0) $ FuncDef [] [] [] []
-    let t = FuncType args returns
+    let FuncDef { args, locals, instrs } = execState (runReaderT (generator (Fn funcIdx)) 0) $ FuncDef [] [] [] []
+    let t = FuncType args (asResultValue res)
     let (idx, inserted) = Maybe.fromMaybe (length types, types ++ [t]) $ (\i -> (i, types)) <$> List.findIndex (== t) types
     put $ st {
         target = m { functions = functions ++ [Function (fromIntegral idx) locals instrs], types = inserted },
         funcIdx = funcIdx + 1
     }
-    return funcIdx
+    return $ Fn funcIdx
 
-fun :: GenFun a -> GenMod Natural
-fun = funRec . const
+fun :: (Returnable res) => res -> GenFun res -> GenMod (Fn res)
+fun res = funRec res . const
 
 nextFuncIndex :: GenMod Natural
 nextFuncIndex = gets funcIdx
@@ -580,15 +583,16 @@ type GenMod = State GenModState
 genMod :: GenMod a -> Module
 genMod = target . flip execState (GenModState 0 0 emptyModule)
 
-importFunction :: TL.Text -> TL.Text -> FuncType -> GenMod Natural
-importFunction mod name t = do
+importFunction :: (Returnable res) => TL.Text -> TL.Text -> res -> [ValueType] -> GenMod (Fn res)
+importFunction mod name res params = do
     st@GenModState { target = m@Module { types, imports }, funcIdx } <- get
+    let t = FuncType params (asResultValue res)
     let (idx, inserted) = Maybe.fromMaybe (length types, types ++ [t]) $ (\i -> (i, types)) <$> List.findIndex (== t) types
     put $ st {
         target = m { imports = imports ++ [Import mod name $ ImportFunc $ fromIntegral idx], types = inserted },
         funcIdx = funcIdx + 1
     }
-    return funcIdx
+    return (Fn funcIdx)
 
 importGlobal :: (ValueTypeable t) => TL.Text -> TL.Text -> Proxy t -> GenMod (Glob t)
 importGlobal mod name t = do
@@ -613,12 +617,12 @@ importTable mod name min max = do
     }
     return 0
 
-exportFunction :: TL.Text -> Natural -> GenMod Natural
-exportFunction name funIdx = do
+exportFunction :: TL.Text -> Fn t -> GenMod (Fn t)
+exportFunction name (Fn funIdx) = do
     modify $ \(st@GenModState { target = m }) -> st {
         target = m { exports = exports m ++ [Export name $ ExportFunc funIdx] }
     }
-    return funIdx
+    return (Fn funIdx)
 
 exportGlobal :: TL.Text -> (Glob t) -> GenMod (Glob t)
 exportGlobal name g@(Glob idx) = do
@@ -723,7 +727,7 @@ asWord64 i
 
 rts :: Module
 rts = genMod $ do
-    gc <- importFunction "rts" "gc" (FuncType [I32] [])
+    gc <- importFunction "rts" "gc" () [I32]
     memory 10 Nothing
 
     stackStart <- global Const i32 0
@@ -738,22 +742,22 @@ rts = genMod $ do
     heapNext <- global Mut i32 0
     heapEnd <- global Mut i32 0
 
-    aligned <- fun $ do
+    aligned <- fun i32 $ do
         size <- param i32
         (size `add` i32c 3) `and` i32c 0xFFFFFFFC
-    alloc <- funRec $ \self -> do
+    alloc <- funRec i32 $ \self -> do
         size <- param i32
         alignedSize <- local i32
         addr <- local i32
-        alignedSize .= call i32 aligned [arg size]
-        ifExpr i32 ((heapNext `add` alignedSize) `lt_u` heapEnd)
-            (const $ do
+        alignedSize .= call aligned [arg size]
+        if' i32 ((heapNext `add` alignedSize) `lt_u` heapEnd)
+            (do
                 addr .= heapNext
                 heapNext .= (heapNext `add` alignedSize)
                 ret addr
             )
-            (const $ do
-                invoke gc []
-                call i32 self [arg size]
+            (do
+                call gc []
+                call self [arg size]
             )
     return ()
