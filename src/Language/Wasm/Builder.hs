@@ -13,6 +13,9 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Language.Wasm.Builder (
     GenMod,
@@ -28,7 +31,7 @@ module Language.Wasm.Builder (
     arg,
     i32, i64, f32, f64,
     i32c, i64c, f32c, f64c,
-    add, inc, sub, dec, mul, div_u, div_s, rem_u, rem_s, and, or, xor, shl, shr_u, shr_s, rotl, rotr,
+    add, {-inc,-} sub, {-dec,-} mul, div_u, div_s, rem_u, rem_s, and, or, xor, shl, shr_u, shr_s, rotl, rotr,
     eq, ne, lt_s, lt_u, gt_s, gt_u, le_s, le_u, ge_s, ge_u,
     eqz,
     extend_s, extend_u, wrap,
@@ -46,7 +49,7 @@ import Prelude hiding (and, or)
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
 import Control.Monad.State (State, execState, get, gets, put, modify)
-import Control.Monad.Reader (ReaderT, ask, runReaderT)
+import Control.Monad.Reader (ReaderT, ask, runReaderT, withReaderT)
 import Numeric.Natural
 import Data.Word (Word32, Word64)
 import Data.Int (Int32, Int64)
@@ -64,100 +67,145 @@ data FuncDef = FuncDef {
     instrs :: Expression
 } deriving (Show, Eq)
 
-type GenFun = ReaderT Natural (State FuncDef)
-
-genExpr :: Natural -> GenFun a -> Expression
-genExpr deep gen = instrs $ flip execState (FuncDef [] [] [] []) $ runReaderT gen deep
+newtype GenFun a = GenFun { unGenFun :: ReaderT Natural (State FuncDef) a } deriving (Functor, Applicative, Monad)
 
 newtype Loc t = Loc Natural deriving (Show, Eq)
 
-param :: (ValueTypeable t) => Proxy t -> GenFun (Loc t)
-param t = do
-    f@FuncDef { args } <- get
-    put $ f { args = args ++ [getValueType t] }
-    return $ Loc $ fromIntegral $ length args
+class (Monad m) => GenFunMonad m where
+    appendExpr :: Expression -> m ()
+    inner :: m a -> m Expression
+    param :: (ValueTypeable t) => Proxy t -> m (Loc t)
+    local :: (ValueTypeable t) => Proxy t -> m (Loc t)
+    deep :: m Natural
 
-local :: (ValueTypeable t) => Proxy t -> GenFun (Loc t)
-local t = do
-    f@FuncDef { args, locals } <- get
-    put $ f { locals = locals ++ [getValueType t]}
-    return $ Loc $ fromIntegral $ length args + length locals
+instance GenFunMonad GenFun where
+    appendExpr expr = do
+        GenFun $ modify $ \def -> def { instrs = instrs def ++ expr }
+        return ()
 
-appendExpr :: Expression -> GenFun ()
-appendExpr expr = do
-    modify $ \def -> def { instrs = instrs def ++ expr }
-    return ()
+    inner (GenFun subExpr) = GenFun $ do
+        stateBefore <- get
+        res <- withReaderT (+1) $ do
+            subExpr
+            gets instrs
+        put stateBefore
+        return res
 
-after :: Expression -> GenFun a -> GenFun a
+    param t = GenFun $ do
+        f@FuncDef { args } <- get
+        put $ f { args = args ++ [getValueType t] }
+        return $ Loc $ fromIntegral $ length args
+
+    local t = GenFun $ do
+        f@FuncDef { args, locals } <- get
+        put $ f { locals = locals ++ [getValueType t]}
+        return $ Loc $ fromIntegral $ length args + length locals
+    
+    deep = GenFun ask
+-- type GenFun = ReaderT Natural (State FuncDef)
+
+-- genExpr :: Natural -> GenFun a -> Expression
+-- genExpr deep gen = instrs $ flip execState (FuncDef [] [] [] []) $ runReaderT gen deep
+
+-- param :: (ValueTypeable t) => Proxy t -> GenFun (Loc t)
+-- param t = do
+--     f@FuncDef { args } <- get
+--     put $ f { args = args ++ [getValueType t] }
+--     return $ Loc $ fromIntegral $ length args
+
+-- local :: (ValueTypeable t) => Proxy t -> GenFun (Loc t)
+-- local t = do
+--     f@FuncDef { args, locals } <- get
+--     put $ f { locals = locals ++ [getValueType t]}
+--     return $ Loc $ fromIntegral $ length args + length locals
+
+-- appendExpr :: Expression -> GenFun ()
+-- appendExpr expr = do
+--     modify $ \def -> def { instrs = instrs def ++ expr }
+--     return ()
+
+-- after :: Expression -> GenFun a -> GenFun a
+-- after instr expr = do
+--     res <- expr
+--     modify $ \def -> def { instrs = instrs def ++ instr }
+--     return res
+
+after :: (GenFunMonad m) => Expression -> m a -> m a
 after instr expr = do
     res <- expr
-    modify $ \def -> def { instrs = instrs def ++ instr }
+    appendExpr instr
     return res
 
-data TypedExpr
-    = ExprI32 (GenFun (Proxy I32))
-    | ExprI64 (GenFun (Proxy I64))
-    | ExprF32 (GenFun (Proxy F32))
-    | ExprF64 (GenFun (Proxy F64))
+data TypedExpr m
+    = ExprI32 (m (Proxy I32))
+    | ExprI64 (m (Proxy I64))
+    | ExprF32 (m (Proxy F32))
+    | ExprF64 (m (Proxy F64))
 
-class Producer expr where
+data ProducerType
+    = LocProd
+    | GlobProd
+    | ExprProd
+
+type family GetProdType a :: ProducerType where
+    GetProdType (Loc t) = 'LocProd
+    GetProdType (Glob t) = 'GlobProd
+    GetProdType a = 'ExprProd
+
+class (GenFunMonad m) => ProducerHelp (prodType :: ProducerType) m expr where
+    type OutTypeHelp prodType expr
+    asTypedExprHelp :: expr -> TypedExpr m
+    produceHelp :: expr -> m (OutTypeHelp prodType expr)
+
+instance (GenFunMonad m, ValueTypeable t) => ProducerHelp 'LocProd m (Loc t) where
+    type OutTypeHelp 'LocProd (Loc t) = Proxy t
+    asTypedExprHelp e = case getValueType (t e) of
+        I32 -> ExprI32 (produce e >> return Proxy)
+        I64 -> ExprI64 (produce e >> return Proxy)
+        F32 -> ExprF32 (produce e >> return Proxy)
+        F64 -> ExprF64 (produce e >> return Proxy)
+        where
+            t :: Loc t -> Proxy t
+            t _ = Proxy
+    produceHelp (Loc i) = appendExpr [GetLocal i] >> return Proxy
+
+instance (GenFunMonad m, ValueTypeable t) => ProducerHelp 'GlobProd m (Glob t) where
+    type OutTypeHelp 'GlobProd (Glob t) = Proxy t
+    asTypedExprHelp e = case getValueType (t e) of
+        I32 -> ExprI32 (produce e >> return Proxy)
+        I64 -> ExprI64 (produce e >> return Proxy)
+        F32 -> ExprF32 (produce e >> return Proxy)
+        F64 -> ExprF64 (produce e >> return Proxy)
+        where
+            t :: Glob t -> Proxy t
+            t _ = Proxy
+    produceHelp (Glob i) = appendExpr [GetGlobal i] >> return Proxy
+
+instance (GenFunMonad m, ValueTypeable t) => ProducerHelp 'ExprProd m (m (Proxy t)) where
+    type OutTypeHelp 'ExprProd (m (Proxy t)) = Proxy t
+    asTypedExprHelp e = case getValueType (t e) of
+        I32 -> ExprI32 (produce e >> return Proxy)
+        I64 -> ExprI64 (produce e >> return Proxy)
+        F32 -> ExprF32 (produce e >> return Proxy)
+        F64 -> ExprF64 (produce e >> return Proxy)
+        where
+            t :: (GenFunMonad m) => m (Proxy t) -> Proxy t
+            t _ = Proxy
+    produceHelp = id
+
+class (GenFunMonad m) => Producer m expr where
     type OutType expr
-    asTypedExpr :: expr -> TypedExpr
-    asValueType :: expr -> ValueType
-    produce :: expr -> GenFun (OutType expr)
+    asTypedExpr :: expr -> TypedExpr m
+    produce :: expr -> m (OutType expr)
 
-instance (ValueTypeable t) => Producer (Loc t) where
-    type OutType (Loc t) = Proxy t
-    asTypedExpr e = case getValueType (t e) of
-        I32 -> ExprI32 (produce e >> return Proxy)
-        I64 -> ExprI64 (produce e >> return Proxy)
-        F32 -> ExprF32 (produce e >> return Proxy)
-        F64 -> ExprF64 (produce e >> return Proxy)
-        where
-            t :: Loc t -> Proxy t
-            t _ = Proxy
-    asValueType e = getValueType (t e)
-        where
-            t :: Loc t -> Proxy t
-            t _ = Proxy
-    produce (Loc i) = appendExpr [GetLocal i] >> return Proxy
+instance (GenFunMonad m, ProducerHelp (GetProdType (m a)) m (m a)) => Producer m (m a) where
+    type OutType (m a) = OutTypeHelp (GetProdType (m a)) (m a)
+    produce = produceHelp @(GetProdType (m a)) 
 
-instance (ValueTypeable t) => Producer (Glob t) where
-    type OutType (Glob t) = Proxy t
-    asTypedExpr e = case getValueType (t e) of
-        I32 -> ExprI32 (produce e >> return Proxy)
-        I64 -> ExprI64 (produce e >> return Proxy)
-        F32 -> ExprF32 (produce e >> return Proxy)
-        F64 -> ExprF64 (produce e >> return Proxy)
-        where
-            t :: Glob t -> Proxy t
-            t _ = Proxy
-    asValueType e = getValueType (t e)
-        where
-            t :: Glob t -> Proxy t
-            t _ = Proxy
-    produce (Glob i) = appendExpr [GetGlobal i] >> return Proxy
-
-instance (ValueTypeable t) => Producer (GenFun (Proxy t)) where
-    type OutType (GenFun (Proxy t)) = Proxy t
-    asTypedExpr e = case getValueType (t e) of
-        I32 -> ExprI32 (produce e >> return Proxy)
-        I64 -> ExprI64 (produce e >> return Proxy)
-        F32 -> ExprF32 (produce e >> return Proxy)
-        F64 -> ExprF64 (produce e >> return Proxy)
-        where
-            t :: GenFun (Proxy t) -> Proxy t
-            t _ = Proxy
-    asValueType e = getValueType (t e)
-        where
-            t :: GenFun (Proxy t) -> Proxy t
-            t _ = Proxy
-    produce = id
-
-ret :: (Producer expr) => expr -> GenFun (OutType expr)
+ret :: (Producer m expr) => expr -> m (OutType expr)
 ret = produce
 
-arg :: (Producer expr) => expr -> GenFun ()
+arg :: (Producer m expr) => expr -> m ()
 arg e = produce e >> return ()
 
 getSize :: ValueType -> BitSize
@@ -174,10 +222,17 @@ type family IsInt i :: Bool where
 nop :: GenFun ()
 nop = appendExpr [Nop]
 
-iBinOp :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => IBinOp -> a -> b -> GenFun (OutType a)
+asValueType :: (Producer m a) => a -> ValueType
+asValueType a = case asTypedExpr a of
+    ExprI32 e -> I32
+    ExprI64 e -> I64
+    ExprF32 e -> F32
+    ExprF64 e -> F64
+
+iBinOp :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => IBinOp -> a -> b -> m (OutType a)
 iBinOp op a b = produce a >> after [IBinOp (getSize $ asValueType a) op] (produce b)
 
-add :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (OutType a)
+add :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b) => a -> b -> m (OutType a)
 add a b = do
     produce a
     case asValueType a of
@@ -186,14 +241,14 @@ add a b = do
         F32 -> after [FBinOp BS32 FAdd] (produce b)
         F64 -> after [FBinOp BS64 FAdd] (produce b)
 
-inc :: (Consumer a, Producer a, Integral i) => i -> a -> GenFun ()
-inc i a = case asTypedExpr a of
-    ExprI32 e -> a .= (e `add` i32c i)
-    ExprI64 e -> a .= (e `add` i64c i)
-    ExprF32 e -> a .= (e `add` f32c (fromIntegral i))
-    ExprF64 e -> a .= (e `add` f64c (fromIntegral i))
+-- inc :: (GenFunMonad m, Consumer m a, Producer m a, Integral i) => i -> a -> m ()
+-- inc i a = case asTypedExpr a of
+--     ExprI32 e -> a .= (e `add` i32c i)
+--     ExprI64 e -> a .= (e `add` i64c i)
+--     ExprF32 e -> a .= (e `add` f32c (fromIntegral i))
+--     ExprF64 e -> a .= (e `add` f64c (fromIntegral i))
 
-sub :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (OutType a)
+sub :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b) => a -> b -> m (OutType a)
 sub a b = do
     produce a
     case asValueType a of
@@ -202,14 +257,14 @@ sub a b = do
         F32 -> after [FBinOp BS32 FSub] (produce b)
         F64 -> after [FBinOp BS64 FSub] (produce b)
 
-dec :: (Consumer a, Producer a, Integral i) => i -> a -> GenFun ()
-dec i a = case asTypedExpr a of
-    ExprI32 e -> a .= (e `sub` i32c i)
-    ExprI64 e -> a .= (e `sub` i64c i)
-    ExprF32 e -> a .= (e `sub` f32c (fromIntegral i))
-    ExprF64 e -> a .= (e `sub` f64c (fromIntegral i))
+-- dec :: (GenFunMonad m, Consumer m a, Producer m a, Integral i) => i -> a -> m ()
+-- dec i a = case asTypedExpr a of
+--     ExprI32 e -> a .= (e `sub` i32c i)
+--     ExprI64 e -> a .= (e `sub` i64c i)
+--     ExprF32 e -> a .= (e `sub` f32c (fromIntegral i))
+--     ExprF64 e -> a .= (e `sub` f64c (fromIntegral i))
 
-mul :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (OutType a)
+mul :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b) => a -> b -> m (OutType a)
 mul a b = do
     produce a
     case asValueType a of
@@ -218,50 +273,50 @@ mul a b = do
         F32 -> after [FBinOp BS32 FMul] (produce b)
         F64 -> after [FBinOp BS64 FMul] (produce b)
 
-div_u :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (OutType a)
+div_u :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> m (OutType a)
 div_u = iBinOp IDivU
 
-div_s :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (OutType a)
+div_s :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> m (OutType a)
 div_s = iBinOp IDivS
 
-rem_u :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (OutType a)
+rem_u :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> m (OutType a)
 rem_u = iBinOp IRemU
 
-rem_s :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (OutType a)
+rem_s :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> m (OutType a)
 rem_s = iBinOp IRemS
 
-and :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (OutType a)
+and :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> m (OutType a)
 and = iBinOp IAnd
 
-or :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (OutType a)
+or :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> m (OutType a)
 or = iBinOp IOr
 
-xor :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (OutType a)
+xor :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> m (OutType a)
 xor = iBinOp IXor
 
-shl :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (OutType a)
+shl :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> m (OutType a)
 shl = iBinOp IShl
 
-shr_u :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (OutType a)
+shr_u :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> m (OutType a)
 shr_u = iBinOp IShrU
 
-shr_s :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (OutType a)
+shr_s :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> m (OutType a)
 shr_s = iBinOp IShrS
 
-rotl :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (OutType a)
+rotl :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> m (OutType a)
 rotl = iBinOp IRotl
 
-rotr :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (OutType a)
+rotr :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> m (OutType a)
 rotr = iBinOp IRotr 
 
-relOp :: (Producer a, Producer b, OutType a ~ OutType b) => IRelOp -> a -> b -> GenFun (Proxy I32)
+relOp :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b) => IRelOp -> a -> b -> m (Proxy I32)
 relOp op a b = do
     produce a
     produce b
     appendExpr [IRelOp (getSize $ asValueType a) op]
     return Proxy
 
-eq :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (Proxy I32)
+eq :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b) => a -> b -> m (Proxy I32)
 eq a b = do
     produce a
     produce b
@@ -272,7 +327,7 @@ eq a b = do
         F64 -> appendExpr [FRelOp BS64 FEq]
     return Proxy
 
-ne :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (Proxy I32)
+ne :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b) => a -> b -> m (Proxy I32)
 ne a b = do
     produce a
     produce b
@@ -283,31 +338,31 @@ ne a b = do
         F64 -> appendExpr [FRelOp BS64 FNe]
     return Proxy
 
-lt_s :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
+lt_s :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> m (Proxy I32)
 lt_s = relOp ILtS
 
-lt_u :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
+lt_u :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> m (Proxy I32)
 lt_u = relOp ILtS
 
-gt_s :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
+gt_s :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> m (Proxy I32)
 gt_s = relOp IGtS
 
-gt_u :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
+gt_u :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> m (Proxy I32)
 gt_u = relOp IGtU
 
-le_s :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
+le_s :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> m (Proxy I32)
 le_s = relOp ILeS
 
-le_u :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
+le_u :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> m (Proxy I32)
 le_u = relOp ILeS
 
-ge_s :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
+ge_s :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> m (Proxy I32)
 ge_s = relOp IGeS
 
-ge_u :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
+ge_u :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> m (Proxy I32)
 ge_u = relOp IGeU
 
-eqz :: (Producer a, IsInt (OutType a) ~ True) => a -> GenFun (Proxy I32)
+eqz :: (GenFunMonad m, Producer m a, IsInt (OutType a) ~ True) => a -> m (Proxy I32)
 eqz a = do
     produce a
     case asValueType a of
@@ -316,42 +371,42 @@ eqz a = do
         _ -> error "Impossible by type constraint"
     return Proxy
 
-i32c :: (Integral i) => i -> GenFun (Proxy I32)
+i32c :: (GenFunMonad m, Integral i) => i -> m (Proxy I32)
 i32c i = appendExpr [I32Const $ asWord32 $ fromIntegral i] >> return Proxy
 
-i64c :: (Integral i) => i -> GenFun (Proxy I64)
+i64c :: (GenFunMonad m, Integral i) => i -> m (Proxy I64)
 i64c i = appendExpr [I64Const $ asWord64 $ fromIntegral i] >> return Proxy
 
-f32c :: Float -> GenFun (Proxy F32)
+f32c :: (GenFunMonad m) => Float -> m (Proxy F32)
 f32c f = appendExpr [F32Const f] >> return Proxy
 
-f64c :: Double -> GenFun (Proxy F64)
+f64c :: (GenFunMonad m) => Double -> m (Proxy F64)
 f64c d = appendExpr [F64Const d] >> return Proxy
 
-extend_u :: (Producer i, OutType i ~ Proxy I32) => i -> GenFun (Proxy I64)
+extend_u :: (GenFunMonad m, Producer m i, OutType i ~ Proxy I32) => i -> m (Proxy I64)
 extend_u small = do
     produce small
     appendExpr [I64ExtendUI32]
     return Proxy
 
-extend_s :: (Producer i, OutType i ~ Proxy I32) => i -> GenFun (Proxy I64)
+extend_s :: (GenFunMonad m, Producer m i, OutType i ~ Proxy I32) => i -> m (Proxy I64)
 extend_s small = do
     produce small
     appendExpr [I64ExtendUI32]
     return Proxy
 
-wrap :: (Producer i, OutType i ~ Proxy I64) => i -> GenFun (Proxy I32)
+wrap :: (GenFunMonad m, Producer m i, OutType i ~ Proxy I64) => i -> m (Proxy I32)
 wrap big = do
     produce big
     appendExpr [I32WrapI64]
     return Proxy
 
-load :: (ValueTypeable t, Producer addr, OutType addr ~ Proxy I32, Integral offset, Integral align)
+load :: (GenFunMonad m, ValueTypeable t, Producer m addr, OutType addr ~ Proxy I32, Integral offset, Integral align)
     => Proxy t
     -> addr
     -> offset
     -> align
-    -> GenFun (Proxy t)
+    -> m (Proxy t)
 load t addr offset align = do
     produce addr
     case getValueType t of
@@ -361,12 +416,12 @@ load t addr offset align = do
         F64 -> appendExpr [F64Load $ MemArg (fromIntegral offset) (fromIntegral align)]
     return Proxy
 
-load8_u :: (ValueTypeable t, IsInt (Proxy t) ~ True, Producer addr, OutType addr ~ Proxy I32, Integral offset, Integral align)
+load8_u :: (GenFunMonad m, ValueTypeable t, IsInt (Proxy t) ~ True, Producer m addr, OutType addr ~ Proxy I32, Integral offset, Integral align)
     => Proxy t
     -> addr
     -> offset
     -> align
-    -> GenFun (Proxy t)
+    -> m (Proxy t)
 load8_u t addr offset align = do
     produce addr
     case getValueType t of
@@ -375,12 +430,12 @@ load8_u t addr offset align = do
         _ -> error "Impossible by type constraint"
     return Proxy
 
-load8_s :: (ValueTypeable t, IsInt (Proxy t) ~ True, Producer addr, OutType addr ~ Proxy I32, Integral offset, Integral align)
+load8_s :: (GenFunMonad m, ValueTypeable t, IsInt (Proxy t) ~ True, Producer m addr, OutType addr ~ Proxy I32, Integral offset, Integral align)
     => Proxy t
     -> addr
     -> offset
     -> align
-    -> GenFun (Proxy t)
+    -> m (Proxy t)
 load8_s t addr offset align = do
     produce addr
     case getValueType t of
@@ -389,12 +444,12 @@ load8_s t addr offset align = do
         _ -> error "Impossible by type constraint"
     return Proxy
 
-load16_u :: (ValueTypeable t, IsInt (Proxy t) ~ True, Producer addr, OutType addr ~ Proxy I32, Integral offset, Integral align)
+load16_u :: (GenFunMonad m, ValueTypeable t, IsInt (Proxy t) ~ True, Producer m addr, OutType addr ~ Proxy I32, Integral offset, Integral align)
     => Proxy t
     -> addr
     -> offset
     -> align
-    -> GenFun (Proxy t)
+    -> m (Proxy t)
 load16_u t addr offset align = do
     produce addr
     case getValueType t of
@@ -403,12 +458,12 @@ load16_u t addr offset align = do
         _ -> error "Impossible by type constraint"
     return Proxy
 
-load16_s :: (ValueTypeable t, IsInt (Proxy t) ~ True, Producer addr, OutType addr ~ Proxy I32, Integral offset, Integral align)
+load16_s :: (GenFunMonad m, ValueTypeable t, IsInt (Proxy t) ~ True, Producer m addr, OutType addr ~ Proxy I32, Integral offset, Integral align)
     => Proxy t
     -> addr
     -> offset
     -> align
-    -> GenFun (Proxy t)
+    -> m (Proxy t)
 load16_s t addr offset align = do
     produce addr
     case getValueType t of
@@ -417,34 +472,34 @@ load16_s t addr offset align = do
         _ -> error "Impossible by type constraint"
     return Proxy
 
-load32_u :: (ValueTypeable t, IsInt (Proxy t) ~ True, Producer addr, OutType addr ~ Proxy I32, Integral offset, Integral align)
+load32_u :: (GenFunMonad m, ValueTypeable t, IsInt (Proxy t) ~ True, Producer m addr, OutType addr ~ Proxy I32, Integral offset, Integral align)
     => Proxy t
     -> addr
     -> offset
     -> align
-    -> GenFun (Proxy t)
+    -> m (Proxy t)
 load32_u t addr offset align = do
     produce addr
     appendExpr [I64Load32U $ MemArg (fromIntegral offset) (fromIntegral align)]
     return Proxy
 
-load32_s :: (ValueTypeable t, IsInt (Proxy t) ~ True, Producer addr, OutType addr ~ Proxy I32, Integral offset, Integral align)
+load32_s :: (GenFunMonad m, ValueTypeable t, IsInt (Proxy t) ~ True, Producer m addr, OutType addr ~ Proxy I32, Integral offset, Integral align)
     => Proxy t
     -> addr
     -> offset
     -> align
-    -> GenFun (Proxy t)
+    -> m (Proxy t)
 load32_s t addr offset align = do
     produce addr
     appendExpr [I64Load32S $ MemArg (fromIntegral offset) (fromIntegral align)]
     return Proxy
 
-store :: (Producer addr, OutType addr ~ Proxy I32, Producer val, Integral offset, Integral align)
+store :: (GenFunMonad m, Producer m addr, OutType addr ~ Proxy I32, Producer m val, Integral offset, Integral align)
     => addr
     -> val
     -> offset
     -> align
-    -> GenFun ()
+    -> m ()
 store addr val offset align = do
     produce addr
     produce val
@@ -454,12 +509,12 @@ store addr val offset align = do
         F32 -> appendExpr [F32Store $ MemArg (fromIntegral offset) (fromIntegral align)]
         F64 -> appendExpr [F64Store $ MemArg (fromIntegral offset) (fromIntegral align)]
 
-store8 :: (Producer addr, OutType addr ~ Proxy I32, Producer val, IsInt (OutType val) ~ True, Integral offset, Integral align)
+store8 :: (GenFunMonad m, Producer m addr, OutType addr ~ Proxy I32, Producer m val, IsInt (OutType val) ~ True, Integral offset, Integral align)
     => addr
     -> val
     -> offset
     -> align
-    -> GenFun ()
+    -> m ()
 store8 addr val offset align = do
     produce addr
     produce val
@@ -468,12 +523,12 @@ store8 addr val offset align = do
         I64 -> appendExpr [I64Store8 $ MemArg (fromIntegral offset) (fromIntegral align)]
         _ -> error "Impossible by type constraint"
 
-store16 :: (Producer addr, OutType addr ~ Proxy I32, Producer val, IsInt (OutType val) ~ True, Integral offset, Integral align)
+store16 :: (GenFunMonad m, Producer m addr, OutType addr ~ Proxy I32, Producer m val, IsInt (OutType val) ~ True, Integral offset, Integral align)
     => addr
     -> val
     -> offset
     -> align
-    -> GenFun ()
+    -> m ()
 store16 addr val offset align = do
     produce addr
     produce val
@@ -482,39 +537,39 @@ store16 addr val offset align = do
         I64 -> appendExpr [I64Store16 $ MemArg (fromIntegral offset) (fromIntegral align)]
         _ -> error "Impossible by type constraint"
 
-store32 :: (Producer addr, OutType addr ~ Proxy I32, Producer val, OutType val ~ Proxy I64, Integral offset, Integral align)
+store32 :: (GenFunMonad m, Producer m addr, OutType addr ~ Proxy I32, Producer m val, OutType val ~ Proxy I64, Integral offset, Integral align)
     => addr
     -> val
     -> offset
     -> align
-    -> GenFun ()
+    -> m ()
 store32 addr val offset align = do
     produce addr
     produce val
     appendExpr [I64Store32 $ MemArg (fromIntegral offset) (fromIntegral align)]
 
-call :: (Returnable res) => Fn res -> [GenFun a] -> GenFun res
+call :: (GenFunMonad m, Returnable res) => Fn res -> [m a] -> m res
 call (Fn idx) args = sequence_ args >> appendExpr [Call idx] >> return returnableValue
 
-br :: Label t -> GenFun ()
+br :: (GenFunMonad m) => Label t -> m ()
 br (Label labelDeep) = do
-    deep <- ask
-    appendExpr [Br $ deep - labelDeep]
+    d <- deep
+    appendExpr [Br $ d - labelDeep]
 
-finish :: (Producer val) => val -> GenFun ()
+finish :: (GenFunMonad m, Producer m val) => val -> m ()
 finish val = do
     produce val
     appendExpr [Return]
 
 newtype Label i = Label Natural deriving (Show, Eq)
 
-when :: (Producer pred, OutType pred ~ Proxy I32)
+when :: (GenFunMonad m, Producer m pred, OutType pred ~ Proxy I32)
     => pred
-    -> GenFun ()
-    -> GenFun ()
+    -> m ()
+    -> m ()
 when pred body = if' () pred body (return ())
 
-for :: (Producer pred, OutType pred ~ Proxy I32) => GenFun () -> pred -> GenFun () -> GenFun () -> GenFun ()
+for :: (GenFunMonad m, Producer m pred, OutType pred ~ Proxy I32) => m () -> pred -> m () -> m () -> m ()
 for initer pred after body = do
     initer
     let loopBody = do
@@ -524,7 +579,7 @@ for initer pred after body = do
             if' () pred (br loopLabel) (return ())
     if' () pred (loop () loopBody) (return ())
 
-while :: (Producer pred, OutType pred ~ Proxy I32) => pred -> GenFun () -> GenFun ()
+while :: (GenFunMonad m, Producer m pred, OutType pred ~ Proxy I32) => pred -> m () -> m ()
 while pred body = do
     let loopBody = do
             body
@@ -532,49 +587,53 @@ while pred body = do
             if' () pred (br loopLabel) (return ())
     if' () pred (loop () loopBody) (return ())
 
-label :: GenFun (Label t)
-label = Label <$> ask
+label :: (GenFunMonad m) => m (Label t)
+label = Label <$> deep
 
-if' :: (Producer pred, OutType pred ~ Proxy I32, Returnable res)
+if' :: (GenFunMonad m, Producer m pred, OutType pred ~ Proxy I32, Returnable res)
     => res
     -> pred
-    -> GenFun res
-    -> GenFun res
-    -> GenFun res
+    -> m res
+    -> m res
+    -> m res
 if' res pred true false = do
     produce pred
-    deep <- (+1) <$> ask
-    appendExpr [If (asResultValue res) (genExpr deep $ true) (genExpr deep $ false)]
+    t <- inner true
+    f <- inner false
+    appendExpr [If (asResultValue res) t f]
     return returnableValue
 
-loop :: (Returnable res) => res -> GenFun res -> GenFun res
+loop :: (GenFunMonad m, Returnable res) => res -> m res -> m res
 loop res body = do
-    deep <- (+1) <$> ask
-    appendExpr [Loop (asResultValue res) (genExpr deep $ body)]
+    b <- inner body
+    appendExpr [Loop (asResultValue res) b]
     return returnableValue
 
-block :: (Returnable res) => res -> GenFun res -> GenFun res
+block :: (GenFunMonad m, Returnable res) => res -> m res -> m res
 block res body = do
-    deep <- (+1) <$> ask
-    appendExpr [Block (asResultValue res) (genExpr deep $ body)]
+    b <- inner body
+    appendExpr [Block (asResultValue res) b]
     return returnableValue
 
-trap :: Proxy t -> GenFun (Proxy t)
+trap :: (GenFunMonad m) => Proxy t -> m (Proxy t)
 trap t = do
     appendExpr [Unreachable]
     return t
 
-unreachable :: GenFun ()
+unreachable :: (GenFunMonad m) => m ()
 unreachable = appendExpr [Unreachable]
 
-class Consumer loc where
+class (GenFunMonad m) => Consumer m loc where
+    type InputType loc
     infixr 2 .=
-    (.=) :: (Producer expr) => loc -> expr -> GenFun ()
+    (.=) :: (Producer m expr) => loc -> expr -> m ()
 
-instance Consumer (Loc t) where
+instance (GenFunMonad m) => Consumer m (Loc t) where
+    type InputType (Loc t) = Proxy t
     (.=) (Loc i) expr = produce expr >> appendExpr [SetLocal i]
 
-instance Consumer (Glob t) where
+instance (GenFunMonad m) => Consumer m (Glob t) where
+    type InputType (Glob t) = Proxy t
     (.=) (Glob i) expr = produce expr >> appendExpr [SetGlobal i]
 
 typedef :: FuncType -> GenMod Natural
@@ -601,7 +660,8 @@ instance Returnable () where
 funRec :: (Returnable res) => res -> (Fn res -> GenFun res) -> GenMod (Fn res)
 funRec res generator = do
     st@GenModState { target = m@Module { types, functions }, funcIdx } <- get
-    let FuncDef { args, locals, instrs } = execState (runReaderT (generator (Fn funcIdx)) 0) $ FuncDef [] [] [] []
+    let GenFun gen = generator (Fn funcIdx)
+    let FuncDef { args, locals, instrs } = execState (runReaderT gen 0) $ FuncDef [] [] [] []
     let t = FuncType args (asResultValue res)
     let (idx, inserted) = Maybe.fromMaybe (length types, types ++ [t]) $ (\i -> (i, types)) <$> List.findIndex (== t) types
     put $ st {
@@ -771,10 +831,10 @@ table min max = do
     }
     return $ Tbl 0
 
-dataSegment :: (Producer offset, OutType offset ~ Proxy I32) => offset -> LBS.ByteString -> GenMod ()
+dataSegment :: (Integral offset) => offset -> LBS.ByteString -> GenMod ()
 dataSegment offset bytes =
     modify $ \(st@GenModState { target = m }) -> st {
-        target = m { datas = datas m ++ [DataSegment 0 (genExpr 0 (produce offset)) bytes] }
+        target = m { datas = datas m ++ [DataSegment 0 [I32Const $ fromIntegral offset] bytes] }
     }
 
 asWord32 :: Int32 -> Word32
