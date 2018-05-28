@@ -12,6 +12,7 @@
 {-# LANGUAGE TypeInType #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
@@ -160,10 +161,10 @@ class (GenFunMonad m) => ProducerHelp (prodType :: ProducerType) m expr where
 instance (GenFunMonad m, ValueTypeable t) => ProducerHelp 'LocProd m (Loc t) where
     type OutTypeHelp 'LocProd (Loc t) = Proxy t
     asTypedExprHelp e = case getValueType (t e) of
-        I32 -> ExprI32 (produce e >> return Proxy)
-        I64 -> ExprI64 (produce e >> return Proxy)
-        F32 -> ExprF32 (produce e >> return Proxy)
-        F64 -> ExprF64 (produce e >> return Proxy)
+        I32 -> ExprI32 (produceHelp @'LocProd e >> return Proxy)
+        I64 -> ExprI64 (produceHelp @'LocProd e >> return Proxy)
+        F32 -> ExprF32 (produceHelp @'LocProd e >> return Proxy)
+        F64 -> ExprF64 (produceHelp @'LocProd e >> return Proxy)
         where
             t :: Loc t -> Proxy t
             t _ = Proxy
@@ -172,10 +173,10 @@ instance (GenFunMonad m, ValueTypeable t) => ProducerHelp 'LocProd m (Loc t) whe
 instance (GenFunMonad m, ValueTypeable t) => ProducerHelp 'GlobProd m (Glob t) where
     type OutTypeHelp 'GlobProd (Glob t) = Proxy t
     asTypedExprHelp e = case getValueType (t e) of
-        I32 -> ExprI32 (produce e >> return Proxy)
-        I64 -> ExprI64 (produce e >> return Proxy)
-        F32 -> ExprF32 (produce e >> return Proxy)
-        F64 -> ExprF64 (produce e >> return Proxy)
+        I32 -> ExprI32 (produceHelp @'GlobProd e >> return Proxy)
+        I64 -> ExprI64 (produceHelp @'GlobProd e >> return Proxy)
+        F32 -> ExprF32 (produceHelp @'GlobProd e >> return Proxy)
+        F64 -> ExprF64 (produceHelp @'GlobProd e >> return Proxy)
         where
             t :: Glob t -> Proxy t
             t _ = Proxy
@@ -184,10 +185,10 @@ instance (GenFunMonad m, ValueTypeable t) => ProducerHelp 'GlobProd m (Glob t) w
 instance (GenFunMonad m, ValueTypeable t) => ProducerHelp 'ExprProd m (m (Proxy t)) where
     type OutTypeHelp 'ExprProd (m (Proxy t)) = Proxy t
     asTypedExprHelp e = case getValueType (t e) of
-        I32 -> ExprI32 (produce e >> return Proxy)
-        I64 -> ExprI64 (produce e >> return Proxy)
-        F32 -> ExprF32 (produce e >> return Proxy)
-        F64 -> ExprF64 (produce e >> return Proxy)
+        I32 -> ExprI32 (produceHelp @'ExprProd e >> return Proxy)
+        I64 -> ExprI64 (produceHelp @'ExprProd e >> return Proxy)
+        F32 -> ExprF32 (produceHelp @'ExprProd e >> return Proxy)
+        F64 -> ExprF64 (produceHelp @'ExprProd e >> return Proxy)
         where
             t :: (GenFunMonad m) => m (Proxy t) -> Proxy t
             t _ = Proxy
@@ -200,7 +201,8 @@ class (GenFunMonad m) => Producer m expr where
 
 instance (GenFunMonad m, ProducerHelp (GetProdType (m a)) m (m a)) => Producer m (m a) where
     type OutType (m a) = OutTypeHelp (GetProdType (m a)) (m a)
-    produce = produceHelp @(GetProdType (m a)) 
+    asTypedExpr = asTypedExprHelp @(GetProdType (m a))
+    produce = produceHelp @(GetProdType (m a))
 
 ret :: (Producer m expr) => expr -> m (OutType expr)
 ret = produce
@@ -222,20 +224,20 @@ type family IsInt i :: Bool where
 nop :: GenFun ()
 nop = appendExpr [Nop]
 
-asValueType :: (Producer m a) => a -> ValueType
-asValueType a = case asTypedExpr a of
+asValueType :: forall m a . (GenFunMonad m, Producer m a) => a -> ValueType
+asValueType a = case asTypedExpr @m a of
     ExprI32 e -> I32
     ExprI64 e -> I64
     ExprF32 e -> F32
     ExprF64 e -> F64
 
-iBinOp :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => IBinOp -> a -> b -> m (OutType a)
-iBinOp op a b = produce a >> after [IBinOp (getSize $ asValueType a) op] (produce b)
+iBinOp :: forall m a b . (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => IBinOp -> a -> b -> m (OutType a)
+iBinOp op a b = produce a >> after [IBinOp (getSize $ asValueType @m a) op] (produce b)
 
-add :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b) => a -> b -> m (OutType a)
+add :: forall m a b . (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b) => a -> b -> m (OutType a)
 add a b = do
     produce a
-    case asValueType a of
+    case asValueType @m a of
         I32 -> after [IBinOp BS32 IAdd] (produce b)
         I64 -> after [IBinOp BS64 IAdd] (produce b)
         F32 -> after [FBinOp BS32 FAdd] (produce b)
@@ -248,10 +250,10 @@ add a b = do
 --     ExprF32 e -> a .= (e `add` f32c (fromIntegral i))
 --     ExprF64 e -> a .= (e `add` f64c (fromIntegral i))
 
-sub :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b) => a -> b -> m (OutType a)
+sub :: forall m a b . (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b) => a -> b -> m (OutType a)
 sub a b = do
     produce a
-    case asValueType a of
+    case asValueType @m a of
         I32 -> after [IBinOp BS32 ISub] (produce b)
         I64 -> after [IBinOp BS64 ISub] (produce b)
         F32 -> after [FBinOp BS32 FSub] (produce b)
@@ -264,10 +266,10 @@ sub a b = do
 --     ExprF32 e -> a .= (e `sub` f32c (fromIntegral i))
 --     ExprF64 e -> a .= (e `sub` f64c (fromIntegral i))
 
-mul :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b) => a -> b -> m (OutType a)
+mul :: forall m a b . (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b) => a -> b -> m (OutType a)
 mul a b = do
     produce a
-    case asValueType a of
+    case asValueType @m a of
         I32 -> after [IBinOp BS32 IMul] (produce b)
         I64 -> after [IBinOp BS64 IMul] (produce b)
         F32 -> after [FBinOp BS32 FMul] (produce b)
@@ -309,29 +311,29 @@ rotl = iBinOp IRotl
 rotr :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> m (OutType a)
 rotr = iBinOp IRotr 
 
-relOp :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b) => IRelOp -> a -> b -> m (Proxy I32)
+relOp :: forall m a b . (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b) => IRelOp -> a -> b -> m (Proxy I32)
 relOp op a b = do
     produce a
     produce b
-    appendExpr [IRelOp (getSize $ asValueType a) op]
+    appendExpr [IRelOp (getSize $ asValueType @m a) op]
     return Proxy
 
-eq :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b) => a -> b -> m (Proxy I32)
+eq :: forall m a b . (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b) => a -> b -> m (Proxy I32)
 eq a b = do
     produce a
     produce b
-    case asValueType a of
+    case asValueType @m a of
         I32 -> appendExpr [IRelOp BS32 IEq]
         I64 -> appendExpr [IRelOp BS64 IEq]
         F32 -> appendExpr [FRelOp BS32 FEq]
         F64 -> appendExpr [FRelOp BS64 FEq]
     return Proxy
 
-ne :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b) => a -> b -> m (Proxy I32)
+ne :: forall m a b . (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b) => a -> b -> m (Proxy I32)
 ne a b = do
     produce a
     produce b
-    case asValueType a of
+    case asValueType @m a of
         I32 -> appendExpr [IRelOp BS32 INe]
         I64 -> appendExpr [IRelOp BS64 INe]
         F32 -> appendExpr [FRelOp BS32 FNe]
@@ -362,10 +364,10 @@ ge_s = relOp IGeS
 ge_u :: (GenFunMonad m, Producer m a, Producer m b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> m (Proxy I32)
 ge_u = relOp IGeU
 
-eqz :: (GenFunMonad m, Producer m a, IsInt (OutType a) ~ True) => a -> m (Proxy I32)
+eqz :: forall m a . (GenFunMonad m, Producer m a, IsInt (OutType a) ~ True) => a -> m (Proxy I32)
 eqz a = do
     produce a
-    case asValueType a of
+    case asValueType @m a of
         I32 -> appendExpr [I32Eqz]
         I64 -> appendExpr [I64Eqz]
         _ -> error "Impossible by type constraint"
@@ -494,7 +496,7 @@ load32_s t addr offset align = do
     appendExpr [I64Load32S $ MemArg (fromIntegral offset) (fromIntegral align)]
     return Proxy
 
-store :: (GenFunMonad m, Producer m addr, OutType addr ~ Proxy I32, Producer m val, Integral offset, Integral align)
+store :: forall m addr val offset align . (GenFunMonad m, Producer m addr, OutType addr ~ Proxy I32, Producer m val, Integral offset, Integral align)
     => addr
     -> val
     -> offset
@@ -503,13 +505,13 @@ store :: (GenFunMonad m, Producer m addr, OutType addr ~ Proxy I32, Producer m v
 store addr val offset align = do
     produce addr
     produce val
-    case asValueType val of
+    case asValueType @m val of
         I32 -> appendExpr [I32Store $ MemArg (fromIntegral offset) (fromIntegral align)]
         I64 -> appendExpr [I64Store $ MemArg (fromIntegral offset) (fromIntegral align)]
         F32 -> appendExpr [F32Store $ MemArg (fromIntegral offset) (fromIntegral align)]
         F64 -> appendExpr [F64Store $ MemArg (fromIntegral offset) (fromIntegral align)]
 
-store8 :: (GenFunMonad m, Producer m addr, OutType addr ~ Proxy I32, Producer m val, IsInt (OutType val) ~ True, Integral offset, Integral align)
+store8 :: forall m addr val offset align . (GenFunMonad m, Producer m addr, OutType addr ~ Proxy I32, Producer m val, IsInt (OutType val) ~ True, Integral offset, Integral align)
     => addr
     -> val
     -> offset
@@ -518,12 +520,12 @@ store8 :: (GenFunMonad m, Producer m addr, OutType addr ~ Proxy I32, Producer m 
 store8 addr val offset align = do
     produce addr
     produce val
-    case asValueType val of
+    case asValueType @m val of
         I32 -> appendExpr [I32Store8 $ MemArg (fromIntegral offset) (fromIntegral align)]
         I64 -> appendExpr [I64Store8 $ MemArg (fromIntegral offset) (fromIntegral align)]
         _ -> error "Impossible by type constraint"
 
-store16 :: (GenFunMonad m, Producer m addr, OutType addr ~ Proxy I32, Producer m val, IsInt (OutType val) ~ True, Integral offset, Integral align)
+store16 :: forall m addr val offset align . (GenFunMonad m, Producer m addr, OutType addr ~ Proxy I32, Producer m val, IsInt (OutType val) ~ True, Integral offset, Integral align)
     => addr
     -> val
     -> offset
@@ -532,7 +534,7 @@ store16 :: (GenFunMonad m, Producer m addr, OutType addr ~ Proxy I32, Producer m
 store16 addr val offset align = do
     produce addr
     produce val
-    case asValueType val of
+    case asValueType @m val of
         I32 -> appendExpr [I32Store16 $ MemArg (fromIntegral offset) (fromIntegral align)]
         I64 -> appendExpr [I64Store16 $ MemArg (fromIntegral offset) (fromIntegral align)]
         _ -> error "Impossible by type constraint"
