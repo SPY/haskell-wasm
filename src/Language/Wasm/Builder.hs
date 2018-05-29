@@ -70,13 +70,13 @@ data FuncDef = FuncDef {
 
 newtype GenFun a = GenFun { unGenFun :: ReaderT Natural (State FuncDef) a } deriving (Functor, Applicative, Monad)
 
-newtype Loc t = Loc Natural deriving (Show, Eq)
+newtype Loc m (t :: ValueType) = Loc Natural deriving (Show, Eq)
 
 class (Monad m) => GenFunMonad m where
     appendExpr :: Expression -> m ()
     inner :: m a -> m Expression
-    param :: (ValueTypeable t) => Proxy t -> m (Loc t)
-    local :: (ValueTypeable t) => Proxy t -> m (Loc t)
+    param :: (ValueTypeable t) => Proxy t -> m (Loc m t)
+    local :: (ValueTypeable t) => Proxy t -> m (Loc m t)
     deep :: m Natural
 
 instance GenFunMonad GenFun where
@@ -103,33 +103,6 @@ instance GenFunMonad GenFun where
         return $ Loc $ fromIntegral $ length args + length locals
     
     deep = GenFun ask
--- type GenFun = ReaderT Natural (State FuncDef)
-
--- genExpr :: Natural -> GenFun a -> Expression
--- genExpr deep gen = instrs $ flip execState (FuncDef [] [] [] []) $ runReaderT gen deep
-
--- param :: (ValueTypeable t) => Proxy t -> GenFun (Loc t)
--- param t = do
---     f@FuncDef { args } <- get
---     put $ f { args = args ++ [getValueType t] }
---     return $ Loc $ fromIntegral $ length args
-
--- local :: (ValueTypeable t) => Proxy t -> GenFun (Loc t)
--- local t = do
---     f@FuncDef { args, locals } <- get
---     put $ f { locals = locals ++ [getValueType t]}
---     return $ Loc $ fromIntegral $ length args + length locals
-
--- appendExpr :: Expression -> GenFun ()
--- appendExpr expr = do
---     modify $ \def -> def { instrs = instrs def ++ expr }
---     return ()
-
--- after :: Expression -> GenFun a -> GenFun a
--- after instr expr = do
---     res <- expr
---     modify $ \def -> def { instrs = instrs def ++ instr }
---     return res
 
 after :: (GenFunMonad m) => Expression -> m a -> m a
 after instr expr = do
@@ -143,66 +116,46 @@ data TypedExpr m
     | ExprF32 (m (Proxy F32))
     | ExprF64 (m (Proxy F64))
 
-data ProducerType
-    = LocProd
-    | GlobProd
-    | ExprProd
-
-type family GetProdType a :: ProducerType where
-    GetProdType (Loc t) = 'LocProd
-    GetProdType (Glob t) = 'GlobProd
-    GetProdType a = 'ExprProd
-
-class (GenFunMonad m) => ProducerHelp (prodType :: ProducerType) m expr where
-    type OutTypeHelp prodType expr
-    asTypedExprHelp :: expr -> TypedExpr m
-    produceHelp :: expr -> m (OutTypeHelp prodType expr)
-
-instance (GenFunMonad m, ValueTypeable t) => ProducerHelp 'LocProd m (Loc t) where
-    type OutTypeHelp 'LocProd (Loc t) = Proxy t
-    asTypedExprHelp e = case getValueType (t e) of
-        I32 -> ExprI32 (produceHelp @'LocProd e >> return Proxy)
-        I64 -> ExprI64 (produceHelp @'LocProd e >> return Proxy)
-        F32 -> ExprF32 (produceHelp @'LocProd e >> return Proxy)
-        F64 -> ExprF64 (produceHelp @'LocProd e >> return Proxy)
-        where
-            t :: Loc t -> Proxy t
-            t _ = Proxy
-    produceHelp (Loc i) = appendExpr [GetLocal i] >> return Proxy
-
-instance (GenFunMonad m, ValueTypeable t) => ProducerHelp 'GlobProd m (Glob t) where
-    type OutTypeHelp 'GlobProd (Glob t) = Proxy t
-    asTypedExprHelp e = case getValueType (t e) of
-        I32 -> ExprI32 (produceHelp @'GlobProd e >> return Proxy)
-        I64 -> ExprI64 (produceHelp @'GlobProd e >> return Proxy)
-        F32 -> ExprF32 (produceHelp @'GlobProd e >> return Proxy)
-        F64 -> ExprF64 (produceHelp @'GlobProd e >> return Proxy)
-        where
-            t :: Glob t -> Proxy t
-            t _ = Proxy
-    produceHelp (Glob i) = appendExpr [GetGlobal i] >> return Proxy
-
-instance (GenFunMonad m, ValueTypeable t) => ProducerHelp 'ExprProd m (m (Proxy t)) where
-    type OutTypeHelp 'ExprProd (m (Proxy t)) = Proxy t
-    asTypedExprHelp e = case getValueType (t e) of
-        I32 -> ExprI32 (produceHelp @'ExprProd e >> return Proxy)
-        I64 -> ExprI64 (produceHelp @'ExprProd e >> return Proxy)
-        F32 -> ExprF32 (produceHelp @'ExprProd e >> return Proxy)
-        F64 -> ExprF64 (produceHelp @'ExprProd e >> return Proxy)
-        where
-            t :: (GenFunMonad m) => m (Proxy t) -> Proxy t
-            t _ = Proxy
-    produceHelp = id
-
 class (GenFunMonad m) => Producer m expr where
     type OutType expr
     asTypedExpr :: expr -> TypedExpr m
     produce :: expr -> m (OutType expr)
 
-instance (GenFunMonad m, ProducerHelp (GetProdType (m a)) m (m a)) => Producer m (m a) where
-    type OutType (m a) = OutTypeHelp (GetProdType (m a)) (m a)
-    asTypedExpr = asTypedExprHelp @(GetProdType (m a))
-    produce = produceHelp @(GetProdType (m a))
+instance (GenFunMonad m, ValueTypeable t) => Producer m (Loc m t) where
+    type OutType (Loc m t) = Proxy t
+    asTypedExpr e = case getValueType (t e) of
+        I32 -> ExprI32 (produce e >> return Proxy)
+        I64 -> ExprI64 (produce e >> return Proxy)
+        F32 -> ExprF32 (produce e >> return Proxy)
+        F64 -> ExprF64 (produce e >> return Proxy)
+        where
+            t :: Loc m t -> Proxy t
+            t _ = Proxy
+    produce (Loc i) = appendExpr [GetLocal i] >> return Proxy
+
+instance (GenFunMonad m, ValueTypeable t) => Producer m (Glob mut t) where
+    type OutType (Glob mut t) = Proxy t
+    asTypedExpr e = case getValueType (t e) of
+        I32 -> ExprI32 (produce e >> return Proxy)
+        I64 -> ExprI64 (produce e >> return Proxy)
+        F32 -> ExprF32 (produce e >> return Proxy)
+        F64 -> ExprF64 (produce e >> return Proxy)
+        where
+            t :: Glob mut t -> Proxy t
+            t _ = Proxy
+    produce (Glob i) = appendExpr [GetGlobal i] >> return Proxy
+
+instance (GenFunMonad m, ValueTypeable t) => Producer m (m (Proxy t)) where
+    type OutType (m (Proxy t)) = Proxy t
+    asTypedExpr e = case getValueType (t e) of
+        I32 -> ExprI32 (produce e >> return Proxy)
+        I64 -> ExprI64 (produce e >> return Proxy)
+        F32 -> ExprF32 (produce e >> return Proxy)
+        F64 -> ExprF64 (produce e >> return Proxy)
+        where
+            t :: (GenFunMonad m) => m (Proxy t) -> Proxy t
+            t _ = Proxy
+    produce = id
 
 ret :: (Producer m expr) => expr -> m (OutType expr)
 ret = produce
@@ -221,7 +174,7 @@ type family IsInt i :: Bool where
     IsInt (Proxy I64) = True
     IsInt any         = False
 
-nop :: GenFun ()
+nop :: (GenFunMonad m) => m ()
 nop = appendExpr [Nop]
 
 asValueType :: forall m a . (GenFunMonad m, Producer m a) => a -> ValueType
@@ -258,6 +211,7 @@ sub a b = do
         I64 -> after [IBinOp BS64 ISub] (produce b)
         F32 -> after [FBinOp BS32 FSub] (produce b)
         F64 -> after [FBinOp BS64 FSub] (produce b)
+
 
 -- dec :: (GenFunMonad m, Consumer m a, Producer m a, Integral i) => i -> a -> m ()
 -- dec i a = case asTypedExpr a of
@@ -630,12 +584,12 @@ class (GenFunMonad m) => Consumer m loc where
     infixr 2 .=
     (.=) :: (Producer m expr) => loc -> expr -> m ()
 
-instance (GenFunMonad m) => Consumer m (Loc t) where
-    type InputType (Loc t) = Proxy t
+instance (GenFunMonad m) => Consumer m (Loc m t) where
+    type InputType (Loc m t) = Proxy t
     (.=) (Loc i) expr = produce expr >> appendExpr [SetLocal i]
 
-instance (GenFunMonad m) => Consumer m (Glob t) where
-    type InputType (Glob t) = Proxy t
+instance (GenFunMonad m) => Consumer m (Glob M t) where
+    type InputType (Glob M t) = Proxy t
     (.=) (Glob i) expr = produce expr >> appendExpr [SetGlobal i]
 
 typedef :: FuncType -> GenMod Natural
@@ -700,7 +654,7 @@ importFunction mod name res params = do
     }
     return (Fn funcIdx)
 
-importGlobal :: (ValueTypeable t) => TL.Text -> TL.Text -> Proxy t -> GenMod (Glob t)
+importGlobal :: (ValueTypeable t) => TL.Text -> TL.Text -> Proxy t -> GenMod (Glob C t)
 importGlobal mod name t = do
     st@GenModState { target = m@Module { imports }, globIdx } <- get
     put $ st {
@@ -741,8 +695,8 @@ instance Exportable (Fn t) where
         }
         return (Fn funIdx)
 
-instance Exportable (Glob t) where
-    type AfterExport (Glob t) = Glob t
+instance Exportable (Glob C t) where
+    type AfterExport (Glob C t) = Glob C t
     export name g@(Glob idx) = do
         modify $ \(st@GenModState { target = m }) -> st {
             target = m { exports = exports m ++ [Export name $ ExportGlobal idx] }
@@ -795,18 +749,35 @@ i64 = Proxy @I64
 f32 = Proxy @F32
 f64 = Proxy @F64
 
-newtype Glob t = Glob Natural deriving (Show, Eq)
+data GlobMut = M | C
 
-global :: (ValueTypeable t) => (ValueType -> GlobalType) -> Proxy t -> (ValType t) -> GenMod (Glob t)
-global mkType t val = do
+globMut :: Proxy M
+globMut = Proxy
+
+globConst :: Proxy C
+globConst = Proxy
+
+class GlobalMutability mut where
+    globalTypeCtor :: Proxy mut -> ValueType -> GlobalType
+
+instance GlobalMutability M where
+    globalTypeCtor _ = Mut
+
+instance GlobalMutability C where
+    globalTypeCtor _ = Const
+
+newtype Glob (mut :: GlobMut) (t :: ValueType) = Glob Natural deriving (Show, Eq)
+
+global :: (ValueTypeable t, GlobalMutability mut) => Proxy mut -> Proxy t -> (ValType t) -> GenMod (Glob mut t)
+global globMut t val = do
     idx <- gets globIdx
     modify $ \(st@GenModState { target = m }) -> st {
-        target = m { globals = globals m ++ [Global (mkType $ getValueType t) (initWith t val)] },
+        target = m { globals = globals m ++ [Global (globalTypeCtor globMut $ getValueType t) (initWith t val)] },
         globIdx = idx + 1
     }
     return $ Glob idx
 
-setGlobalInitializer :: forall t . (ValueTypeable t) => Glob t -> (ValType t) -> GenMod ()
+setGlobalInitializer :: forall t mut . (ValueTypeable t) => Glob mut t -> (ValType t) -> GenMod ()
 setGlobalInitializer (Glob idx) val = do
     modify $ \(st@GenModState { target = m }) ->
         let globImpsLen = length $ filter isGlobalImport $ imports m in
@@ -854,34 +825,34 @@ rts = genMod $ do
     gc <- importFunction "rts" "gc" () [I32]
     memory 10 Nothing
 
-    stackStart <- global Const i32 0
-    stackEnd <- global Const i32 0
-    stackBase <- global Mut i32 0
-    stackTop <- global Mut i32 0
+    stackStart <- global globConst i32 0
+    stackEnd <- global globConst i32 0
+    stackBase <- global globMut i32 0
+    stackTop <- global globMut i32 0
 
-    retReg <- global Mut i32 0
-    tmpReg <- global Mut i32 0
+    retReg <- global globMut i32 0
+    tmpReg <- global globMut i32 0
 
-    heapStart <- global Mut i32 0
-    heapNext <- global Mut i32 0
-    heapEnd <- global Mut i32 0
+    heapStart <- global globMut i32 0
+    heapNext <- global globMut i32 0
+    heapEnd <- global globMut i32 0
 
     aligned <- fun i32 $ do
         size <- param i32
-        (size `add` i32c 3) `and` i32c 0xFFFFFFFC
-    alloc <- funRec i32 $ \self -> do
-        size <- param i32
-        alignedSize <- local i32
-        addr <- local i32
-        alignedSize .= call aligned [arg size]
-        if' i32 ((heapNext `add` alignedSize) `lt_u` heapEnd)
-            (do
-                addr .= heapNext
-                heapNext .= heapNext `add` alignedSize
-                ret addr
-            )
-            (do
-                call gc []
-                call self [arg size]
-            )
+        (size `add` i32c @GenFun 3) `and` i32c @GenFun 0xFFFFFFFC
+    -- alloc <- funRec i32 $ \self -> do
+    --     size <- param i32
+    --     alignedSize <- local i32
+    --     addr <- local i32
+    --     alignedSize .= call aligned [arg size]
+    --     if' i32 ((heapNext `add` alignedSize) `lt_u` heapEnd)
+    --         (do
+    --             addr .= heapNext
+    --             heapNext .= heapNext `add` alignedSize
+    --             ret addr
+    --         )
+    --         (do
+    --             call gc []
+    --             call self [arg size]
+    --         )
     return ()
