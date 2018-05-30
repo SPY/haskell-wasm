@@ -17,6 +17,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE FunctionalDependencies #-}
 
 module Language.Wasm.Builder (
     GenMod,
@@ -116,7 +117,7 @@ data TypedExpr m
     | ExprF32 (m (Proxy F32))
     | ExprF64 (m (Proxy F64))
 
-class (GenFunMonad m) => Producer m expr where
+class (GenFunMonad m) => Producer m expr | expr -> m where
     type OutType expr
     asTypedExpr :: expr -> TypedExpr m
     produce :: expr -> m (OutType expr)
@@ -133,15 +134,15 @@ instance (GenFunMonad m, ValueTypeable t) => Producer m (Loc m t) where
             t _ = Proxy
     produce (Loc i) = appendExpr [GetLocal i] >> return Proxy
 
-instance (GenFunMonad m, ValueTypeable t) => Producer m (Glob mut t) where
-    type OutType (Glob mut t) = Proxy t
+instance (GenFunMonad m, ValueTypeable t) => Producer m (Glob m mut t) where
+    type OutType (Glob m mut t) = Proxy t
     asTypedExpr e = case getValueType (t e) of
         I32 -> ExprI32 (produce e >> return Proxy)
         I64 -> ExprI64 (produce e >> return Proxy)
         F32 -> ExprF32 (produce e >> return Proxy)
         F64 -> ExprF64 (produce e >> return Proxy)
         where
-            t :: Glob mut t -> Proxy t
+            t :: Glob m mut t -> Proxy t
             t _ = Proxy
     produce (Glob i) = appendExpr [GetGlobal i] >> return Proxy
 
@@ -579,17 +580,17 @@ trap t = do
 unreachable :: (GenFunMonad m) => m ()
 unreachable = appendExpr [Unreachable]
 
-class (GenFunMonad m) => Consumer m loc where
+class Consumer loc where
     type InputType loc
     infixr 2 .=
-    (.=) :: (Producer m expr) => loc -> expr -> m ()
+    (.=) :: (GenFunMonad m, Producer m expr, InputType loc ~ OutType expr) => loc -> expr -> m ()
 
-instance (GenFunMonad m) => Consumer m (Loc m t) where
+instance (GenFunMonad m) => Consumer (Loc m t) where
     type InputType (Loc m t) = Proxy t
     (.=) (Loc i) expr = produce expr >> appendExpr [SetLocal i]
 
-instance (GenFunMonad m) => Consumer m (Glob M t) where
-    type InputType (Glob M t) = Proxy t
+instance (GenFunMonad m) => Consumer (Glob m M t) where
+    type InputType (Glob m M t) = Proxy t
     (.=) (Glob i) expr = produce expr >> appendExpr [SetGlobal i]
 
 typedef :: FuncType -> GenMod Natural
@@ -654,7 +655,7 @@ importFunction mod name res params = do
     }
     return (Fn funcIdx)
 
-importGlobal :: (ValueTypeable t) => TL.Text -> TL.Text -> Proxy t -> GenMod (Glob C t)
+importGlobal :: (ValueTypeable t) => TL.Text -> TL.Text -> Proxy t -> (forall m . GenFunMonad m => GenMod (Glob m C t))
 importGlobal mod name t = do
     st@GenModState { target = m@Module { imports }, globIdx } <- get
     put $ st {
@@ -695,8 +696,8 @@ instance Exportable (Fn t) where
         }
         return (Fn funIdx)
 
-instance Exportable (Glob C t) where
-    type AfterExport (Glob C t) = Glob C t
+instance Exportable (Glob m C t) where
+    type AfterExport (Glob m C t) = Glob m C t
     export name g@(Glob idx) = do
         modify $ \(st@GenModState { target = m }) -> st {
             target = m { exports = exports m ++ [Export name $ ExportGlobal idx] }
@@ -766,9 +767,9 @@ instance GlobalMutability M where
 instance GlobalMutability C where
     globalTypeCtor _ = Const
 
-newtype Glob (mut :: GlobMut) (t :: ValueType) = Glob Natural deriving (Show, Eq)
+newtype Glob m (mut :: GlobMut) (t :: ValueType) = Glob Natural deriving (Show, Eq)
 
-global :: (ValueTypeable t, GlobalMutability mut) => Proxy mut -> Proxy t -> (ValType t) -> GenMod (Glob mut t)
+global :: (ValueTypeable t, GlobalMutability mut) => Proxy mut -> Proxy t -> (ValType t) -> (forall m . GenFunMonad m => GenMod (Glob m mut t))
 global globMut t val = do
     idx <- gets globIdx
     modify $ \(st@GenModState { target = m }) -> st {
@@ -777,7 +778,7 @@ global globMut t val = do
     }
     return $ Glob idx
 
-setGlobalInitializer :: forall t mut . (ValueTypeable t) => Glob mut t -> (ValType t) -> GenMod ()
+setGlobalInitializer :: forall m t mut . (ValueTypeable t) => Glob m mut t -> (ValType t) -> GenMod ()
 setGlobalInitializer (Glob idx) val = do
     modify $ \(st@GenModState { target = m }) ->
         let globImpsLen = length $ filter isGlobalImport $ imports m in
@@ -825,34 +826,34 @@ rts = genMod $ do
     gc <- importFunction "rts" "gc" () [I32]
     memory 10 Nothing
 
-    stackStart <- global globConst i32 0
-    stackEnd <- global globConst i32 0
-    stackBase <- global globMut i32 0
-    stackTop <- global globMut i32 0
+    stackStart <- global globConst i32 0 @GenFun
+    stackEnd <- global globConst i32 0 @GenFun
+    stackBase <- global globMut i32 0 @GenFun
+    stackTop <- global globMut i32 0 @GenFun
 
-    retReg <- global globMut i32 0
-    tmpReg <- global globMut i32 0
+    retReg <- global globMut i32 0 @GenFun
+    tmpReg <- global globMut i32 0 @GenFun
 
-    heapStart <- global globMut i32 0
-    heapNext <- global globMut i32 0
-    heapEnd <- global globMut i32 0
+    heapStart <- global globMut i32 0 @GenFun
+    heapNext <- global globMut i32 0 @GenFun
+    heapEnd <- global globMut i32 0 @GenFun
 
     aligned <- fun i32 $ do
         size <- param i32
-        (size `add` i32c @GenFun 3) `and` i32c @GenFun 0xFFFFFFFC
-    -- alloc <- funRec i32 $ \self -> do
-    --     size <- param i32
-    --     alignedSize <- local i32
-    --     addr <- local i32
-    --     alignedSize .= call aligned [arg size]
-    --     if' i32 ((heapNext `add` alignedSize) `lt_u` heapEnd)
-    --         (do
-    --             addr .= heapNext
-    --             heapNext .= heapNext `add` alignedSize
-    --             ret addr
-    --         )
-    --         (do
-    --             call gc []
-    --             call self [arg size]
-    --         )
+        (size `add` i32c 3) `and` i32c @GenFun 0xFFFFFFFC
+    alloc <- funRec i32 $ \self -> do
+        size <- param i32
+        alignedSize <- local i32
+        addr <- local i32
+        alignedSize .= call aligned [arg size]
+        if' i32 ((heapNext `add` alignedSize) `lt_u` heapEnd)
+            (do
+                addr .= heapNext
+                heapNext .= heapNext `add` alignedSize
+                ret addr
+            )
+            (do
+                call gc []
+                call self [arg size]
+            )
     return ()
