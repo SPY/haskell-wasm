@@ -17,7 +17,7 @@
 module Language.Wasm.Builder (
     GenMod,
     genMod,
-    global, typedef, fun, funRec, table, memory, dataSegment,
+    global, typedef, fun, funRec, declare, implement, table, memory, dataSegment,
     importFunction, importGlobal, importMemory, importTable,
     export,
     nextFuncIndex, setGlobalInitializer,
@@ -612,6 +612,29 @@ funRec res generator = do
 
 fun :: (Returnable res) => res -> GenFun res -> GenMod (Fn res)
 fun res = funRec res . const
+
+declare :: (Returnable res) => res -> [ValueType] -> GenMod (Fn res)
+declare res args = do
+    st@GenModState { target = m@Module { types, functions }, funcIdx } <- get
+    let t = FuncType args (asResultValue res)
+    let (idx, inserted) = Maybe.fromMaybe (length types, types ++ [t]) $ (\i -> (i, types)) <$> List.findIndex (== t) types
+    put $ st {
+        target = m { functions = functions ++ [Function (fromIntegral idx) [] []], types = inserted },
+        funcIdx = funcIdx + 1
+    }
+    return $ Fn funcIdx
+
+implement :: (Returnable res) => Fn res -> GenFun res -> GenMod (Fn res)
+implement (Fn funcIdx) generator = do
+    st@GenModState { target = m@Module { types, functions, imports } } <- get
+    let FuncDef { args, locals, instrs } = execState (runReaderT generator 0) $ FuncDef [] [] [] []
+    let locIdx = fromIntegral funcIdx - (length $ filter isFuncImport imports)
+    let (l, inst : r) = splitAt locIdx functions
+    let typeIdx = funcType inst
+    let FuncType ps _ = types !! fromIntegral typeIdx
+    if args /= ps then error "Arguments list in implementation doesn't match with declared type" else return ()
+    put $ st { target = m { functions = l ++ [Function typeIdx locals instrs] ++ r } }
+    return $ Fn funcIdx
 
 nextFuncIndex :: GenMod Natural
 nextFuncIndex = gets funcIdx
