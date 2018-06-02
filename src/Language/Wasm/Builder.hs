@@ -430,13 +430,13 @@ wrap big = do
     appendExpr [I32WrapI64]
     return Proxy
 
-trunc_u :: (Producer f, IsInt (Proxy t) ~ True, ValueTypeable t) => Proxy t -> f -> GenFun (Proxy t)
+trunc_u :: (Producer f, IsFloat (OutType f) ~ True, IsInt (Proxy t) ~ True, ValueTypeable t) => Proxy t -> f -> GenFun (Proxy t)
 trunc_u t float = do
     produce float
     appendExpr [ITruncFU (getSize $ getValueType t) (getSize $ asValueType float)]
     return Proxy
 
-trunc_s :: (Producer f, IsInt (Proxy t) ~ True, ValueTypeable t) => Proxy t -> f -> GenFun (Proxy t)
+trunc_s :: (Producer f, IsFloat (OutType f) ~ True, IsInt (Proxy t) ~ True, ValueTypeable t) => Proxy t -> f -> GenFun (Proxy t)
 trunc_s t float = do
     produce float
     appendExpr [ITruncFU (getSize $ getValueType t) (getSize $ asValueType float)]
@@ -454,13 +454,13 @@ extend_s small = do
     appendExpr [I64ExtendUI32]
     return Proxy
 
-convert_u :: (Producer f, IsFloat (Proxy t) ~ True, ValueTypeable t) => Proxy t -> f -> GenFun (Proxy t)
+convert_u :: (Producer i, IsInt (OutType i) ~ True, IsFloat (Proxy t) ~ True, ValueTypeable t) => Proxy t -> i -> GenFun (Proxy t)
 convert_u t int = do
     produce int
     appendExpr [FConvertIU (getSize $ getValueType t) (getSize $ asValueType int)]
     return Proxy
 
-convert_s :: (Producer f, IsFloat (Proxy t) ~ True, ValueTypeable t) => Proxy t -> f -> GenFun (Proxy t)
+convert_s :: (Producer i, IsInt (OutType i) ~ True, IsFloat (Proxy t) ~ True, ValueTypeable t) => Proxy t -> i -> GenFun (Proxy t)
 convert_s t int = do
     produce int
     appendExpr [FConvertIS (getSize $ getValueType t) (getSize $ asValueType int)]
