@@ -439,7 +439,7 @@ trunc_u t float = do
 trunc_s :: (Producer f, IsFloat (OutType f) ~ True, IsInt (Proxy t) ~ True, ValueTypeable t) => Proxy t -> f -> GenFun (Proxy t)
 trunc_s t float = do
     produce float
-    appendExpr [ITruncFU (getSize $ getValueType t) (getSize $ asValueType float)]
+    appendExpr [ITruncFS (getSize $ getValueType t) (getSize $ asValueType float)]
     return Proxy
 
 extend_u :: (Producer i, OutType i ~ Proxy I32) => i -> GenFun (Proxy I64)
@@ -451,7 +451,7 @@ extend_u small = do
 extend_s :: (Producer i, OutType i ~ Proxy I32) => i -> GenFun (Proxy I64)
 extend_s small = do
     produce small
-    appendExpr [I64ExtendUI32]
+    appendExpr [I64ExtendSI32]
     return Proxy
 
 convert_u :: (Producer i, IsInt (OutType i) ~ True, IsFloat (Proxy t) ~ True, ValueTypeable t) => Proxy t -> i -> GenFun (Proxy t)
