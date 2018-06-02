@@ -29,13 +29,18 @@ module Language.Wasm.Builder (
     i32, i64, f32, f64,
     i32c, i64c, f32c, f64c,
     add, inc, sub, dec, mul, div_u, div_s, rem_u, rem_s, and, or, xor, shl, shr_u, shr_s, rotl, rotr,
+    clz, ctz, popcnt,
     eq, ne, lt_s, lt_u, gt_s, gt_u, le_s, le_u, ge_s, ge_u,
     eqz,
-    extend_s, extend_u, wrap,
+    div_f, min_f, max_f, copySign,
+    abs_f, neg_f, ceil_f, floor_f, trunc_f, nearest_f, sqrt_f,
+    lt_f, gt_f, le_f, ge_f,
+    wrap, trunc_s, trunc_u, extend_s, extend_u, convert_s, convert_u, demote, promote, reinterpret,
     load, load8_u, load8_s, load16_u, load16_s, load32_u, load32_s,
     store, store8, store16, store32,
-    nop,
-    call, finish,
+    memorySize, growMemory,
+    nop, Language.Wasm.Builder.drop, select,
+    call, callIndirect, finish, br, brIf, brTable,
     if', loop, block, when, for, while,
     trap, unreachable,
     appendExpr, after,
@@ -171,11 +176,42 @@ type family IsInt i :: Bool where
     IsInt (Proxy I64) = True
     IsInt any         = False
 
+type family IsFloat i :: Bool where
+    IsFloat (Proxy F32) = True
+    IsFloat (Proxy F64) = True
+    IsFloat any         = False
+
 nop :: GenFun ()
 nop = appendExpr [Nop]
 
+drop :: (Producer val) => val -> GenFun ()
+drop val = do
+    produce val
+    appendExpr [Drop]
+
+select :: (Producer a, Producer b, OutType a ~ OutType b, Producer pred, OutType pred ~ Proxy I32) => pred -> a -> b -> GenFun (OutType a)
+select pred a b = select' (produce pred) (produce a) (produce b)
+    where
+        select' :: GenFun pred -> GenFun val -> GenFun val -> GenFun val
+        select' pred a b = do
+            a
+            res <- b
+            pred
+            appendExpr [Select]
+            return res
+
 iBinOp :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => IBinOp -> a -> b -> GenFun (OutType a)
 iBinOp op a b = produce a >> after [IBinOp (getSize $ asValueType a) op] (produce b)
+
+iUnOp :: (Producer a, IsInt (OutType a) ~ True) => IUnOp -> a -> GenFun (OutType a)
+iUnOp op a = after [IUnOp (getSize $ asValueType a) op] (produce a)
+
+iRelOp :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => IRelOp -> a -> b -> GenFun (Proxy I32)
+iRelOp op a b = do
+    produce a
+    produce b
+    appendExpr [IRelOp (getSize $ asValueType a) op]
+    return Proxy
 
 add :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (OutType a)
 add a b = do
@@ -254,12 +290,14 @@ rotl = iBinOp IRotl
 rotr :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (OutType a)
 rotr = iBinOp IRotr 
 
-relOp :: (Producer a, Producer b, OutType a ~ OutType b) => IRelOp -> a -> b -> GenFun (Proxy I32)
-relOp op a b = do
-    produce a
-    produce b
-    appendExpr [IRelOp (getSize $ asValueType a) op]
-    return Proxy
+clz :: (Producer a, IsInt (OutType a) ~ True) => a -> GenFun (OutType a)
+clz = iUnOp IClz
+
+ctz :: (Producer a, IsInt (OutType a) ~ True) => a -> GenFun (OutType a)
+ctz = iUnOp ICtz
+
+popcnt :: (Producer a, IsInt (OutType a) ~ True) => a -> GenFun (OutType a)
+popcnt = iUnOp IPopcnt
 
 eq :: (Producer a, Producer b, OutType a ~ OutType b) => a -> b -> GenFun (Proxy I32)
 eq a b = do
@@ -284,28 +322,28 @@ ne a b = do
     return Proxy
 
 lt_s :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
-lt_s = relOp ILtS
+lt_s = iRelOp ILtS
 
 lt_u :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
-lt_u = relOp ILtS
+lt_u = iRelOp ILtU
 
 gt_s :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
-gt_s = relOp IGtS
+gt_s = iRelOp IGtS
 
 gt_u :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
-gt_u = relOp IGtU
+gt_u = iRelOp IGtU
 
 le_s :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
-le_s = relOp ILeS
+le_s = iRelOp ILeS
 
 le_u :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
-le_u = relOp ILeS
+le_u = iRelOp ILeU
 
 ge_s :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
-ge_s = relOp IGeS
+ge_s = iRelOp IGeS
 
 ge_u :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
-ge_u = relOp IGeU
+ge_u = iRelOp IGeU
 
 eqz :: (Producer a, IsInt (OutType a) ~ True) => a -> GenFun (Proxy I32)
 eqz a = do
@@ -315,6 +353,64 @@ eqz a = do
         I64 -> appendExpr [I64Eqz]
         _ -> error "Impossible by type constraint"
     return Proxy
+
+fBinOp :: (Producer a, Producer b, OutType a ~ OutType b, IsFloat (OutType a) ~ True) => FBinOp -> a -> b -> GenFun (OutType a)
+fBinOp op a b = produce a >> after [FBinOp (getSize $ asValueType a) op] (produce b)
+
+fUnOp :: (Producer a, IsFloat (OutType a) ~ True) => FUnOp -> a -> GenFun (OutType a)
+fUnOp op a = after [FUnOp (getSize $ asValueType a) op] (produce a)
+
+fRelOp :: (Producer a, Producer b, OutType a ~ OutType b, IsFloat (OutType a) ~ True) => FRelOp -> a -> b -> GenFun (Proxy I32)
+fRelOp op a b = do
+    produce a
+    produce b
+    appendExpr [FRelOp (getSize $ asValueType a) op]
+    return Proxy
+
+div_f :: (Producer a, Producer b, OutType a ~ OutType b, IsFloat (OutType a) ~ True) => a -> b -> GenFun (OutType a)
+div_f = fBinOp FDiv
+
+min_f :: (Producer a, Producer b, OutType a ~ OutType b, IsFloat (OutType a) ~ True) => a -> b -> GenFun (OutType a)
+min_f = fBinOp FMin
+
+max_f :: (Producer a, Producer b, OutType a ~ OutType b, IsFloat (OutType a) ~ True) => a -> b -> GenFun (OutType a)
+max_f = fBinOp FMax
+
+copySign :: (Producer a, Producer b, OutType a ~ OutType b, IsFloat (OutType a) ~ True) => a -> b -> GenFun (OutType a)
+copySign = fBinOp FCopySign
+
+abs_f :: (Producer a, IsFloat (OutType a) ~ True) => a -> GenFun (OutType a)
+abs_f = fUnOp FAbs
+
+neg_f :: (Producer a, IsFloat (OutType a) ~ True) => a -> GenFun (OutType a)
+neg_f = fUnOp FNeg
+
+ceil_f :: (Producer a, IsFloat (OutType a) ~ True) => a -> GenFun (OutType a)
+ceil_f = fUnOp FCeil
+
+floor_f :: (Producer a, IsFloat (OutType a) ~ True) => a -> GenFun (OutType a)
+floor_f = fUnOp FFloor
+
+trunc_f :: (Producer a, IsFloat (OutType a) ~ True) => a -> GenFun (OutType a)
+trunc_f = fUnOp FTrunc
+
+nearest_f :: (Producer a, IsFloat (OutType a) ~ True) => a -> GenFun (OutType a)
+nearest_f = fUnOp FAbs
+
+sqrt_f :: (Producer a, IsFloat (OutType a) ~ True) => a -> GenFun (OutType a)
+sqrt_f = fUnOp FAbs
+
+lt_f :: (Producer a, Producer b, OutType a ~ OutType b, IsFloat (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
+lt_f = fRelOp FLt
+
+gt_f :: (Producer a, Producer b, OutType a ~ OutType b, IsFloat (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
+gt_f = fRelOp FGt
+
+le_f :: (Producer a, Producer b, OutType a ~ OutType b, IsFloat (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
+le_f = fRelOp FLe
+
+ge_f :: (Producer a, Producer b, OutType a ~ OutType b, IsFloat (OutType a) ~ True) => a -> b -> GenFun (Proxy I32)
+ge_f = fRelOp FGe
 
 i32c :: (Integral i) => i -> GenFun (Proxy I32)
 i32c i = appendExpr [I32Const $ asWord32 $ fromIntegral i] >> return Proxy
@@ -328,6 +424,24 @@ f32c f = appendExpr [F32Const f] >> return Proxy
 f64c :: Double -> GenFun (Proxy F64)
 f64c d = appendExpr [F64Const d] >> return Proxy
 
+wrap :: (Producer i, OutType i ~ Proxy I64) => i -> GenFun (Proxy I32)
+wrap big = do
+    produce big
+    appendExpr [I32WrapI64]
+    return Proxy
+
+trunc_u :: (Producer f, IsInt (Proxy t) ~ True, ValueTypeable t) => Proxy t -> f -> GenFun (Proxy t)
+trunc_u t float = do
+    produce float
+    appendExpr [ITruncFU (getSize $ getValueType t) (getSize $ asValueType float)]
+    return Proxy
+
+trunc_s :: (Producer f, IsInt (Proxy t) ~ True, ValueTypeable t) => Proxy t -> f -> GenFun (Proxy t)
+trunc_s t float = do
+    produce float
+    appendExpr [ITruncFU (getSize $ getValueType t) (getSize $ asValueType float)]
+    return Proxy
+
 extend_u :: (Producer i, OutType i ~ Proxy I32) => i -> GenFun (Proxy I64)
 extend_u small = do
     produce small
@@ -340,10 +454,45 @@ extend_s small = do
     appendExpr [I64ExtendUI32]
     return Proxy
 
-wrap :: (Producer i, OutType i ~ Proxy I64) => i -> GenFun (Proxy I32)
-wrap big = do
-    produce big
-    appendExpr [I32WrapI64]
+convert_u :: (Producer f, IsFloat (Proxy t) ~ True, ValueTypeable t) => Proxy t -> f -> GenFun (Proxy t)
+convert_u t int = do
+    produce int
+    appendExpr [FConvertIU (getSize $ getValueType t) (getSize $ asValueType int)]
+    return Proxy
+
+convert_s :: (Producer f, IsFloat (Proxy t) ~ True, ValueTypeable t) => Proxy t -> f -> GenFun (Proxy t)
+convert_s t int = do
+    produce int
+    appendExpr [FConvertIS (getSize $ getValueType t) (getSize $ asValueType int)]
+    return Proxy
+
+demote :: (Producer f, OutType f ~ Proxy F64) => f -> GenFun (Proxy F32)
+demote f = do
+    produce f
+    appendExpr [F32DemoteF64]
+    return Proxy
+
+promote :: (Producer f, OutType f ~ Proxy F32) => f -> GenFun (Proxy F64)
+promote f = do
+    produce f
+    appendExpr [F64PromoteF32]
+    return Proxy
+
+type family SameSize a b where
+    SameSize (Proxy I32) (Proxy F32) = True
+    SameSize (Proxy I64) (Proxy F64) = True
+    SameSize (Proxy F32) (Proxy I32) = True
+    SameSize (Proxy F64) (Proxy I64) = True
+    SameSize a           b           = False
+
+reinterpret :: (ValueTypeable t, Producer val, SameSize (Proxy t) (OutType val) ~ True) => Proxy t -> val -> GenFun (Proxy t)
+reinterpret t val = do
+    case (getValueType t, asValueType val) of
+        (I32, F32) -> appendExpr [IReinterpretF BS32]
+        (I64, F64) -> appendExpr [IReinterpretF BS64]
+        (F32, I32) -> appendExpr [FReinterpretI BS32]
+        (F64, I64) -> appendExpr [FReinterpretI BS64]
+        _ -> error "Impossible by type constraint"
     return Proxy
 
 load :: (ValueTypeable t, Producer addr, OutType addr ~ Proxy I32, Integral offset, Integral align)
@@ -493,13 +642,38 @@ store32 addr val offset align = do
     produce val
     appendExpr [I64Store32 $ MemArg (fromIntegral offset) (fromIntegral align)]
 
+memorySize :: GenFun (Proxy I32)
+memorySize = appendExpr [CurrentMemory] >> return Proxy
+
+growMemory :: (Producer size, OutType size ~ Proxy I32) => size -> GenFun ()
+growMemory size = produce size >> appendExpr [GrowMemory]
+
 call :: (Returnable res) => Fn res -> [GenFun a] -> GenFun res
 call (Fn idx) args = sequence_ args >> appendExpr [Call idx] >> return returnableValue
+
+callIndirect :: (Producer index, OutType index ~ Proxy I32, Returnable res) => TypeDef res -> index -> [GenFun a] -> GenFun res
+callIndirect (TypeDef idx) index args = do
+    sequence_ args
+    produce index
+    appendExpr [CallIndirect idx]
+    return returnableValue
 
 br :: Label t -> GenFun ()
 br (Label labelDeep) = do
     deep <- ask
     appendExpr [Br $ deep - labelDeep]
+
+brIf :: (Producer pred, OutType pred ~ Proxy I32) => pred -> Label t -> GenFun ()
+brIf pred (Label labelDeep) = do
+    produce pred
+    deep <- ask
+    appendExpr [BrIf $ deep - labelDeep]
+
+brTable :: (Producer selector, OutType selector ~ Proxy I32) => selector -> [Label t] -> Label t -> GenFun ()
+brTable selector labels (Label labelDeep) = do
+    produce selector
+    deep <- ask
+    appendExpr [BrTable (map (\(Label d) -> deep - d) labels) $ deep - labelDeep]
 
 finish :: (Producer val) => val -> GenFun ()
 finish val = do
@@ -577,12 +751,15 @@ instance Consumer (Loc t) where
 instance Consumer (Glob t) where
     (.=) (Glob i) expr = produce expr >> appendExpr [SetGlobal i]
 
-typedef :: FuncType -> GenMod Natural
-typedef t = do
+newtype TypeDef t = TypeDef Natural deriving (Show, Eq)
+
+typedef :: (Returnable res) => res -> [ValueType] -> GenMod (TypeDef res)
+typedef res args = do
+    let t = FuncType args (asResultValue res)
     st@GenModState { target = m@Module { types } } <- get
     let (idx, inserted) = Maybe.fromMaybe (length types, types ++ [t]) $ (\i -> (i, types)) <$> List.findIndex (== t) types
     put $ st { target = m { types = inserted } }
-    return $ fromIntegral idx
+    return $ TypeDef $ fromIntegral idx
 
 newtype Fn a = Fn Natural deriving (Show, Eq)
 
@@ -618,8 +795,9 @@ declare res args = do
     st@GenModState { target = m@Module { types, functions }, funcIdx } <- get
     let t = FuncType args (asResultValue res)
     let (idx, inserted) = Maybe.fromMaybe (length types, types ++ [t]) $ (\i -> (i, types)) <$> List.findIndex (== t) types
+    let err = error "Declared function doesn't have implementation"
     put $ st {
-        target = m { functions = functions ++ [Function (fromIntegral idx) [] []], types = inserted },
+        target = m { functions = functions ++ [Function (fromIntegral idx) err err], types = inserted },
         funcIdx = funcIdx + 1
     }
     return $ Fn funcIdx
