@@ -96,8 +96,6 @@ import Language.Wasm.Lexer (
         asDouble
     )
 
-import Debug.Trace as Debug
-
 }
 
 %name parseModule mod

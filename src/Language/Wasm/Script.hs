@@ -95,12 +95,12 @@ runScript onAssertFail script = do
         addModule :: Maybe Ident -> Struct.Module -> ScriptState -> IO ScriptState
         addModule ident m st =
             case Validate.validate m of
-                Validate.Valid -> do
+                Right m -> do
                     res <- Interpreter.instantiate (store st) (buildImports st) m
                     case res of
                         Right (modInst, store') -> return $ addToStore ident modInst $ st { lastModule = Just modInst, store = store' }
                         Left reason -> error $ "Module instantiation failed dut to invalid module with reason: " ++ show reason
-                reason -> error $ "Module instantiation failed dut to invalid module with reason: " ++ show reason
+                Left reason -> error $ "Module instantiation failed dut to invalid module with reason: " ++ show reason
         
         getModule :: ScriptState -> Maybe Ident -> Maybe Interpreter.ModuleInstance
         getModule st (Just (Ident i)) = Map.lookup i (modules st)
@@ -156,7 +156,7 @@ runScript onAssertFail script = do
         checkModuleInvalid :: Struct.Module -> IO ()
         checkModuleInvalid _ = return ()
 
-        getFailureString :: Validate.ValidationResult -> [TL.Text]
+        getFailureString :: Validate.ValidationError -> [TL.Text]
         getFailureString (Validate.TypeMismatch _ _) = ["type mismatch"]
         getFailureString Validate.ResultTypeDoesntMatch = ["type mismatch"]
         getFailureString Validate.MoreThanOneMemory = ["multiple memories"]
@@ -194,8 +194,8 @@ runScript onAssertFail script = do
         runAssert st assert@(AssertInvalid moduleDef failureString) =
             let (_, m) = buildModule moduleDef in
             case Validate.validate m of
-                Validate.Valid -> onAssertFail "Invalid module pass validation" assert
-                reason ->
+                Right _ -> onAssertFail "Invalid module pass validation" assert
+                Left reason ->
                     if failureString `elem` getFailureString reason
                     then return ()
                     else
@@ -216,12 +216,12 @@ runScript onAssertFail script = do
         runAssert st assert@(AssertUnlinkable moduleDef failureString) =
             let (_, m) = buildModule moduleDef in
             case Validate.validate m of
-                Validate.Valid -> do
+                Right m -> do
                     res <- Interpreter.instantiate (store st) (buildImports st) m
                     case res of
                         Left err -> return ()
                         Right _ -> onAssertFail ("Module linking should fail with failure string " ++ show failureString) assert
-                reason -> error $ "Module linking failed dut to invalid module with reason: " ++ show reason
+                Left reason -> error $ "Module linking failed dut to invalid module with reason: " ++ show reason
         runAssert st assert@(AssertTrap (Left action) failureString) = do
             result <- runAction st action
             if isNothing result
@@ -230,12 +230,12 @@ runScript onAssertFail script = do
         runAssert st assert@(AssertTrap (Right moduleDef) failureString) =
             let (_, m) = buildModule moduleDef in
             case Validate.validate m of
-                Validate.Valid -> do
+                Right m -> do
                     res <- Interpreter.instantiate (store st) (buildImports st) m
                     case res of
                         Left "Start function terminated with trap" -> return ()
                         _ -> onAssertFail ("Module linking should fail with trap during execution of a start function") assert
-                reason -> error $ "Module linking failed dut to invalid module with reason: " ++ show reason
+                Left reason -> error $ "Module linking failed dut to invalid module with reason: " ++ show reason
         runAssert st assert@(AssertExhaustion action failureString) = do
             result <- runAction st action
             if isNothing result

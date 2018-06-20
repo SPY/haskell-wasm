@@ -21,8 +21,6 @@ import Data.Word (Word8)
 import Data.List (isPrefixOf)
 import Text.Read (readEither)
 
-import qualified Debug.Trace as Debug
-
 }
 
 %wrapper "monadUserState-bytestring"

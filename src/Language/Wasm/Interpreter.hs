@@ -53,9 +53,8 @@ import Numeric.IEEE (IEEE, copySign, minNum, maxNum, identicalIEEE)
 import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Control.Monad.IO.Class (liftIO)
 
-import Debug.Trace as Debug
-
 import Language.Wasm.Structure as Struct
+import Language.Wasm.Validate as Valid
 import Language.Wasm.FloatUtils (
         wordToFloat,
         floatToWord,
@@ -532,8 +531,9 @@ initialize inst Module {elems, datas, start} store = do
         initData (from, mem, chunk) =
             mapM_ (\(i,b) -> IOVector.write mem i b) $ zip [from..] $ LBS.unpack chunk
 
-instantiate :: Store -> Imports -> Module -> IO (Either String (ModuleInstance, Store))
-instantiate st imps m = runExceptT $ do
+instantiate :: Store -> Imports -> Valid.ValidModule -> IO (Either String (ModuleInstance, Store))
+instantiate st imps mod = runExceptT $ do
+    let m = Valid.getModule mod
     inst <- calcInstance st imps m
     let functions = funcInstances st <> (allocFunctions inst $ Struct.functions m)
     globals <- liftIO $ (globalInstances st <>) <$> (allocAndInitGlobals inst st $ Struct.globals m)

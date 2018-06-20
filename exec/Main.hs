@@ -5,9 +5,7 @@ import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Base64.Lazy as Base64
 import Data.Maybe (fromMaybe)
 
-import qualified Language.Wasm.Lexer as Lexer
-import qualified Language.Wasm.Parser as Parser
-import qualified Language.Wasm.Binary as Binary
+import qualified Language.Wasm as Wasm
 
 import Options.Applicative
 import Data.Semigroup ((<>))
@@ -105,10 +103,7 @@ config = subparser (
   )
 
 toBinary :: LBS.ByteString -> Either String LBS.ByteString
-toBinary content = do
-    lexemes <- Lexer.scanner content
-    mod <- Parser.parseModule lexemes
-    return $ Binary.dumpModuleLazy mod
+toBinary = fmap Wasm.encodeLazy . Wasm.parse
 
 compileAs :: (LBS.ByteString -> LBS.ByteString) -> String -> String -> IO ()
 compileAs transform input output = do
