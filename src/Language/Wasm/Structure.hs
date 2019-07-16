@@ -32,6 +32,7 @@ module Language.Wasm.Structure (
     ValueType(..),
     ParamsType,
     ResultType,
+    LocalsType,
     Expression,
     LabelIndex,
     FuncIndex,
