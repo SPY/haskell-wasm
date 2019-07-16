@@ -24,5 +24,5 @@
 ## Development
 Clond sources to directory and use `stack` for running tests:
 ```
-stack && stack test
+stack build && stack test
 ```
