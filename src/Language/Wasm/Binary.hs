@@ -154,7 +154,7 @@ getName = do
 putResultType :: ResultType -> Put
 putResultType [] = putWord8 0x40
 putResultType [valType] = put valType
-putResultType _ = fail "Current WebAssembly spec does not support returning more then one value"
+putResultType _ = error "Current WebAssembly spec does not support returning more then one value"
 
 getResultType :: Get ResultType
 getResultType = do

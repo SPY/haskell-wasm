@@ -1,3 +1,10 @@
 .stack-work
 tests/runnable/*
 dist/
+.DS_Store
+build/
+cabal-config-flags
+dist-newstyle/
+doc/
+setup-config
+wasm-*-docs.tar.gz

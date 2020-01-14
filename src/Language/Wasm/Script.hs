@@ -194,12 +194,12 @@ runScript onAssertFail script = do
         runAssert st assert@(AssertInvalid moduleDef failureString) =
             let (_, m) = buildModule moduleDef in
             case Validate.validate m of
-                Right _ -> onAssertFail "Invalid module pass validation" assert
+                Right _ -> onAssertFail "An invalid module passed validation step" assert
                 Left reason ->
                     if failureString `elem` getFailureString reason
                     then return ()
                     else
-                        let msg = "Module invalid for other reason. Expected "
+                        let msg = "Module is invalid for other reason. Expected "
                                 ++ show failureString
                                 ++ ", but actual is "
                                 ++ show (getFailureString reason)

@@ -16,8 +16,8 @@ import qualified Data.Set as Set
 import Data.List (foldl')
 import qualified Data.Text.Lazy as TL
 import Data.Maybe (fromMaybe, maybeToList, catMaybes)
-import Data.Monoid ((<>))
 import Numeric.Natural (Natural)
+import Prelude hiding ((<>))
 
 import Control.Monad (foldM)
 import Control.Monad.Reader (ReaderT, runReaderT, withReaderT, ask)
@@ -51,6 +51,10 @@ data ValidationError =
     deriving (Show, Eq)
 
 type ValidationResult = Either ValidationError ()
+
+-- semigroup definition for Either a b is in conflict with my ad-hoc instance
+-- to keep an old code Prelude version is hidden and redefined locally
+(<>) = mappend
 
 instance Monoid ValidationResult where
     mempty = Right ()
