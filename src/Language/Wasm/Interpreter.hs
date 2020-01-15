@@ -233,17 +233,11 @@ makeHostModule st items = do
     where
         (|>) = flip ($)
 
-        isHostFunction :: (TL.Text, HostItem) -> Bool
-        isHostFunction (_, (HostFunction _ _)) = True
-        isHostFunction _ = False
-
         makeHostFunctions :: (Store, ModuleInstance) -> (Store, ModuleInstance)
         makeHostFunctions (st, inst) =
             let funcLen = Vector.length $ funcInstances st in
-            let hostFunctions = filter isHostFunction items in
-            let instances = map (\(_, (HostFunction t c)) -> HostInstance t c) hostFunctions in
-            let types = map (\(_, (HostFunction t _)) -> t) hostFunctions in
-            let exps = Vector.fromList $ zipWith (\(name, _) i -> ExportInstance name (ExternFunction i)) hostFunctions [funcLen..] in
+            let (names, types, instances) = unzip3 [(name, t, HostInstance t c) | (name, (HostFunction t c)) <- items] in
+            let exps = Vector.fromList $ zipWith (\name i -> ExportInstance name (ExternFunction i)) names [funcLen..] in
             let inst' = inst {
                     funcTypes = Vector.fromList types,
                     funcaddrs = Vector.fromList [funcLen..funcLen + length instances - 1],
@@ -252,17 +246,12 @@ makeHostModule st items = do
             in
             let st' = st { funcInstances = funcInstances st <> Vector.fromList instances } in
             (st', inst')
-
-        isHostGlobal :: (TL.Text, HostItem) -> Bool
-        isHostGlobal (_, (HostGlobal _)) = True
-        isHostGlobal _ = False
         
         makeHostGlobals :: (Store, ModuleInstance) -> (Store, ModuleInstance)
         makeHostGlobals (st, inst) =
             let globLen = Vector.length $ globalInstances st in
-            let hostGlobals = filter isHostGlobal items in
-            let instances = map (\(_, (HostGlobal g)) -> g) hostGlobals in
-            let exps = Vector.fromList $ zipWith (\(name, _) i -> ExportInstance name (ExternGlobal i)) hostGlobals [globLen..] in
+            let (names, instances) = unzip [(name, g) | (name, (HostGlobal g)) <- items] in
+            let exps = Vector.fromList $ zipWith (\name i -> ExportInstance name (ExternGlobal i)) names [globLen..] in
             let inst' = inst {
                     globaladdrs = Vector.fromList [globLen..globLen + length instances - 1],
                     exports = Language.Wasm.Interpreter.exports inst <> exps
@@ -270,34 +259,26 @@ makeHostModule st items = do
             in
             let st' = st { globalInstances = globalInstances st <> Vector.fromList instances } in
             (st', inst')
-
-        isHostMem :: (TL.Text, HostItem) -> Bool
-        isHostMem (_, (HostMemory _)) = True
-        isHostMem _ = False
             
         makeHostMems :: (Store, ModuleInstance) -> IO (Store, ModuleInstance)
         makeHostMems (st, inst) = do
             let memLen = Vector.length $ memInstances st
-            let hostMems = filter isHostMem items
-            instances <- allocMems $ map (\(_, (HostMemory lim)) -> Memory lim) hostMems
-            let exps = Vector.fromList $ zipWith (\(name, _) i -> ExportInstance name (ExternMemory i)) hostMems [memLen..]
+            let (names, limits) = unzip [(name, Memory lim) | (name, (HostMemory lim)) <- items]
+            instances <- allocMems limits
+            let exps = Vector.fromList $ zipWith (\name i -> ExportInstance name (ExternMemory i)) names [memLen..]
             let inst' = inst {
                     memaddrs = Vector.fromList [memLen..memLen + length instances - 1],
                     exports = Language.Wasm.Interpreter.exports inst <> exps
                 }
             let st' = st { memInstances = memInstances st <> instances }
             return (st', inst')
-
-        isHostTable :: (TL.Text, HostItem) -> Bool
-        isHostTable (_, (HostTable _)) = True
-        isHostTable _ = False
             
         makeHostTables :: (Store, ModuleInstance) -> IO (Store, ModuleInstance)
         makeHostTables (st, inst) = do
             let tableLen = Vector.length $ tableInstances st
-            let hostTables = filter isHostTable items
-            let instances = allocTables $ map (\(_, (HostTable lim)) -> Table (TableType lim AnyFunc)) hostTables
-            let exps = Vector.fromList $ zipWith (\(name, _) i -> ExportInstance name (ExternTable i)) hostTables [tableLen..]
+            let (names, tables) = unzip [(name, Table (TableType lim AnyFunc)) | (name, (HostTable lim)) <- items]
+            let instances = allocTables tables
+            let exps = Vector.fromList $ zipWith (\name i -> ExportInstance name (ExternTable i)) names [tableLen..]
             let inst' = inst {
                     tableaddrs = Vector.fromList [tableLen..tableLen + length instances - 1],
                     exports = Language.Wasm.Interpreter.exports inst <> exps
