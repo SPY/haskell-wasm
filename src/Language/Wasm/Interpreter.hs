@@ -1,6 +1,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Language.Wasm.Interpreter (
     Value(..),
@@ -27,9 +28,10 @@ import qualified Data.ByteString.Lazy as LBS
 import Data.Maybe (fromMaybe, isNothing)
 
 import Data.Vector (Vector, (!), (!?), (//))
-import Data.Vector.Storable.Mutable (IOVector)
 import qualified Data.Vector as Vector
-import qualified Data.Vector.Storable.Mutable as IOVector
+import qualified Data.Primitive.ByteArray as ByteArray
+import qualified Data.Primitive.Types as Primitive
+import qualified Control.Monad.Primitive as Primitive
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.Word (Word8, Word16, Word32, Word64)
 import Data.Int (Int32, Int64)
@@ -164,9 +166,11 @@ data TableInstance = TableInstance {
     elements :: Vector (Maybe Address)
 }
 
+type MemoryStore = ByteArray.MutableByteArray (Primitive.PrimState IO)
+
 data MemoryInstance = MemoryInstance {
     lim :: Limit,
-    memory :: IORef (IOVector Word8)
+    memory :: IORef MemoryStore
 }
 
 data GlobalInstance = GIConst ValueType Value | GIMut ValueType (IORef Value)
@@ -454,7 +458,9 @@ allocMems mems = Vector.fromList <$> mapM allocMem mems
     where
         allocMem :: Memory -> IO MemoryInstance
         allocMem (Memory lim@(Limit from to)) = do
-            mem <- IOVector.replicate (fromIntegral from * pageSize) 0
+            let size = fromIntegral from * pageSize
+            mem <- ByteArray.newByteArray size
+            ByteArray.setByteArray @Word64 mem 0 (size `div` 8) 0
             memory <- newIORef mem
             return MemoryInstance {
                 lim,
@@ -496,7 +502,7 @@ initialize inst Module {elems, datas, start} store = do
             let table = TableInstance lim (elems // zip [from..] (map Just funcs))
             return st { tableInstances = tableInstances st Vector.// [(idx, table)] }
 
-        checkData :: Store -> DataSegment -> Initialize (Int, IOVector Word8, LBS.ByteString)
+        checkData :: Store -> DataSegment -> Initialize (Int, MemoryStore, LBS.ByteString)
         checkData st DataSegment {memIndex, offset, chunk} = do
             VI32 val <- liftIO $ evalConstExpr inst st offset
             let from = fromIntegral val
@@ -504,13 +510,13 @@ initialize inst Module {elems, datas, start} store = do
             let last = from + (fromIntegral $ LBS.length chunk)
             let MemoryInstance _ memory = memInstances st ! idx
             mem <- liftIO $ readIORef memory
-            let len = IOVector.length mem
+            len <- ByteArray.getSizeofMutableByteArray mem
             Monad.when (last > len) $ throwError "data segment does not fit"
             return (from, mem, chunk)
         
-        initData :: (Int, IOVector Word8, LBS.ByteString) -> Initialize ()
+        initData :: (Int, MemoryStore, LBS.ByteString) -> Initialize ()
         initData (from, mem, chunk) =
-            mapM_ (\(i,b) -> IOVector.write mem i b) $ zip [from..] $ LBS.unpack chunk
+            mapM_ (\(i,b) -> ByteArray.writeByteArray mem i b) $ zip [from..] $ LBS.unpack chunk
 
 instantiate :: Store -> Imports -> Valid.ValidModule -> IO (Either String (ModuleInstance, Store))
 instantiate st imps mod = runExceptT $ do
@@ -583,28 +589,30 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
                 Done ctx' -> go ctx' rest
                 command -> return command
         
-        makeLoadInstr :: (Bits i, Integral i) => EvalCtx -> Natural -> Int -> ([Value] -> i -> EvalResult) -> IO EvalResult
+        makeLoadInstr :: (Primitive.Prim i, Bits i, Integral i) => EvalCtx -> Natural -> Int -> ([Value] -> i -> EvalResult) -> IO EvalResult
         makeLoadInstr ctx@EvalCtx{ stack = (VI32 v:rest) } offset byteWidth cont = do
             let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
             memory <- readIORef memoryRef
             let addr = fromIntegral v + fromIntegral offset
             let readByte idx = do
-                    byte <- IOVector.read memory $ addr + idx
+                    byte <- ByteArray.readByteArray @Word8 memory $ addr + idx
                     return $ fromIntegral byte `shiftL` (idx * 8)
-            if addr + byteWidth > IOVector.length memory
+            len <- ByteArray.getSizeofMutableByteArray memory
+            if addr + byteWidth > len
             then return Trap
             else cont rest . sum <$> mapM readByte [0..byteWidth-1]
         makeLoadInstr _ _ _ _ = error "Incorrect value on top of stack for memory instruction"
 
-        makeStoreInstr :: (Bits i, Integral i) => EvalCtx -> Natural -> Int -> i -> IO EvalResult
+        makeStoreInstr :: (Primitive.Prim i, Bits i, Integral i) => EvalCtx -> Natural -> Int -> i -> IO EvalResult
         makeStoreInstr ctx@EvalCtx{ stack = (VI32 va:rest) } offset byteWidth v = do
             let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
             memory <- readIORef memoryRef
             let addr = fromIntegral $ va + fromIntegral offset
             let writeByte idx = do
                     let byte = fromIntegral $ v `shiftR` (idx * 8) .&. 0xFF
-                    IOVector.write memory (addr + idx) byte
-            if addr + byteWidth > IOVector.length memory
+                    ByteArray.writeByteArray @Word8 memory (addr + idx) byte
+            len <- ByteArray.getSizeofMutableByteArray memory
+            if addr + byteWidth > len
             then return Trap
             else do
                 mapM_ writeByte [0..byteWidth-1]
@@ -769,19 +777,23 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
         step ctx@EvalCtx{ stack = st } CurrentMemory = do
             let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
             memory <- readIORef memoryRef
-            let size = fromIntegral $ IOVector.length memory `div` pageSize
-            return $ Done ctx { stack = VI32 size : st }
+            size <- ((`quot` pageSize) . fromIntegral) <$> ByteArray.getSizeofMutableByteArray memory
+            return $ Done ctx { stack = VI32 (fromIntegral size) : st }
         step ctx@EvalCtx{ stack = (VI32 n:rest) } GrowMemory = do
             let MemoryInstance { lim = limit@(Limit _ maxLen), memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
             memory <- readIORef memoryRef
-            let size = fromIntegral $ IOVector.length memory `quot` pageSize
+            size <- (`quot` pageSize) <$> ByteArray.getSizeofMutableByteArray memory
             let growTo = size + fromIntegral n
+            let w64PageSize = fromIntegral $ pageSize `div` 8
             result <- (
                     if fromMaybe True ((growTo <=) . fromIntegral <$> maxLen) && growTo <= 0xFFFF
-                    then do
-                        mem' <- IOVector.grow memory $ fromIntegral n * pageSize
-                        writeIORef memoryRef mem'
-                        return size
+                    then (
+                        if n == 0 then return size else do
+                            mem' <- ByteArray.resizeMutableByteArray memory $ growTo * pageSize
+                            ByteArray.setByteArray @Word64 mem' (size * w64PageSize) (fromIntegral n * w64PageSize) 0
+                            writeIORef memoryRef mem'
+                            return size
+                    )
                     else return $ -1
                 )
             return $ Done ctx { stack = VI32 (asWord32 $ fromIntegral result) : rest }
