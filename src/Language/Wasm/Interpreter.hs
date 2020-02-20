@@ -598,9 +598,14 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
                     byte <- ByteArray.readByteArray @Word8 memory $ addr + idx
                     return $ fromIntegral byte `shiftL` (idx * 8)
             len <- ByteArray.getSizeofMutableByteArray memory
+            let isAligned = addr `rem` byteWidth == 0
             if addr + byteWidth > len
             then return Trap
-            else cont rest . sum <$> mapM readByte [0..byteWidth-1]
+            else (
+                    if isAligned
+                    then cont rest <$> ByteArray.readByteArray memory (addr `quot` byteWidth)
+                    else cont rest . sum <$> mapM readByte [0..byteWidth-1]
+                )
         makeLoadInstr _ _ _ _ = error "Incorrect value on top of stack for memory instruction"
 
         makeStoreInstr :: (Primitive.Prim i, Bits i, Integral i) => EvalCtx -> Natural -> Int -> i -> IO EvalResult
@@ -612,11 +617,13 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
                     let byte = fromIntegral $ v `shiftR` (idx * 8) .&. 0xFF
                     ByteArray.writeByteArray @Word8 memory (addr + idx) byte
             len <- ByteArray.getSizeofMutableByteArray memory
+            let isAligned = addr `rem` byteWidth == 0
+            let write = if isAligned
+                then ByteArray.writeByteArray memory (addr `quot` byteWidth) v
+                else mapM_ writeByte [0..byteWidth-1] :: IO ()
             if addr + byteWidth > len
             then return Trap
-            else do
-                mapM_ writeByte [0..byteWidth-1]
-                return $ Done ctx { stack = rest }
+            else write >> (return $ Done ctx { stack = rest })
         makeStoreInstr _ _ _ _ = error "Incorrect value on top of stack for memory instruction"
 
         step :: EvalCtx -> Instruction Natural -> IO EvalResult
@@ -727,31 +734,31 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
         step ctx (F64Load MemArg { offset }) =
             makeLoadInstr ctx offset 8 $ (\rest val -> Done ctx { stack = VF64 (wordToDouble val) : rest })
         step ctx (I32Load8U MemArg { offset }) =
-            makeLoadInstr ctx offset 1 $ (\rest val -> Done ctx { stack = VI32 val : rest })
+            makeLoadInstr @Word8 ctx offset 1 $ (\rest val -> Done ctx { stack = VI32 (fromIntegral val) : rest })
         step ctx (I32Load8S MemArg { offset }) =
             makeLoadInstr ctx offset 1 $ (\rest byte ->
                 let val = asWord32 $ if (byte :: Word8) >= 128 then -1 * fromIntegral (0xFF - byte + 1) else fromIntegral byte in
                 Done ctx { stack = VI32 val : rest })
         step ctx (I32Load16U MemArg { offset }) = do
-            makeLoadInstr ctx offset 2 $ (\rest val -> Done ctx { stack = VI32 val : rest })
+            makeLoadInstr @Word16 ctx offset 2 $ (\rest val -> Done ctx { stack = VI32 (fromIntegral val) : rest })
         step ctx (I32Load16S MemArg { offset }) =
             makeLoadInstr ctx offset 2 $ (\rest val ->
                 let signed = asWord32 $ if (val :: Word16) >= 2 ^ 15 then -1 * fromIntegral (0xFFFF - val + 1) else fromIntegral val in
                 Done ctx { stack = VI32 signed : rest })
         step ctx (I64Load8U MemArg { offset }) =
-            makeLoadInstr ctx offset 1 $ (\rest val -> Done ctx { stack = VI64 val : rest })
+            makeLoadInstr @Word8 ctx offset 1 $ (\rest val -> Done ctx { stack = VI64 (fromIntegral val) : rest })
         step ctx (I64Load8S MemArg { offset }) =
             makeLoadInstr ctx offset 1 $ (\rest byte ->
                 let val = asWord64 $ if (byte :: Word8) >= 128 then -1 * fromIntegral (0xFF - byte + 1) else fromIntegral byte in
                 Done ctx { stack = VI64 val : rest })
         step ctx (I64Load16U MemArg { offset }) =
-            makeLoadInstr ctx offset 2 $ (\rest val -> Done ctx { stack = VI64 val : rest })
+            makeLoadInstr @Word16 ctx offset 2 $ (\rest val -> Done ctx { stack = VI64 (fromIntegral val) : rest })
         step ctx (I64Load16S MemArg { offset }) =
             makeLoadInstr ctx offset 2 $ (\rest val ->
                 let signed = asWord64 $ if (val :: Word16) >= 2 ^ 15 then -1 * fromIntegral (0xFFFF - val + 1) else fromIntegral val in
                 Done ctx { stack = VI64 signed : rest })
         step ctx (I64Load32U MemArg { offset }) =
-            makeLoadInstr ctx offset 4 $ (\rest val -> Done ctx { stack = VI64 val : rest })
+            makeLoadInstr @Word32 ctx offset 4 $ (\rest val -> Done ctx { stack = VI64 (fromIntegral val) : rest })
         step ctx (I64Load32S MemArg { offset }) =
             makeLoadInstr ctx offset 4 $ (\rest val ->
                 let signed = asWord64 $ fromIntegral $ asInt32 val in
@@ -765,15 +772,15 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
         step ctx@EvalCtx{ stack = (VF64 f:rest) } (F64Store MemArg { offset }) =
             makeStoreInstr ctx { stack = rest } offset 8 $ doubleToWord f
         step ctx@EvalCtx{ stack = (VI32 v:rest) } (I32Store8 MemArg { offset }) =
-            makeStoreInstr ctx { stack = rest } offset 1 v
+            makeStoreInstr @Word8 ctx { stack = rest } offset 1 $ fromIntegral v
         step ctx@EvalCtx{ stack = (VI32 v:rest) } (I32Store16 MemArg { offset }) =
-            makeStoreInstr ctx { stack = rest } offset 2 v
+            makeStoreInstr @Word16 ctx { stack = rest } offset 2 $ fromIntegral v
         step ctx@EvalCtx{ stack = (VI64 v:rest) } (I64Store8 MemArg { offset }) =
-            makeStoreInstr ctx { stack = rest } offset 1 v
+            makeStoreInstr @Word8 ctx { stack = rest } offset 1 $ fromIntegral v
         step ctx@EvalCtx{ stack = (VI64 v:rest) } (I64Store16 MemArg { offset }) =
-            makeStoreInstr ctx { stack = rest } offset 2 v
+            makeStoreInstr @Word16 ctx { stack = rest } offset 2 $ fromIntegral v
         step ctx@EvalCtx{ stack = (VI64 v:rest) } (I64Store32 MemArg { offset }) =
-            makeStoreInstr ctx { stack = rest } offset 4 v
+            makeStoreInstr @Word32 ctx { stack = rest } offset 4 $ fromIntegral v
         step ctx@EvalCtx{ stack = st } CurrentMemory = do
             let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
             memory <- readIORef memoryRef
