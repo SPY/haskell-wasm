@@ -8,3 +8,4 @@ dist-newstyle/
 doc/
 setup-config
 wasm-*-docs.tar.gz
+wasm.cabal
