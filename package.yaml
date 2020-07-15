@@ -8,10 +8,10 @@ extra-source-files:
 - src/Language/Wasm/Parser.y
 - src/Language/Wasm/Lexer.x
 build-tools:
-- alex >=3.1.3
-- happy >=1.9.4
+- alex >= 3.1.3
+- happy >= 1.9.4
 dependencies:
-- base >=4.6 && <5.0
+- base >= 4.6
 
 library:
   source-dirs: src
@@ -20,27 +20,33 @@ library:
   - -fwarn-incomplete-patterns
   - -fwarn-unused-imports
   exposed-modules:
+  - Language.Wasm.Script
   - Language.Wasm.Lexer
   - Language.Wasm
   dependencies:
-  - array                >= 0.5  && <0.6
+  - array                >= 0.5
   - text                 >= 1.1
   - bytestring           >= 0.10
-  - mtl                  >= 2.2  && <3.0
-  - transformers         >= 0.4  && <0.6
-  - containers           >= 0.5  && <0.6
+  - mtl                  >= 2.2
+  - transformers         >= 0.4
+  - containers           >= 0.5
   - utf8-string          >= 1.0
+  - ieee754              >= 0.8
+  - deepseq              >= 1.4
+  - cereal               >= 0.5
+  - primitive            >= 0.7
+  - vector               >= 0.12
 
 tests:
   test:
     main: Test.hs
     source-dirs: tests
     dependencies:
-    - wasm == 0.1.0
-    - filepath >=1.3 && <1.5
-    - directory >= 1.3
-    - text >=1.1 && <1.3
-    - bytestring >=0.10 && <0.11
-    - mtl ==2.2.1
-    - tasty >=0.7
-    - tasty-hunit >=0.4.1 && <0.10
+    - wasm               == 0.1.0
+    - filepath           >= 1.3
+    - directory          >= 1.3
+    - text               >= 1.1
+    - bytestring         >= 0.10
+    - mtl                == 2.2.1
+    - tasty              >= 0.7
+    - tasty-hunit        >= 0.4.1
