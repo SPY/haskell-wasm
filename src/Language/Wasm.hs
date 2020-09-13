@@ -27,7 +27,7 @@ import Language.Wasm.Binary as Binary
 parse :: LBS.ByteString -> Either String Module
 parse content = Lexer.scanner content >>= Parser.parseModule
 
--- | Parse WebAssembly extended scipt grammar
+-- | Parse WebAssembly extended script grammar
 parseScript :: LBS.ByteString -> Either String Script
 parseScript content = Lexer.scanner content >>= Parser.parseScript
 
