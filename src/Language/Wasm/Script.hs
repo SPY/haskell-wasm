@@ -99,8 +99,8 @@ runScript onAssertFail script = do
                     res <- Interpreter.instantiate (store st) (buildImports st) m
                     case res of
                         Right (modInst, store') -> return $ addToStore ident modInst $ st { lastModule = Just modInst, store = store' }
-                        Left reason -> error $ "Module instantiation failed dut to invalid module with reason: " ++ show reason
-                Left reason -> error $ "Module instantiation failed dut to invalid module with reason: " ++ show reason
+                        Left reason -> error $ "Module instantiation failed due to invalid module with reason: " ++ show reason
+                Left reason -> error $ "Module instantiation failed due to invalid module with reason: " ++ show reason
         
         getModule :: ScriptState -> Maybe Ident -> Maybe Interpreter.ModuleInstance
         getModule st (Just (Ident i)) = Map.lookup i (modules st)
@@ -221,7 +221,7 @@ runScript onAssertFail script = do
                     case res of
                         Left err -> return ()
                         Right _ -> onAssertFail ("Module linking should fail with failure string " ++ show failureString) assert
-                Left reason -> error $ "Module linking failed dut to invalid module with reason: " ++ show reason
+                Left reason -> error $ "Module linking failed due to invalid module with reason: " ++ show reason
         runAssert st assert@(AssertTrap (Left action) failureString) = do
             result <- runAction st action
             if isNothing result
@@ -235,7 +235,7 @@ runScript onAssertFail script = do
                     case res of
                         Left "Start function terminated with trap" -> return ()
                         _ -> onAssertFail ("Module linking should fail with trap during execution of a start function") assert
-                Left reason -> error $ "Module linking failed dut to invalid module with reason: " ++ show reason
+                Left reason -> error $ "Module linking failed due to invalid module with reason: " ++ show reason
         runAssert st assert@(AssertExhaustion action failureString) = do
             result <- runAction st action
             if isNothing result
