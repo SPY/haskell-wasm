@@ -10,6 +10,12 @@ module Language.Wasm (
     decode,
     decodeLazy,
     Script,
+    Command(..),
+    ModuleDef(..),
+    Action(..),
+    Assertion(..),
+    Ident(..),
+    Meta(..),
     runScript
 ) where
 
