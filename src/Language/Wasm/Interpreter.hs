@@ -37,7 +37,6 @@ import Data.Word (Word8, Word16, Word32, Word64)
 import Data.Int (Int32, Int64)
 import Numeric.Natural (Natural)
 import qualified Control.Monad as Monad
-import Data.Monoid ((<>))
 import Data.Bits (
         Bits,
         (.|.),

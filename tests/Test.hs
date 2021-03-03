@@ -12,12 +12,17 @@ import qualified Data.ByteString.Lazy as LBS
 
 import qualified Language.Wasm as Wasm
 import qualified Language.Wasm.Script as Script
+import qualified Data.List as List
 
 main :: IO ()
 main = do
-  files <- Directory.listDirectory "tests/samples"
+  files <- filter (List.isSuffixOf ".wast") <$> Directory.listDirectory "tests/spec"
   scriptTestCases <- (`mapM` files) $ \file -> do
-    Right script <- Wasm.parseScript <$> LBS.readFile ("tests/samples/" ++ file)
+    test <- LBS.readFile ("tests/spec/" ++ file)
     return $ testCase file $ do
-      Script.runScript (\msg assert -> assertFailure ("Failed assert: " ++ msg ++ ". Assert " ++ show assert)) script
+      case Wasm.parseScript test of
+        Right script -> 
+          Script.runScript (\msg assert -> assertFailure ("Failed assert: " ++ msg ++ ". Assert " ++ show assert)) script
+        Left error ->
+          assertFailure $ "Failed to parse with error: " ++ show error
   defaultMain $ testGroup "Wasm Core Test Suit" scriptTestCases

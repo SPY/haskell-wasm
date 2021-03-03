@@ -13,7 +13,6 @@ module Language.Wasm.Lexer (
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Char as Char
 import qualified Data.ByteString.Lazy.UTF8 as LBSUtf8
-import Control.Applicative ((<$>))
 import Control.Monad (when)
 import Numeric.IEEE (infinity, nan)
 import Language.Wasm.FloatUtils (makeNaN, doubleToFloat)
