@@ -128,11 +128,11 @@ import Language.Wasm.Lexer (
 'call_indirect'       { Lexeme _ (TKeyword "call_indirect") }
 'drop'                { Lexeme _ (TKeyword "drop") }
 'select'              { Lexeme _ (TKeyword "select") }
-'get_local'           { Lexeme _ (TKeyword "get_local") }
-'set_local'           { Lexeme _ (TKeyword "set_local") }
-'tee_local'           { Lexeme _ (TKeyword "tee_local") }
-'get_global'          { Lexeme _ (TKeyword "get_global") }
-'set_global'          { Lexeme _ (TKeyword "set_global") }
+'get_local'           { Lexeme _ (TKeyword "local.get") }
+'set_local'           { Lexeme _ (TKeyword "local.set") }
+'tee_local'           { Lexeme _ (TKeyword "local.tee") }
+'get_global'          { Lexeme _ (TKeyword "global.get") }
+'set_global'          { Lexeme _ (TKeyword "global.set") }
 'i32.load'            { Lexeme _ (TKeyword "i32.load") }
 'i64.load'            { Lexeme _ (TKeyword "i64.load") }
 'f32.load'            { Lexeme _ (TKeyword "f32.load") }
@@ -156,8 +156,6 @@ import Language.Wasm.Lexer (
 'i64.store8'          { Lexeme _ (TKeyword "i64.store8") }
 'i64.store16'         { Lexeme _ (TKeyword "i64.store16") }
 'i64.store32'         { Lexeme _ (TKeyword "i64.store32") }
-'current_memory'      { Lexeme _ (TKeyword "current_memory") }
-'grow_memory'         { Lexeme _ (TKeyword "grow_memory") }
 'memory.size'         { Lexeme _ (TKeyword "memory.size") }
 'memory.grow'         { Lexeme _ (TKeyword "memory.grow") }
 'i32.const'           { Lexeme _ (TKeyword "i32.const") }
@@ -283,10 +281,10 @@ import Language.Wasm.Lexer (
 'f64.convert_s/i64'   { Lexeme _ (TKeyword "f64.convert_s/i64") }
 'f64.convert_u/i64'   { Lexeme _ (TKeyword "f64.convert_u/i64") }
 'f64.promote/f32'     { Lexeme _ (TKeyword "f64.promote/f32") }
-'i32.reinterpret/f32' { Lexeme _ (TKeyword "i32.reinterpret/f32") }
-'i64.reinterpret/f64' { Lexeme _ (TKeyword "i64.reinterpret/f64") }
-'f32.reinterpret/i32' { Lexeme _ (TKeyword "f32.reinterpret/i32") }
-'f64.reinterpret/i64' { Lexeme _ (TKeyword "f64.reinterpret/i64") }
+'i32.reinterpret_f32' { Lexeme _ (TKeyword "i32.reinterpret_f32") }
+'i64.reinterpret_f64' { Lexeme _ (TKeyword "i64.reinterpret_f64") }
+'f32.reinterpret_i32' { Lexeme _ (TKeyword "f32.reinterpret_i32") }
+'f64.reinterpret_i64' { Lexeme _ (TKeyword "f64.reinterpret_i64") }
 'block'               { Lexeme _ (TKeyword "block") }
 'loop'                { Lexeme _ (TKeyword "loop") }
 'if'                  { Lexeme _ (TKeyword "if") }
@@ -435,8 +433,6 @@ plaininstr :: { PlainInstr }
     | 'i64.store8' memarg1           { I64Store8 $2 }
     | 'i64.store16' memarg2          { I64Store16 $2 }
     | 'i64.store32' memarg4          { I64Store32 $2 }
-    | 'current_memory'               { CurrentMemory }
-    | 'grow_memory'                  { GrowMemory }
     | 'memory.size'                  { CurrentMemory }
     | 'memory.grow'                  { GrowMemory }
     -- numeric instructions
@@ -563,10 +559,10 @@ plaininstr :: { PlainInstr }
     | 'f64.convert_s/i64'            { FConvertIS BS64 BS64 }
     | 'f64.convert_u/i64'            { FConvertIU BS64 BS64 }
     | 'f64.promote/f32'              { F64PromoteF32 }
-    | 'i32.reinterpret/f32'          { IReinterpretF BS32 }
-    | 'i64.reinterpret/f64'          { IReinterpretF BS64 }
-    | 'f32.reinterpret/i32'          { FReinterpretI BS32 }
-    | 'f64.reinterpret/i64'          { FReinterpretI BS64 }
+    | 'i32.reinterpret_f32'          { IReinterpretF BS32 }
+    | 'i64.reinterpret_f64'          { IReinterpretF BS64 }
+    | 'f32.reinterpret_i32'          { FReinterpretI BS32 }
+    | 'f64.reinterpret_i64'          { FReinterpretI BS64 }
 
 typeuse :: { TypeUse }
     : '(' typeuse1 { $2 }
@@ -1511,6 +1507,7 @@ desugarize fields = do
     elements <- mapM (synElemToStruct mod) $ elems mod
     segments <- mapM (synDataToStruct mod) $ datas mod
     globs <- mapM (synGlobalToStruct mod) $ globals mod
+    checkMemoryIdentsUniqueness mod
     return S.Module {
         S.types = map synTypeDefToStruct $ types mod,
         S.functions = funs,
@@ -1820,6 +1817,23 @@ desugarize fields = do
         synMemoryToStruct :: Memory -> S.Memory
         synMemoryToStruct (Memory _ _ limits) = S.Memory limits
 
+        checkMemoryIdentsUniqueness :: Module -> Either String ()
+        checkMemoryIdentsUniqueness m@Module { imports, mems } = do
+            mapM_ checkImportUniqueness $ filter isMemImport imports
+            mapM_ checkMemUniqueness mems
+            where
+                checkImportUniqueness Import { desc = ImportMemory (Just id) _ } =
+                    if length (getMemIndexes m id) > 1
+                    then Left "duplicate memory"
+                    else return ()
+                checkImportUniqueness _ = return ()
+
+                checkMemUniqueness (Memory _ (Just id) _) =
+                    if length (getMemIndexes m id) > 1
+                    then Left "duplicate memory"
+                    else return ()
+                checkMemUniqueness _ = return ()
+
         extractMemory :: [Memory] -> ModuleField -> [Memory]
         extractMemory mems (MFMem mem) = mem : mems
         extractMemory mems _ = mems
@@ -1828,14 +1842,19 @@ desugarize fields = do
         isMemImport Import { desc = ImportMemory _ _ } = True
         isMemImport _ = False
 
+        getMemIndexes :: Module -> Ident -> [Natural]
+        getMemIndexes Module { imports, mems } id =
+            let memImports = zip [0..] $ filter isMemImport imports in
+            let importIndexes = map fst $ filter (\((_, Import { desc = ImportMemory ident _ })) -> ident == Just id) memImports in
+            let isIdent (_, (Memory _ (Just id) _)) = True in
+            let memIndexes = map fst $ filter isIdent $ zip [length memImports..] mems in
+            map fromIntegral $ importIndexes ++ memIndexes
+
         getMemIndex :: Module -> MemoryIndex -> Maybe Natural
-        getMemIndex Module { imports, mems } (Named id) =
-            let memImports = filter isMemImport imports in
-            case findIndex (\(Import { desc = ImportMemory ident _ }) -> ident == Just id) memImports of
-                Just idx -> return $ fromIntegral idx
-                Nothing ->
-                    let isIdent (Memory _ (Just id) _) = True in
-                    fromIntegral . (+ length memImports) <$> findIndex isIdent mems
+        getMemIndex mod (Named id) =
+            case getMemIndexes mod id of
+                [idx] -> return idx
+                _ -> Nothing
         getMemIndex Module { imports, mems } (Index idx) = Just idx
 
         -- global

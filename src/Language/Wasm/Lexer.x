@@ -62,6 +62,7 @@ tokens :-
 <0> "nan"                                 { constToken $ TFloatLit $ BinRep (abs nan) }
 <0> "+nan"                                { constToken $ TFloatLit $ BinRep (abs nan) }
 <0> "-nan"                                { constToken $ TFloatLit $ BinRep nan }
+<0> "nan:canonical"                       { constToken $ TFloatLit $ BinRep nan }
 <0> $sign? @nanhex                        { parseNanSigned }
 <0> "inf"                                 { constToken $ TFloatLit $ BinRep inf }
 <0> "+inf"                                { constToken $ TFloatLit $ BinRep inf }
