@@ -192,7 +192,7 @@ data Function = Function {
 
 data Limit = Limit Natural (Maybe Natural) deriving (Show, Eq, Generic, NFData)
 
-data ElemType = AnyFunc deriving (Show, Eq, Generic, NFData)
+data ElemType = FuncRef deriving (Show, Eq, Generic, NFData)
 
 data TableType = TableType Limit ElemType deriving (Show, Eq, Generic, NFData)
 
