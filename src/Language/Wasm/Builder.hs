@@ -858,7 +858,7 @@ importMemory mod name min max = do
 importTable :: TL.Text -> TL.Text -> Natural -> Maybe Natural -> GenMod Tbl
 importTable mod name min max = do
     modify $ \(st@GenModState { target = m }) -> st {
-        target = m { imports = imports m ++ [Import mod name $ ImportTable $ TableType (Limit min max) AnyFunc] }
+        target = m { imports = imports m ++ [Import mod name $ ImportTable $ TableType (Limit min max) FuncRef] }
     }
     return $ Tbl 0
 
@@ -968,7 +968,7 @@ newtype Tbl = Tbl Natural deriving (Show, Eq)
 table :: Natural -> Maybe Natural -> GenMod Tbl
 table min max = do
     modify $ \(st@GenModState { target = m }) -> st {
-        target = m { tables = tables m ++ [Table $ TableType (Limit min max) AnyFunc] }
+        target = m { tables = tables m ++ [Table $ TableType (Limit min max) FuncRef] }
     }
     return $ Tbl 0
 

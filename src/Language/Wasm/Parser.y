@@ -116,7 +116,7 @@ import Language.Wasm.Lexer (
 'f32'                 { Lexeme _ (TKeyword "f32") }
 'f64'                 { Lexeme _ (TKeyword "f64") }
 'mut'                 { Lexeme _ (TKeyword "mut") }
-'anyfunc'             { Lexeme _ (TKeyword "anyfunc") }
+'funcref'             { Lexeme _ (TKeyword "funcref") }
 'type'                { Lexeme _ (TKeyword "type") }
 'unreachable'         { Lexeme _ (TKeyword "unreachable") }
 'nop'                 { Lexeme _ (TKeyword "nop") }
@@ -260,27 +260,27 @@ import Language.Wasm.Lexer (
 'f64.gt'              { Lexeme _ (TKeyword "f64.gt") }
 'f64.le'              { Lexeme _ (TKeyword "f64.le") }
 'f64.ge'              { Lexeme _ (TKeyword "f64.ge") }
-'i32.wrap/i64'        { Lexeme _ (TKeyword "i32.wrap/i64") }
-'i32.trunc_s/f32'     { Lexeme _ (TKeyword "i32.trunc_s/f32") }
-'i32.trunc_u/f32'     { Lexeme _ (TKeyword "i32.trunc_u/f32") }
-'i32.trunc_s/f64'     { Lexeme _ (TKeyword "i32.trunc_s/f64") }
-'i32.trunc_u/f64'     { Lexeme _ (TKeyword "i32.trunc_u/f64") }
-'i64.extend_s/i32'    { Lexeme _ (TKeyword "i64.extend_s/i32") }
-'i64.extend_u/i32'    { Lexeme _ (TKeyword "i64.extend_u/i32") }
-'i64.trunc_s/f32'     { Lexeme _ (TKeyword "i64.trunc_s/f32") }
-'i64.trunc_u/f32'     { Lexeme _ (TKeyword "i64.trunc_u/f32") }
-'i64.trunc_s/f64'     { Lexeme _ (TKeyword "i64.trunc_s/f64") }
-'i64.trunc_u/f64'     { Lexeme _ (TKeyword "i64.trunc_u/f64") }
-'f32.convert_s/i32'   { Lexeme _ (TKeyword "f32.convert_s/i32") }
-'f32.convert_u/i32'   { Lexeme _ (TKeyword "f32.convert_u/i32") }
-'f32.convert_s/i64'   { Lexeme _ (TKeyword "f32.convert_s/i64") }
-'f32.convert_u/i64'   { Lexeme _ (TKeyword "f32.convert_u/i64") }
-'f32.demote/f64'      { Lexeme _ (TKeyword "f32.demote/f64") }
-'f64.convert_s/i32'   { Lexeme _ (TKeyword "f64.convert_s/i32") }
-'f64.convert_u/i32'   { Lexeme _ (TKeyword "f64.convert_u/i32") }
-'f64.convert_s/i64'   { Lexeme _ (TKeyword "f64.convert_s/i64") }
-'f64.convert_u/i64'   { Lexeme _ (TKeyword "f64.convert_u/i64") }
-'f64.promote/f32'     { Lexeme _ (TKeyword "f64.promote/f32") }
+'i32.wrap_i64'        { Lexeme _ (TKeyword "i32.wrap_i64") }
+'i32.trunc_f32_s'     { Lexeme _ (TKeyword "i32.trunc_f32_s") }
+'i32.trunc_f32_u'     { Lexeme _ (TKeyword "i32.trunc_f32_u") }
+'i32.trunc_f64_s'     { Lexeme _ (TKeyword "i32.trunc_f64_s") }
+'i32.trunc_f64_u'     { Lexeme _ (TKeyword "i32.trunc_f64_u") }
+'i64.extend_i32_s'    { Lexeme _ (TKeyword "i64.extend_i32_s") }
+'i64.extend_i32_u'    { Lexeme _ (TKeyword "i64.extend_i32_u") }
+'i64.trunc_f32_s'     { Lexeme _ (TKeyword "i64.trunc_f32_s") }
+'i64.trunc_f32_u'     { Lexeme _ (TKeyword "i64.trunc_f32_u") }
+'i64.trunc_f64_s'     { Lexeme _ (TKeyword "i64.trunc_f64_s") }
+'i64.trunc_f64_u'     { Lexeme _ (TKeyword "i64.trunc_f64_u") }
+'f32.convert_i32_s'   { Lexeme _ (TKeyword "f32.convert_i32_s") }
+'f32.convert_i32_u'   { Lexeme _ (TKeyword "f32.convert_i32_u") }
+'f32.convert_i64_s'   { Lexeme _ (TKeyword "f32.convert_i64_s") }
+'f32.convert_i64_u'   { Lexeme _ (TKeyword "f32.convert_i64_u") }
+'f32.demote_f64'      { Lexeme _ (TKeyword "f32.demote_f64") }
+'f64.convert_i32_s'   { Lexeme _ (TKeyword "f64.convert_i32_s") }
+'f64.convert_i32_u'   { Lexeme _ (TKeyword "f64.convert_i32_u") }
+'f64.convert_i64_s'   { Lexeme _ (TKeyword "f64.convert_i64_s") }
+'f64.convert_i64_u'   { Lexeme _ (TKeyword "f64.convert_i64_u") }
+'f64.promote_f32'     { Lexeme _ (TKeyword "f64.promote_f32") }
 'i32.reinterpret_f32' { Lexeme _ (TKeyword "i32.reinterpret_f32") }
 'i64.reinterpret_f64' { Lexeme _ (TKeyword "i64.reinterpret_f64") }
 'f32.reinterpret_i32' { Lexeme _ (TKeyword "f32.reinterpret_i32") }
@@ -538,27 +538,27 @@ plaininstr :: { PlainInstr }
     | 'f64.gt'                       { FRelOp BS64 FGt }
     | 'f64.le'                       { FRelOp BS64 FLe }
     | 'f64.ge'                       { FRelOp BS64 FGe }
-    | 'i32.wrap/i64'                 { I32WrapI64 }
-    | 'i32.trunc_s/f32'              { ITruncFS BS32 BS32 }
-    | 'i32.trunc_u/f32'              { ITruncFU BS32 BS32 }
-    | 'i32.trunc_s/f64'              { ITruncFS BS32 BS64 }
-    | 'i32.trunc_u/f64'              { ITruncFU BS32 BS64 }
-    | 'i64.extend_s/i32'             { I64ExtendSI32 }
-    | 'i64.extend_u/i32'             { I64ExtendUI32 }
-    | 'i64.trunc_s/f32'              { ITruncFS BS64 BS32 }
-    | 'i64.trunc_u/f32'              { ITruncFU BS64 BS32 }
-    | 'i64.trunc_s/f64'              { ITruncFS BS64 BS64 }
-    | 'i64.trunc_u/f64'              { ITruncFU BS64 BS64 }
-    | 'f32.convert_s/i32'            { FConvertIS BS32 BS32 }
-    | 'f32.convert_u/i32'            { FConvertIU BS32 BS32 }
-    | 'f32.convert_s/i64'            { FConvertIS BS32 BS64 }
-    | 'f32.convert_u/i64'            { FConvertIU BS32 BS64 }
-    | 'f32.demote/f64'               { F32DemoteF64 }
-    | 'f64.convert_s/i32'            { FConvertIS BS64 BS32 }
-    | 'f64.convert_u/i32'            { FConvertIU BS64 BS32 }
-    | 'f64.convert_s/i64'            { FConvertIS BS64 BS64 }
-    | 'f64.convert_u/i64'            { FConvertIU BS64 BS64 }
-    | 'f64.promote/f32'              { F64PromoteF32 }
+    | 'i32.wrap_i64'                 { I32WrapI64 }
+    | 'i32.trunc_f32_s'              { ITruncFS BS32 BS32 }
+    | 'i32.trunc_f32_u'              { ITruncFU BS32 BS32 }
+    | 'i32.trunc_f64_s'              { ITruncFS BS32 BS64 }
+    | 'i32.trunc_f64_u'              { ITruncFU BS32 BS64 }
+    | 'i64.extend_i32_s'             { I64ExtendSI32 }
+    | 'i64.extend_i32_u'             { I64ExtendUI32 }
+    | 'i64.trunc_f32_s'              { ITruncFS BS64 BS32 }
+    | 'i64.trunc_f32_u'              { ITruncFU BS64 BS32 }
+    | 'i64.trunc_f64_s'              { ITruncFS BS64 BS64 }
+    | 'i64.trunc_f64_u'              { ITruncFU BS64 BS64 }
+    | 'f32.convert_i32_s'            { FConvertIS BS32 BS32 }
+    | 'f32.convert_i32_u'            { FConvertIU BS32 BS32 }
+    | 'f32.convert_i64_s'            { FConvertIS BS32 BS64 }
+    | 'f32.convert_i64_u'            { FConvertIU BS32 BS64 }
+    | 'f32.demote_f64'               { F32DemoteF64 }
+    | 'f64.convert_i32_s'            { FConvertIS BS64 BS32 }
+    | 'f64.convert_i32_u'            { FConvertIU BS64 BS32 }
+    | 'f64.convert_i64_s'            { FConvertIS BS64 BS64 }
+    | 'f64.convert_i64_u'            { FConvertIU BS64 BS64 }
+    | 'f64.promote_f32'              { F64PromoteF32 }
     | 'i32.reinterpret_f32'          { IReinterpretF BS32 }
     | 'i64.reinterpret_f64'          { IReinterpretF BS64 }
     | 'f32.reinterpret_i32'          { FReinterpretI BS32 }
@@ -646,10 +646,10 @@ raw_block :: { Maybe Ident -> Either String Instruction }
     | '(' raw_block1 { $2 }
 
 raw_block1 :: { Maybe Ident -> Either String Instruction }
-    : 'result' valtype ')' list(instruction) 'end' opt(ident) {
+    : 'result' list(valtype) ')' list(instruction) 'end' opt(ident) {
         \ident ->
             if ident == $6 || isNothing $6
-            then Right $ BlockInstr ident [$2] (concat $4)
+            then Right $ BlockInstr ident $2 (concat $4)
             else Left "Block labels have to match"
     }
     | folded_instr1 list(instruction) 'end' opt(ident) {
@@ -675,10 +675,10 @@ raw_loop :: { Maybe Ident -> Either String Instruction }
     | '(' raw_loop1 { $2 }
 
 raw_loop1 :: { Maybe Ident -> Either String Instruction }
-    : 'result' valtype ')' list(instruction) 'end' opt(ident) {
+    : 'result' list(valtype) ')' list(instruction) 'end' opt(ident) {
         \ident ->
             if ident == $6 || isNothing $6
-            then Right $ LoopInstr ident [$2] (concat $4)
+            then Right $ LoopInstr ident $2 (concat $4)
             else Left "Loop labels have to match"
     }
     | folded_instr1 list(instruction) 'end' opt(ident) {
@@ -704,10 +704,10 @@ raw_if_result :: { Maybe Ident -> Either String [Instruction] }
     | '(' raw_if_result1 { $2 }
 
 raw_if_result1 :: { Maybe Ident -> Either String [Instruction] }
-    : 'result' valtype ')' list(instruction) raw_else {
+    : 'result' list(valtype) ')' list(instruction) raw_else {
         \ident ->
             if ident == (snd $5) || isNothing (snd $5)
-            then Right [IfInstr ident [$2] (concat $4) $ fst $5]
+            then Right [IfInstr ident $2 (concat $4) $ fst $5]
             else Left "If labels have to match"
     }
     | folded_instr1 list(instruction) raw_else {
@@ -775,7 +775,7 @@ folded_block :: { Maybe Ident -> Instruction }
     | raw_instr list(instruction) ')' { \ident -> BlockInstr ident [] ($1 ++ concat $2) }
 
 folded_block1 :: { Maybe Ident -> Instruction }
-    : 'result' valtype ')' list(instruction) ')' { \ident -> BlockInstr ident [$2] (concat $4) }
+    : 'result' list(valtype) ')' list(instruction) ')' { \ident -> BlockInstr ident $2 (concat $4) }
     | folded_instr1 list(instruction) ')' { \ident -> BlockInstr ident [] ($1 ++ concat $2) }
 
 folded_loop :: { Maybe Ident -> Instruction }
@@ -784,14 +784,14 @@ folded_loop :: { Maybe Ident -> Instruction }
     | raw_instr list(instruction) ')' { \ident -> LoopInstr ident [] ($1 ++ concat $2) }
 
 folded_loop1 :: { Maybe Ident -> Instruction }
-    : 'result' valtype ')' list(instruction) ')' { \ident -> LoopInstr ident [$2] (concat $4) }
+    : 'result' list(valtype) ')' list(instruction) ')' { \ident -> LoopInstr ident $2 (concat $4) }
     | folded_instr1 list(instruction) ')' { \ident -> LoopInstr ident [] ($1 ++ concat $2) }
 
 folded_if_result :: { Maybe Ident -> [Instruction] }
-    : 'result' valtype ')' '(' folded_then_else {
+    : 'result' list(valtype) ')' '(' folded_then_else {
         \ident ->
             let (pred, (trueBranch, falseBranch)) = $5 in
-            pred ++ [IfInstr ident [$2] trueBranch falseBranch]
+            pred ++ [IfInstr ident $2 trueBranch falseBranch]
     }
     | folded_then_else {
         \ident ->
@@ -997,7 +997,7 @@ limits :: { Limit }
     : u32 opt(u32) { Limit (fromIntegral $1) (fromIntegral `fmap` $2) }
 
 elemtype :: { ElemType }
-    : 'anyfunc' { AnyFunc }
+    : 'funcref' { FuncRef }
 
 tabletype :: { TableType }
     : limits elemtype { TableType $1 $2 }

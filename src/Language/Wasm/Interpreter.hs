@@ -279,7 +279,7 @@ makeHostModule st items = do
         makeHostTables :: (Store, ModuleInstance) -> IO (Store, ModuleInstance)
         makeHostTables (st, inst) = do
             let tableLen = Vector.length $ tableInstances st
-            let (names, tables) = unzip [(name, Table (TableType lim AnyFunc)) | (name, (HostTable lim)) <- items]
+            let (names, tables) = unzip [(name, Table (TableType lim FuncRef)) | (name, (HostTable lim)) <- items]
             let instances = allocTables tables
             let exps = Vector.fromList $ zipWith (\name i -> ExportInstance name (ExternTable i)) names [tableLen..]
             let inst' = inst {
