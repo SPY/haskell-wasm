@@ -217,8 +217,8 @@ instance Serialize FuncType where
         return $ FuncType { params, results }
 
 instance Serialize ElemType where
-    put AnyFunc = putWord8 0x70
-    get = byteGuard 0x70 >> return AnyFunc
+    put FuncRef = putWord8 0x70
+    get = byteGuard 0x70 >> return FuncRef
 
 instance Serialize Limit where
     put (Limit min Nothing) = putWord8 0x00 >> putULEB128 min

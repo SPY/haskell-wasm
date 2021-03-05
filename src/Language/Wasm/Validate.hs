@@ -34,10 +34,10 @@ data ValidationError =
     | MoreThanOneMemory
     | MoreThanOneTable
     | FunctionIndexOutOfRange
-    | TableIndexOutOfRange
-    | MemoryIndexOutOfRange
-    | LocalIndexOutOfRange
-    | GlobalIndexOutOfRange
+    | TableIndexOutOfRange Natural
+    | MemoryIndexOutOfRange Natural
+    | LocalIndexOutOfRange Natural
+    | GlobalIndexOutOfRange Natural
     | LabelIndexOutOfRange
     | TypeIndexOutOfRange
     | ResultTypeDoesntMatch
@@ -183,7 +183,7 @@ checkMemoryInstr :: Int -> MemArg -> Checker ()
 checkMemoryInstr size memarg = do
     isMemArgValid size memarg
     Ctx { mems } <- ask 
-    if length mems < 1 then throwError MemoryIndexOutOfRange else return ()
+    if length mems < 1 then throwError (MemoryIndexOutOfRange 0) else return ()
 
 getInstrType :: Instruction Natural -> Checker Arrow
 getInstrType Unreachable = return $ Any ==> Any
@@ -228,7 +228,7 @@ getInstrType (Call fun) = do
 getInstrType (CallIndirect sign) = do
     Ctx { types, tables } <- ask
     if length tables < 1
-    then throwError TableIndexOutOfRange
+    then throwError (TableIndexOutOfRange 0)
     else do
         Arrow from to <- maybeToEither TypeIndexOutOfRange $ asArrow <$> types !? sign
         return $ (from ++ [Val I32]) ==> to
@@ -240,23 +240,23 @@ getInstrType Select = do
     return $ [var, var, Val I32] ==> var
 getInstrType (GetLocal local) = do
     Ctx { locals }  <- ask
-    t <- maybeToEither LocalIndexOutOfRange $ locals !? local
+    t <- maybeToEither (LocalIndexOutOfRange local) $ locals !? local
     return $ empty ==> Val t
 getInstrType (SetLocal local) = do
     Ctx { locals } <- ask
-    t <- maybeToEither LocalIndexOutOfRange $ locals !? local
+    t <- maybeToEither (LocalIndexOutOfRange local) $ locals !? local
     return $ Val t ==> empty
 getInstrType (TeeLocal local) = do
     Ctx { locals } <- ask
-    t <- maybeToEither LocalIndexOutOfRange $ locals !? local
+    t <- maybeToEither (LocalIndexOutOfRange local) $ locals !? local
     return $ Val t ==> Val t
 getInstrType (GetGlobal global) = do
     Ctx { globals } <- ask
-    t <- maybeToEither GlobalIndexOutOfRange $ asType <$> globals !? global
+    t <- maybeToEither (GlobalIndexOutOfRange global) $ asType <$> globals !? global
     return $ empty ==> t
 getInstrType (SetGlobal global) = do
     Ctx { globals } <- ask
-    t <- maybeToEither GlobalIndexOutOfRange $ asType <$> globals !? global
+    t <- maybeToEither (GlobalIndexOutOfRange global) $ asType <$> globals !? global
     shouldBeMut $ globals !! fromIntegral global
     return $ t ==> empty
 getInstrType (I32Load memarg) = do
@@ -330,10 +330,10 @@ getInstrType (I64Store32 memarg) = do
     return $ [I32, I64] ==> empty
 getInstrType CurrentMemory = do
     Ctx { mems } <- ask 
-    if length mems < 1 then throwError MemoryIndexOutOfRange else return $ empty ==> I32
+    if length mems < 1 then throwError (MemoryIndexOutOfRange 0) else return $ empty ==> I32
 getInstrType GrowMemory = do
     Ctx { mems } <- ask 
-    if length mems < 1 then throwError MemoryIndexOutOfRange else return $ I32 ==> I32
+    if length mems < 1 then throwError (MemoryIndexOutOfRange 0) else return $ I32 ==> I32
 getInstrType (I32Const _) = return $ empty ==> I32
 getInstrType (I64Const _) = return $ empty ==> I64
 getInstrType (F32Const _) = return $ empty ==> F32
@@ -414,7 +414,7 @@ isConstExpression ((F64Const _):rest) = isConstExpression rest
 isConstExpression ((GetGlobal idx):rest) = do
     Ctx {globals, importedGlobals} <- ask
     if importedGlobals <= idx
-        then throwError GlobalIndexOutOfRange
+        then throwError (GlobalIndexOutOfRange idx)
         else return ()
     case globals !! fromIntegral idx of
         Const _ -> isConstExpression rest
@@ -539,7 +539,7 @@ elemsShouldBeValid m@Module { elems, functions, tables, imports } =
             let isTableIndexValid =
                     if tableIdx < (fromIntegral $ length tableImports + length tables)
                     then return ()
-                    else Left TableIndexOutOfRange
+                    else Left (TableIndexOutOfRange tableIdx)
             in
             let funImports = filter isFuncImport imports in
             let funsLength = fromIntegral $ length functions + length funImports in
@@ -563,7 +563,7 @@ datasShouldBeValid m@Module { datas, mems, imports } =
             let memImports = filter isMemImport imports in
             if memIdx < (fromIntegral $ length memImports + length mems)
             then check
-            else Left MemoryIndexOutOfRange
+            else Left (MemoryIndexOutOfRange memIdx)
 
 startShouldBeValid :: Validator
 startShouldBeValid Module { start = Nothing } = return ()
@@ -587,9 +587,9 @@ exportsShouldBeValid Module { exports, imports, functions, mems, tables, globals
         isExportValid (Export _ (ExportFunc funIdx)) =
             if fromIntegral funIdx < length funcImports + length functions then return () else Left FunctionIndexOutOfRange
         isExportValid (Export _ (ExportTable tableIdx)) =
-            if fromIntegral tableIdx < length tableImports + length tables then return () else Left TableIndexOutOfRange
+            if fromIntegral tableIdx < length tableImports + length tables then return () else Left (TableIndexOutOfRange tableIdx)
         isExportValid (Export _ (ExportMemory memIdx)) =
-            if fromIntegral memIdx < length memImports + length mems then return () else Left MemoryIndexOutOfRange
+            if fromIntegral memIdx < length memImports + length mems then return () else Left (MemoryIndexOutOfRange memIdx)
         isExportValid (Export _ (ExportGlobal globalIdx)) =
             if fromIntegral globalIdx < length globalImports + length globals
             then (
@@ -601,7 +601,7 @@ exportsShouldBeValid Module { exports, imports, functions, mems, tables, globals
                 )
                 else return ()
             )
-            else Left GlobalIndexOutOfRange
+            else Left (GlobalIndexOutOfRange globalIdx)
 
         areExportNamesUnique :: ValidationResult
         areExportNamesUnique =
