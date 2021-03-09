@@ -873,6 +873,16 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
             return $ Done ctx { stack = VI32 (fromIntegral $ countTrailingZeros v) : rest }
         step ctx@EvalCtx{ stack = (VI32 v:rest) } (IUnOp BS32 IPopcnt) =
             return $ Done ctx { stack = VI32 (fromIntegral $ popCount v) : rest }
+        step ctx@EvalCtx{ stack = (VI32 v:rest) } (IUnOp BS32 IExtend8S) =
+            let byte = v .&. 0xFF in
+            let r = if byte >= 0x80 then asWord32 (fromIntegral byte - 0x100) else byte in
+            return $ Done ctx { stack = VI32 r : rest }
+        step ctx@EvalCtx{ stack = (VI32 v:rest) } (IUnOp BS32 IExtend16S) =
+            let half = v .&. 0xFFFF in
+            let r = if half >= 0x8000 then asWord32 (fromIntegral half - 0x10000) else half in
+            return $ Done ctx { stack = VI32 r : rest }
+        step ctx@EvalCtx{ stack = (VI32 v:rest) } (IUnOp BS32 IExtend32S) =
+            return $ Done ctx { stack = VI32 v : rest }
         step ctx@EvalCtx{ stack = (VI64 v2:VI64 v1:rest) } (IBinOp BS64 IAdd) =
             return $ Done ctx { stack = VI64 (v1 + v2) : rest }
         step ctx@EvalCtx{ stack = (VI64 v2:VI64 v1:rest) } (IBinOp BS64 ISub) =
@@ -939,6 +949,18 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
             return $ Done ctx { stack = VI64 (fromIntegral $ countTrailingZeros v) : rest }
         step ctx@EvalCtx{ stack = (VI64 v:rest) } (IUnOp BS64 IPopcnt) =
             return $ Done ctx { stack = VI64 (fromIntegral $ popCount v) : rest }
+        step ctx@EvalCtx{ stack = (VI64 v:rest) } (IUnOp BS64 IExtend8S) =
+            let byte = v .&. 0xFF in
+            let r = if byte >= 0x80 then asWord64 (fromIntegral byte - 0x100) else byte in
+            return $ Done ctx { stack = VI64 r : rest }
+        step ctx@EvalCtx{ stack = (VI64 v:rest) } (IUnOp BS64 IExtend16S) =
+            let quart = v .&. 0xFFFF in
+            let r = if quart >= 0x8000 then asWord64 (fromIntegral quart - 0x10000) else quart in
+            return $ Done ctx { stack = VI64 r : rest }
+        step ctx@EvalCtx{ stack = (VI64 v:rest) } (IUnOp BS64 IExtend32S) =
+            let half = v .&. 0xFFFFFFFF in
+            let r = if half >= 0x80000000 then asWord64 (fromIntegral half - 0x100000000) else half in
+            return $ Done ctx { stack = VI64 r : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (FUnOp BS32 FAbs) =
             return $ Done ctx { stack = VF32 (abs v) : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (FUnOp BS32 FNeg) =
