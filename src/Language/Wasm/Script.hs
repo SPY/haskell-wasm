@@ -175,8 +175,6 @@ runScript onAssertFail script = do
         getFailureString Validate.InvalidConstantExpr = ["constant expression required"]
         getFailureString Validate.InvalidResultArity = ["invalid result arity"]
         getFailureString Validate.GlobalIsImmutable = ["global is immutable"]
-        getFailureString Validate.ImportedGlobalIsNotConst = ["mutable globals cannot be imported"]
-        getFailureString Validate.ExportedGlobalIsNotConst = ["mutable globals cannot be exported"]
         getFailureString Validate.InvalidStartFunctionType = ["start function"]
         getFailureString r = [TL.concat ["not implemented ", (TL.pack $ show r)]]
 
