@@ -492,6 +492,13 @@ instance Serialize (Instruction Natural) where
     put (FReinterpretI BS32) = putWord8 0xBE
     put (FReinterpretI BS64) = putWord8 0xBF
 
+    put (IUnOp BS32 IExtend8S) = putWord8 0xC0
+    put (IUnOp BS32 IExtend16S) = putWord8 0xC1
+    put (IUnOp BS32 IExtend32S) = error "Opcode for i32.extend32_s doesn't exist"
+    put (IUnOp BS64 IExtend8S) = putWord8 0xC2
+    put (IUnOp BS64 IExtend16S) = putWord8 0xC3
+    put (IUnOp BS64 IExtend32S) = putWord8 0xC4
+
     get = do
         op <- getWord8
         case op of
@@ -676,6 +683,11 @@ instance Serialize (Instruction Natural) where
             0xBD -> return $ IReinterpretF BS64
             0xBE -> return $ FReinterpretI BS32
             0xBF -> return $ FReinterpretI BS64
+            0xC0 -> return $ IUnOp BS32 IExtend8S
+            0xC1 -> return $ IUnOp BS32 IExtend16S
+            0xC2 -> return $ IUnOp BS64 IExtend8S
+            0xC3 -> return $ IUnOp BS64 IExtend16S
+            0xC4 -> return $ IUnOp BS64 IExtend32S
             _ -> fail "Unknown byte value in place of instruction opcode"
 
 putExpression :: Expression -> Put

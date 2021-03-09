@@ -45,8 +45,6 @@ data ValidationError =
     | InvalidResultArity
     | InvalidConstantExpr
     | InvalidStartFunctionType
-    | ImportedGlobalIsNotConst
-    | ExportedGlobalIsNotConst
     | GlobalIsImmutable
     deriving (Show, Eq)
 
@@ -299,7 +297,7 @@ getInstrType (I64Load32S memarg) = do
     checkMemoryInstr 4 memarg
     return $ I32 ==> I64
 getInstrType (I64Load32U memarg) = do
-    checkMemoryInstr 8 memarg
+    checkMemoryInstr 4 memarg
     return $ I32 ==> I64
 getInstrType (I32Store memarg) = do
     checkMemoryInstr 4 memarg
@@ -592,15 +590,7 @@ exportsShouldBeValid Module { exports, imports, functions, mems, tables, globals
             if fromIntegral memIdx < length memImports + length mems then return () else Left (MemoryIndexOutOfRange memIdx)
         isExportValid (Export _ (ExportGlobal globalIdx)) =
             if fromIntegral globalIdx < length globalImports + length globals
-            then (
-                if fromIntegral globalIdx >= length globalImports
-                then (
-                    case globals !! (fromIntegral globalIdx - length globalImports) of
-                        (Global (Mut _) _) -> Left ExportedGlobalIsNotConst
-                        _ -> return ()
-                )
-                else return ()
-            )
+            then return ()
             else Left (GlobalIndexOutOfRange globalIdx)
 
         areExportNamesUnique :: ValidationResult
@@ -626,8 +616,7 @@ importsShouldBeValid Module { imports, types } =
             else Left TypeIndexOutOfRange
         isImportValid (Import _ _ (ImportTable _)) = return () -- checked in tables section
         isImportValid (Import _ _ (ImportMemory _)) = return () -- checked in mems section
-        isImportValid (Import _ _ (ImportGlobal (Const _))) = return ()
-        isImportValid (Import _ _ (ImportGlobal (Mut _))) = Left ImportedGlobalIsNotConst
+        isImportValid (Import _ _ (ImportGlobal _)) = return ()
 
 typesShouldBeValid :: Validator
 typesShouldBeValid Module { types } = foldMap isTypeValid types
