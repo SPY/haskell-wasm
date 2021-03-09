@@ -57,7 +57,14 @@ import GHC.Generics (Generic)
 
 data BitSize = BS32 | BS64 deriving (Show, Eq, Generic, NFData)
 
-data IUnOp = IClz | ICtz | IPopcnt deriving (Show, Eq, Generic, NFData)
+data IUnOp =
+    IClz
+    | ICtz
+    | IPopcnt
+    | IExtend8S
+    | IExtend16S
+    | IExtend32S
+    deriving (Show, Eq, Generic, NFData)
 
 data IBinOp =
     IAdd

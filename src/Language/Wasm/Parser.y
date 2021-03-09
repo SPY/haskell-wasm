@@ -165,6 +165,8 @@ import Language.Wasm.Lexer (
 'i32.clz'             { Lexeme _ (TKeyword "i32.clz") }
 'i32.ctz'             { Lexeme _ (TKeyword "i32.ctz") }
 'i32.popcnt'          { Lexeme _ (TKeyword "i32.popcnt") }
+'i32.extend8_s'       { Lexeme _ (TKeyword "i32.extend8_s") }
+'i32.extend16_s'      { Lexeme _ (TKeyword "i32.extend16_s") }
 'i32.add'             { Lexeme _ (TKeyword "i32.add") }
 'i32.sub'             { Lexeme _ (TKeyword "i32.sub") }
 'i32.mul'             { Lexeme _ (TKeyword "i32.mul") }
@@ -183,6 +185,9 @@ import Language.Wasm.Lexer (
 'i64.clz'             { Lexeme _ (TKeyword "i64.clz") }
 'i64.ctz'             { Lexeme _ (TKeyword "i64.ctz") }
 'i64.popcnt'          { Lexeme _ (TKeyword "i64.popcnt") }
+'i64.extend8_s'       { Lexeme _ (TKeyword "i64.extend8_s") }
+'i64.extend16_s'      { Lexeme _ (TKeyword "i64.extend16_s") }
+'i64.extend32_s'      { Lexeme _ (TKeyword "i64.extend32_s") }
 'i64.add'             { Lexeme _ (TKeyword "i64.add") }
 'i64.sub'             { Lexeme _ (TKeyword "i64.sub") }
 'i64.mul'             { Lexeme _ (TKeyword "i64.mul") }
@@ -443,6 +448,8 @@ plaininstr :: { PlainInstr }
     | 'i32.clz'                      { IUnOp BS32 IClz }
     | 'i32.ctz'                      { IUnOp BS32 ICtz }
     | 'i32.popcnt'                   { IUnOp BS32 IPopcnt }
+    | 'i32.extend8_s'                { IUnOp BS32 IExtend8S }
+    | 'i32.extend16_s'               { IUnOp BS32 IExtend16S }
     | 'i32.add'                      { IBinOp BS32 IAdd }
     | 'i32.sub'                      { IBinOp BS32 ISub }
     | 'i32.mul'                      { IBinOp BS32 IMul }
@@ -461,6 +468,9 @@ plaininstr :: { PlainInstr }
     | 'i64.clz'                      { IUnOp BS64 IClz }
     | 'i64.ctz'                      { IUnOp BS64 ICtz }
     | 'i64.popcnt'                   { IUnOp BS64 IPopcnt }
+    | 'i64.extend8_s'                { IUnOp BS64 IExtend8S }
+    | 'i64.extend16_s'               { IUnOp BS64 IExtend16S }
+    | 'i64.extend32_s'               { IUnOp BS64 IExtend32S }
     | 'i64.add'                      { IBinOp BS64 IAdd }
     | 'i64.sub'                      { IBinOp BS64 ISub }
     | 'i64.mul'                      { IBinOp BS64 IMul }
