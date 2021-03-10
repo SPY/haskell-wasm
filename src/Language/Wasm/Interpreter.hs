@@ -19,7 +19,8 @@ module Language.Wasm.Interpreter (
     emptyStore,
     emptyImports,
     makeHostModule,
-    makeMutGlobal
+    makeMutGlobal,
+    makeConstGlobal
 ) where
 
 import qualified Data.Map as Map
@@ -176,6 +177,9 @@ data GlobalInstance = GIConst ValueType Value | GIMut ValueType (IORef Value)
 
 makeMutGlobal :: Value -> IO GlobalInstance
 makeMutGlobal val = GIMut (getValueType val) <$> newIORef val
+
+makeConstGlobal :: Value -> GlobalInstance
+makeConstGlobal val = GIConst (getValueType val) val
 
 getValueType :: Value -> ValueType
 getValueType (VI32 _) = I32
@@ -364,13 +368,11 @@ calcInstance (Store fs ts ms gs) imps Module {functions, types, tables, mems, gl
                 ExternGlobal globalAddr -> return globalAddr
                 _ -> err
             let globalInst = gs ! globalAddr
-            let vt = case globalType of
-                    Const vt -> vt
-                    Mut vt -> vt
-            let vt' = case globalInst of
-                    GIConst vt _ -> vt
-                    GIMut vt _ -> vt
-            if vt == vt' then return idx else err
+            let typesMatch = case (globalType, globalInst) of
+                    (Const vt, GIConst vt' _) -> vt == vt'
+                    (Mut vt, GIMut vt' _) -> vt == vt'
+                    _ -> False
+            if typesMatch then return idx else err
         checkImportType imp@(Import _ _ (ImportMemory limit)) = do
             idx <- getImpIdx imp
             memAddr <- case idx of

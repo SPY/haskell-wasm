@@ -313,14 +313,14 @@ import Language.Wasm.Lexer (
 'register'            { Lexeme _ (TKeyword "register") }
 'invoke'              { Lexeme _ (TKeyword "invoke") }
 'get'                 { Lexeme _ (TKeyword "get") }
-'assert_return'       { Lexeme _ (TKeyword "assert_return") }
-'assert_return_canonical_nan' { Lexeme _ (TKeyword "assert_return_canonical_nan") }
-'assert_return_arithmetic_nan' { Lexeme _ (TKeyword "assert_return_arithmetic_nan") }
-'assert_trap'         { Lexeme _ (TKeyword "assert_trap") }
-'assert_malformed'    { Lexeme _ (TKeyword "assert_malformed") }
-'assert_invalid'      { Lexeme _ (TKeyword "assert_invalid") }
-'assert_unlinkable'   { Lexeme _ (TKeyword "assert_unlinkable") }
-'assert_exhaustion'   { Lexeme _ (TKeyword "assert_exhaustion") }
+'assert_return'       { Lexeme $$ (TKeyword "assert_return") }
+'assert_return_canonical_nan' { Lexeme $$ (TKeyword "assert_return_canonical_nan") }
+'assert_return_arithmetic_nan' { Lexeme $$ (TKeyword "assert_return_arithmetic_nan") }
+'assert_trap'         { Lexeme $$ (TKeyword "assert_trap") }
+'assert_malformed'    { Lexeme $$ (TKeyword "assert_malformed") }
+'assert_invalid'      { Lexeme $$ (TKeyword "assert_invalid") }
+'assert_unlinkable'   { Lexeme $$ (TKeyword "assert_unlinkable") }
+'assert_exhaustion'   { Lexeme $$ (TKeyword "assert_exhaustion") }
 'script'              { Lexeme _ (TKeyword "script") }
 'input'               { Lexeme _ (TKeyword "input") }
 'output'              { Lexeme _ (TKeyword "output") }
@@ -1104,7 +1104,7 @@ command1 :: { Command }
     : module1 { ModuleDef $1 }
     | 'register' string opt(ident) ')' { Register $2 $3 }
     | action1 { Action $1 }
-    | assertion1 { Assertion $1 }
+    | assertion1 { let (Just (AlexPn _ line _), a) = $1 in Assertion line a }
     | meta1 { Meta $1 }
 
 module1 :: { ModuleDef }
@@ -1117,15 +1117,15 @@ action1 :: { Action }
     : 'invoke' opt(ident) string list(folded_instr) ')' { Invoke $2 $3 (map (map constInstructionToValue) $4) }
     | 'get' opt(ident) string ')' { Get $2 $3 }
 
-assertion1 :: { Assertion }
-    : 'assert_return' '(' action1 list(folded_instr) ')' { AssertReturn $3 (map (map constInstructionToValue) $4) }
-    | 'assert_return_canonical_nan' '(' action1 ')' { AssertReturnCanonicalNaN $3 }
-    | 'assert_return_arithmetic_nan' '(' action1 ')' { AssertReturnArithmeticNaN $3 }
-    | 'assert_trap' '(' assertion_trap string ')' { AssertTrap $3 $4 }
-    | 'assert_malformed' '(' module1 string ')' { AssertMalformed $3 $4 }
-    | 'assert_invalid' '(' module1 string ')' { AssertInvalid $3 $4 }
-    | 'assert_unlinkable' '(' module1 string ')' { AssertUnlinkable $3 $4 }
-    | 'assert_exhaustion' '(' action1 string ')' { AssertExhaustion $3 $4 }
+assertion1 :: { (Maybe AlexPosn, Assertion) }
+    : 'assert_return' '(' action1 list(folded_instr) ')' { ($1, AssertReturn $3 (map (map constInstructionToValue) $4)) }
+    | 'assert_return_canonical_nan' '(' action1 ')' { ($1, AssertReturnCanonicalNaN $3) }
+    | 'assert_return_arithmetic_nan' '(' action1 ')' { ($1, AssertReturnArithmeticNaN $3) }
+    | 'assert_trap' '(' assertion_trap string ')' { ($1, AssertTrap $3 $4) }
+    | 'assert_malformed' '(' module1 string ')' { ($1, AssertMalformed $3 $4) }
+    | 'assert_invalid' '(' module1 string ')' { ($1, AssertInvalid $3 $4) }
+    | 'assert_unlinkable' '(' module1 string ')' { ($1, AssertUnlinkable $3 $4) }
+    | 'assert_exhaustion' '(' action1 string ')' { ($1, AssertExhaustion $3 $4) }
 
 assertion_trap :: { Either Action ModuleDef }
     : action1 { Left $1 }
@@ -1454,7 +1454,7 @@ data Command
     = ModuleDef ModuleDef
     | Register TL.Text (Maybe Ident)
     | Action Action
-    | Assertion Assertion
+    | Assertion Int Assertion
     | Meta Meta
     deriving (Show, Eq)
 
@@ -1518,6 +1518,7 @@ desugarize fields = do
     segments <- mapM (synDataToStruct mod) $ datas mod
     globs <- mapM (synGlobalToStruct mod) $ globals mod
     checkMemoryIdentsUniqueness mod
+    checkGlobalIdentsUniqueness mod
     return S.Module {
         S.types = map synTypeDefToStruct $ types mod,
         S.functions = funs,
@@ -1855,7 +1856,7 @@ desugarize fields = do
         getMemIndexes :: Module -> Ident -> [Natural]
         getMemIndexes Module { imports, mems } id =
             let memImports = zip [0..] $ filter isMemImport imports in
-            let importIndexes = map fst $ filter (\((_, Import { desc = ImportMemory ident _ })) -> ident == Just id) memImports in
+            let importIndexes = map fst $ filter (\(_, Import { desc = ImportMemory ident _ }) -> ident == Just id) memImports in
             let isIdent (_, (Memory _ (Just id) _)) = True in
             let memIndexes = map fst $ filter isIdent $ zip [length memImports..] mems in
             map fromIntegral $ importIndexes ++ memIndexes
@@ -1873,6 +1874,23 @@ desugarize fields = do
             let ctx = FunCtx mod [] [] [] in
             S.Global globalType <$> mapM (synInstrToStruct ctx) initializer
 
+        checkGlobalIdentsUniqueness :: Module -> Either String ()
+        checkGlobalIdentsUniqueness m@Module { imports, globals } = do
+            mapM_ checkImportUniqueness $ filter isGlobalImport imports
+            mapM_ checkGlobalUniqueness globals
+            where
+                checkImportUniqueness Import { desc = ImportGlobal (Just id) _ } =
+                    if length (getGlobalIndexes m id) > 1
+                    then Left "duplicate global"
+                    else return ()
+                checkImportUniqueness _ = return ()
+
+                checkGlobalUniqueness (Global _ (Just id) _ _) =
+                    if length (getGlobalIndexes m id) > 1
+                    then Left "duplicate global"
+                    else return ()
+                checkGlobalUniqueness _ = return ()
+
         extractGlobal :: [Global] -> ModuleField -> [Global]
         extractGlobal globals (MFGlobal global) = global : globals
         extractGlobal globals _ = globals
@@ -1881,14 +1899,19 @@ desugarize fields = do
         isGlobalImport Import { desc = ImportGlobal _ _ } = True
         isGlobalImport _ = False
 
+        getGlobalIndexes :: Module -> Ident -> [Natural]
+        getGlobalIndexes Module { imports, globals } id =
+            let globalImports = zip [0..] $ filter isGlobalImport imports in
+            let importIndexes = map fst $ filter (\(_, Import { desc = ImportGlobal ident _ }) -> ident == Just id) globalImports in
+            let isIdent (_, Global { ident }) = ident == Just id in
+            let globalIndexes = map fst $ filter isIdent $ zip [length globalImports..] globals in
+            map fromIntegral $ importIndexes ++ globalIndexes
+
         getGlobalIndex :: Module -> GlobalIndex -> Maybe Natural
-        getGlobalIndex Module { imports, globals } (Named id) =
-            let globalImports = filter isGlobalImport imports in
-            case findIndex (\(Import { desc = ImportGlobal ident _ }) -> ident == Just id) globalImports of
-                Just idx -> return $ fromIntegral idx
-                Nothing ->
-                    let isIdent (Global { ident }) = ident == Just id in
-                    fromIntegral . (+ length globalImports) <$> findIndex isIdent globals
+        getGlobalIndex mod@Module { imports, globals } (Named id) =
+            case getGlobalIndexes mod id of
+                [idx] -> return idx
+                _ -> Nothing
         getGlobalIndex Module { imports, globals } (Index idx) = Just idx
 
         -- elem segment
