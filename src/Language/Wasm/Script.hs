@@ -219,7 +219,7 @@ runScript onAssertFail script = do
                     if failureString `elem` getFailureString reason
                     then return ()
                     else
-                        let msg = pos ++ ": Module is invalid for other reason. Expected "
+                        let msg = "Module is invalid for other reason. Expected "
                                 ++ show failureString
                                 ++ ", but actual is "
                                 ++ show (getFailureString reason)
