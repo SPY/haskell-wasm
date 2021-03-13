@@ -8,6 +8,8 @@ import qualified Data.Map as Map
 import qualified Data.Vector as Vector
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TLEncoding
+import qualified Control.Monad.State as State
+import Control.Monad.IO.Class (liftIO)
 import Numeric.IEEE (identicalIEEE)
 import qualified Control.DeepSeq as DeepSeq
 import Data.Maybe (fromJust, isNothing)
@@ -44,6 +46,8 @@ emptyState = ScriptState {
     modules = Map.empty,
     moduleRegistery = Map.empty
 }
+
+type AssertM = State.StateT (ScriptState, String) IO
 
 runScript :: OnAssertFail -> Script -> IO ()
 runScript onAssertFail script = do
@@ -103,9 +107,9 @@ runScript onAssertFail script = do
         addModule ident m st =
             case Validate.validate m of
                 Right m -> do
-                    res <- Interpreter.instantiate (store st) (buildImports st) m
+                    (res, store') <- Interpreter.instantiate (store st) (buildImports st) m
                     case res of
-                        Right (modInst, store') -> return $ addToStore ident modInst $ st { lastModule = Just modInst, store = store' }
+                        Right modInst -> return $ addToStore ident modInst $ st { lastModule = Just modInst, store = store' }
                         Left reason -> error $ "Module instantiation failed due to invalid module with reason: " ++ show reason
                 Left reason -> error $ "Module instantiation failed due to invalid module with reason: " ++ show reason
         
@@ -137,19 +141,19 @@ runScript onAssertFail script = do
         isValueEqual (Interpreter.VF64 v1) (Interpreter.VF64 v2) = identicalIEEE v1 v2
         isValueEqual _ _ = False
 
-        isNaNReturned :: ScriptState -> String -> Action -> Assertion -> IO ()
-        isNaNReturned st pos action assert = do
-            result <- runAction st action
+        isNaNReturned :: Action -> Assertion -> AssertM ()
+        isNaNReturned action assert = do
+            result <- runActionInAssert action
             case result of
                 Just [Interpreter.VF32 v] ->
                     if isNaN v
                     then return ()
-                    else onAssertFail (pos ++ ": Expected NaN, but action returned " ++ show v) assert
+                    else printFailedAssert ("Expected NaN, but action returned " ++ show v) assert
                 Just [Interpreter.VF64 v] ->
                     if isNaN v
                     then return ()
-                    else onAssertFail (pos ++ ": Expected NaN, but action returned " ++ show v) assert
-                _ -> onAssertFail (pos ++ ": Expected NaN, but action returned " ++ show result) assert
+                    else printFailedAssert ("Expected NaN, but action returned " ++ show v) assert
+                _ -> printFailedAssert ("Expected NaN, but action returned " ++ show result) assert
         
         buildModule :: ModuleDef -> (Maybe Ident, Struct.Module)
         buildModule (RawModDef ident m) = (ident, m)
@@ -185,67 +189,81 @@ runScript onAssertFail script = do
         getFailureString Validate.InvalidStartFunctionType = ["start function"]
         getFailureString r = [TL.concat ["not implemented ", (TL.pack $ show r)]]
 
-        runAssert :: ScriptState -> String -> Assertion -> IO ()
-        runAssert st pos assert@(AssertReturn action expected) = do
-            result <- runAction st action
+        printFailedAssert :: String -> Assertion -> AssertM ()
+        printFailedAssert msg assert = do
+            (_, pos) <- State.get
+            liftIO $ onAssertFail (pos ++ ": " ++ msg) assert
+
+        runActionInAssert :: Action -> AssertM (Maybe [Interpreter.Value])
+        runActionInAssert action = do
+            (st, _) <- State.get
+            liftIO $ runAction st action
+
+        runAssert :: Assertion -> AssertM ()
+        runAssert assert@(AssertReturn action expected) = do
+            (st, _) <- State.get
+            result <- runActionInAssert action
             case result of
                 Just result -> do
                     if length result == length expected && (all id $ zipWith isValueEqual result (map asArg expected))
                     then return ()
-                    else onAssertFail (pos ++ ": Expected " ++ show (map asArg expected) ++ ", but action returned " ++ show result) assert
-                Nothing -> onAssertFail (pos ++ ": Expected " ++ show (map asArg expected) ++ ", but action returned Trap") assert
-        runAssert st pos assert@(AssertReturnCanonicalNaN action) = isNaNReturned st pos action assert
-        runAssert st pos assert@(AssertReturnArithmeticNaN action) = isNaNReturned st pos action assert
-        runAssert st pos assert@(AssertInvalid moduleDef failureString) =
+                    else printFailedAssert ("Expected " ++ show (map asArg expected) ++ ", but action returned " ++ show result) assert
+                Nothing -> printFailedAssert ("Expected " ++ show (map asArg expected) ++ ", but action returned Trap") assert
+        runAssert assert@(AssertReturnCanonicalNaN action) = isNaNReturned action assert
+        runAssert assert@(AssertReturnArithmeticNaN action) = isNaNReturned action assert
+        runAssert assert@(AssertInvalid moduleDef failureString) =
             let (_, m) = buildModule moduleDef in
             case Validate.validate m of
-                Right _ -> onAssertFail (pos ++ ": An invalid module passed validation step") assert
+                Right _ -> printFailedAssert "An invalid module passed validation step" assert
                 Left reason ->
                     if failureString `elem` getFailureString reason
                     then return ()
                     else
-                        let msg = pos ++ ": Module is invalid for other reason. Expected "
+                        let msg = "Module is invalid for other reason. Expected "
                                 ++ show failureString
                                 ++ ", but actual is "
                                 ++ show (getFailureString reason)
-                        in onAssertFail msg assert
-        runAssert st pos assert@(AssertMalformed (TextModDef _ textRep) failureString) =
+                        in printFailedAssert msg assert
+        runAssert assert@(AssertMalformed (TextModDef _ textRep) failureString) =
             case DeepSeq.force $ Lexer.scanner (TLEncoding.encodeUtf8 textRep) >>= Parser.parseModule of
-                Right _ -> onAssertFail (pos ++ ": Module parsing should fail with failure string " ++ show failureString) assert
+                Right _ -> printFailedAssert ("Module parsing should fail with failure string " ++ show failureString) assert
                 Left _ -> return ()
-        runAssert st pos assert@(AssertMalformed (BinaryModDef ident binaryRep) failureString) =
+        runAssert assert@(AssertMalformed (BinaryModDef ident binaryRep) failureString) =
             case Binary.decodeModuleLazy binaryRep of
-                Right _ -> onAssertFail (pos ++ ": Module decoding should fail with failure string " ++ show failureString) assert
+                Right _ -> printFailedAssert ("Module decoding should fail with failure string " ++ show failureString) assert
                 Left _ -> return ()
-        runAssert st _ assert@(AssertMalformed (RawModDef _ _) failureString) = return ()
-        runAssert st pos assert@(AssertUnlinkable moduleDef failureString) =
+        runAssert assert@(AssertMalformed (RawModDef _ _) failureString) = return ()
+        runAssert assert@(AssertUnlinkable moduleDef failureString) =
             let (_, m) = buildModule moduleDef in
             case Validate.validate m of
                 Right m -> do
-                    res <- Interpreter.instantiate (store st) (buildImports st) m
+                    st <- fst <$> State.get
+                    (res, _) <- liftIO $ Interpreter.instantiate (store st) (buildImports st) m
                     case res of
                         Left err -> return ()
-                        Right _ -> onAssertFail (pos ++ ": Module linking should fail with failure string " ++ show failureString) assert
-                Left reason -> error $ pos ++ ": Module linking failed due to invalid module with reason: " ++ show reason
-        runAssert st pos assert@(AssertTrap (Left action) failureString) = do
-            result <- runAction st action
+                        Right _ -> printFailedAssert ("Module linking should fail with failure string " ++ show failureString) assert
+                Left reason -> error $ "Module linking failed due to invalid module with reason: " ++ show reason
+        runAssert assert@(AssertTrap (Left action) failureString) = do
+            result <- runActionInAssert action
             if isNothing result
             then return ()
-            else onAssertFail (pos ++ ":Expected trap, but action returned " ++ show (fromJust result)) assert
-        runAssert st pos assert@(AssertTrap (Right moduleDef) failureString) =
+            else printFailedAssert ("Expected trap, but action returned " ++ show (fromJust result)) assert
+        runAssert assert@(AssertTrap (Right moduleDef) failureString) =
             let (_, m) = buildModule moduleDef in
             case Validate.validate m of
                 Right m -> do
-                    res <- Interpreter.instantiate (store st) (buildImports st) m
+                    st <- fst <$> State.get
+                    (res, store') <- liftIO $ Interpreter.instantiate (store st) (buildImports st) m
                     case res of
-                        Left "Start function terminated with trap" -> return ()
-                        _ -> onAssertFail (pos ++ ": Module linking should fail with trap during execution of a start function") assert
-                Left reason -> error $ pos ++ ": Module linking failed due to invalid module with reason: " ++ show reason
-        runAssert st pos assert@(AssertExhaustion action failureString) = do
-            result <- runAction st action
+                        Left "Start function terminated with trap" ->
+                            State.modify $ \(st, pos) -> (st { store = store' }, pos)
+                        _ -> printFailedAssert ("Module linking should fail with trap during execution of a start function") assert
+                Left reason -> error $ "Module linking failed due to invalid module with reason: " ++ show reason
+        runAssert assert@(AssertExhaustion action failureString) = do
+            result <- runActionInAssert action
             if isNothing result
             then return ()
-            else onAssertFail (pos ++ ": Expected exhaustion, but action returned " ++ show (fromJust result)) assert
+            else printFailedAssert ("Expected exhaustion, but action returned " ++ show (fromJust result)) assert
 
         runCommand :: ScriptState -> Command -> IO ScriptState
         runCommand st (ModuleDef moduleDef) =
@@ -253,5 +271,6 @@ runScript onAssertFail script = do
             addModule ident m st
         runCommand st (Register name i) = return $ addToRegistery name i st
         runCommand st (Action action) = runAction st action >> return st
-        runCommand st (Assertion pos assertion) = runAssert st ("Line " ++ show pos) assertion >> return st
+        runCommand st (Assertion pos assertion) = do
+            fst <$> flip State.execStateT (st, ("Line " ++ show pos)) (runAssert assertion)
         runCommand st _ = return st
