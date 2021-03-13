@@ -1501,6 +1501,7 @@ constInstructionToValue _ = error "Only const instructions supported as argument
 desugarize :: [ModuleField] -> Either String S.Module
 desugarize fields = do
     checkImportsOrder fields
+    checkStartCount fields
     let mod = Module {
         types = reverse $ foldl' extractTypeDef (reverse $ explicitTypeDefs fields) fields,
         functions = extract extractFunction fields,
@@ -1562,6 +1563,15 @@ desugarize fields = do
                 checkDef _ (MFMem _) = return True
                 checkDef _ (MFTable _) = return True
                 checkDef nonImportOccured _ = return nonImportOccured
+        
+        checkStartCount :: [ModuleField] -> Either String ()
+        checkStartCount fields = foldM checkDef False fields >> return ()
+            where
+                checkDef startOccured (MFStart _) =
+                    if startOccured
+                    then Left "Multiple start sections"
+                    else Right True
+                checkDef startOccured _ = return startOccured
 
         extractTypeDef :: [TypeDef] -> ModuleField -> [TypeDef]
         extractTypeDef defs (MFType _) = defs -- should be extracted before implicit defs
