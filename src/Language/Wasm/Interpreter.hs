@@ -53,6 +53,7 @@ import Data.Bits (
     )
 import Numeric.IEEE (IEEE, copySign, minNum, maxNum, identicalIEEE)
 import Control.Monad.Except (ExceptT, runExceptT, throwError)
+import qualified Control.Monad.State as State
 import Control.Monad.IO.Class (liftIO)
 
 import Language.Wasm.Structure as Struct
@@ -468,25 +469,27 @@ allocMems mems = Vector.fromList <$> mapM allocMem mems
                 memory
             }
 
-type Initialize = ExceptT String IO
+type Initialize = ExceptT String (State.StateT Store IO)
 
-initialize :: ModuleInstance -> Module -> Store -> Initialize Store
-initialize inst Module {elems, datas, start} store = do
-    checkedMems <- mapM (checkData store) datas
-    checkedTables <- mapM (checkElem store) elems
+initialize :: ModuleInstance -> Module -> Initialize ()
+initialize inst Module {elems, datas, start} = do
+    checkedMems <- mapM checkData datas
+    checkedTables <- mapM checkElem elems
     mapM_ initData checkedMems
-    st <- Monad.foldM initElem store checkedTables
+    mapM_ initElem checkedTables
+    st <- State.get
     case start of
         Just (StartFunction idx) -> do
-            let funInst = funcInstances store ! (funcaddrs inst ! fromIntegral idx)
+            let funInst = funcInstances st ! (funcaddrs inst ! fromIntegral idx)
             mainRes <- liftIO $ eval defaultBudget st funInst []
             case mainRes of
-                Just [] -> return st
+                Just [] -> return ()
                 _ -> throwError "Start function terminated with trap"
-        Nothing -> return st
+        Nothing -> return ()
     where
-        checkElem :: Store -> ElemSegment -> Initialize (Address, Int, [Address])
-        checkElem st ElemSegment {tableIndex, offset, funcIndexes} = do
+        checkElem :: ElemSegment -> Initialize (Address, Int, [Address])
+        checkElem ElemSegment {tableIndex, offset, funcIndexes} = do
+            st <- State.get
             VI32 val <- liftIO $ evalConstExpr inst st offset
             let from = fromIntegral val
             let funcs = map ((funcaddrs inst !) . fromIntegral) funcIndexes
@@ -497,14 +500,15 @@ initialize inst Module {elems, datas, start} store = do
             Monad.when (last > len) $ throwError "elements segment does not fit"
             return (idx, from, funcs)
 
-        initElem :: Store -> (Address, Int, [Address]) -> Initialize Store
-        initElem st (idx, from, funcs) = do
-            let TableInstance lim elems = tableInstances st ! idx
-            let table = TableInstance lim (elems // zip [from..] (map Just funcs))
-            return st { tableInstances = tableInstances st Vector.// [(idx, table)] }
+        initElem :: (Address, Int, [Address]) -> Initialize ()
+        initElem (idx, from, funcs) = State.modify $ \st ->
+            let TableInstance lim elems = tableInstances st ! idx in
+            let table = TableInstance lim (elems // zip [from..] (map Just funcs)) in
+            st { tableInstances = tableInstances st Vector.// [(idx, table)] }
 
-        checkData :: Store -> DataSegment -> Initialize (Int, MemoryStore, LBS.ByteString)
-        checkData st DataSegment {memIndex, offset, chunk} = do
+        checkData :: DataSegment -> Initialize (Int, MemoryStore, LBS.ByteString)
+        checkData DataSegment {memIndex, offset, chunk} = do
+            st <- State.get
             VI32 val <- liftIO $ evalConstExpr inst st offset
             let from = fromIntegral val
             let idx = memaddrs inst ! fromIntegral memIndex
@@ -519,21 +523,22 @@ initialize inst Module {elems, datas, start} store = do
         initData (from, mem, chunk) =
             mapM_ (\(i,b) -> ByteArray.writeByteArray mem i b) $ zip [from..] $ LBS.unpack chunk
 
-instantiate :: Store -> Imports -> Valid.ValidModule -> IO (Either String (ModuleInstance, Store))
-instantiate st imps mod = runExceptT $ do
+instantiate :: Store -> Imports -> Valid.ValidModule -> IO (Either String ModuleInstance, Store)
+instantiate st imps mod = flip State.runStateT st $ runExceptT $ do
     let m = Valid.getModule mod
     inst <- calcInstance st imps m
     let functions = funcInstances st <> (allocFunctions inst $ Struct.functions m)
     globals <- liftIO $ (globalInstances st <>) <$> (allocAndInitGlobals inst st $ Struct.globals m)
     let tables = tableInstances st <> (allocTables $ Struct.tables m)
     mems <- liftIO $ (memInstances st <>) <$> (allocMems $ Struct.mems m)
-    st' <- initialize inst m $ st {
+    State.put $ st {
         funcInstances = functions,
         tableInstances = tables,
         memInstances = mems,
         globalInstances = globals
     }
-    return $ (inst, st')
+    initialize inst m
+    return inst
 
 type Stack = [Value]
 
