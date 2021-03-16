@@ -635,7 +635,11 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
         step :: EvalCtx -> Instruction Natural -> IO EvalResult
         step _ Unreachable = return Trap
         step ctx Nop = return $ Done ctx
-        step ctx (Block resType expr) = do
+        step ctx (Block blockType expr) = do
+            let resType = case blockType of
+                    Inline Nothing -> []
+                    Inline (Just valType) -> [valType]
+                    TypeIndex typeIdx -> results $ funcTypes moduleInstance ! fromIntegral typeIdx
             res <- go ctx { labels = Label resType : labels ctx } expr
             case res of
                 Break 0 r EvalCtx{ locals = ls } -> return $ Done ctx { locals = ls, stack = r ++ stack ctx }

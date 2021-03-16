@@ -41,7 +41,7 @@ module Language.Wasm.Builder (
     memorySize, growMemory,
     nop, Language.Wasm.Builder.drop, select,
     call, callIndirect, finish, br, brIf, brTable,
-    if', loop, block, when, for, while,
+    if', loop, {-block,-} when, for, while,
     trap, unreachable,
     appendExpr, after,
     Producer, OutType, produce, Consumer, (.=)
@@ -727,11 +727,11 @@ loop res body = do
     appendExpr [Loop (asResultValue res) (genExpr deep $ body)]
     return returnableValue
 
-block :: (Returnable res) => res -> GenFun res -> GenFun res
-block res body = do
-    deep <- (+1) <$> ask
-    appendExpr [Block (asResultValue res) (genExpr deep $ body)]
-    return returnableValue
+-- block :: (Returnable res) => res -> GenFun res -> GenFun res
+-- block res body = do
+--     deep <- (+1) <$> ask
+--     appendExpr [Block (asResultValue res) (genExpr deep $ body)]
+--     return returnableValue
 
 trap :: Proxy t -> GenFun (Proxy t)
 trap t = do

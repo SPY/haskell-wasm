@@ -30,6 +30,7 @@ module Language.Wasm.Structure (
     GlobalType(..),
     FuncType(..),
     ValueType(..),
+    BlockType(..),
     ParamsType,
     ResultType,
     LocalsType,
@@ -115,11 +116,16 @@ type LocalsType = [ValueType]
 
 data FuncType = FuncType { params :: ParamsType, results :: ResultType } deriving (Show, Eq, Generic, NFData)
 
+data BlockType =
+    Inline (Maybe ValueType)
+    | TypeIndex TypeIndex
+    deriving (Show, Eq, Generic, NFData)
+
 data Instruction index =
     -- Control instructions
     Unreachable
     | Nop
-    | Block { resultType :: ResultType, body :: Expression }
+    | Block { blockType :: BlockType, body :: Expression }
     | Loop { resultType :: ResultType, body :: Expression }
     | If { resultType :: ResultType, true :: Expression, false :: Expression }
     | Br index

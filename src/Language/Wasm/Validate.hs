@@ -183,15 +183,30 @@ checkMemoryInstr size memarg = do
     Ctx { mems } <- ask 
     if length mems < 1 then throwError (MemoryIndexOutOfRange 0) else return ()
 
+getBlockType :: BlockType -> Checker Arrow
+getBlockType (Inline Nothing) = return $ empty ==> empty
+getBlockType (Inline (Just valType)) = return $ empty ==> valType
+getBlockType (TypeIndex typeIdx) = do
+    Ctx { types } <- ask
+    maybeToEither TypeIndexOutOfRange $ asArrow <$> types !? typeIdx
+
+getResultType :: BlockType -> Checker [ValueType]
+getResultType (Inline Nothing) = return []
+getResultType (Inline (Just valType)) = return [valType]
+getResultType (TypeIndex typeIdx) = do
+    Ctx { types } <- ask
+    maybeToEither TypeIndexOutOfRange $ results <$> types !? typeIdx
+
 getInstrType :: Instruction Natural -> Checker Arrow
 getInstrType Unreachable = return $ Any ==> Any
 getInstrType Nop = return $ empty ==> empty
-getInstrType Block { resultType, body } = do
-    let blockType = empty ==> resultType
+getInstrType Block { blockType, body } = do
+    bt <- getBlockType blockType
+    resultType <- getResultType blockType
     t <- withLabel resultType $ getExpressionType body
-    if isArrowMatch t blockType
-    then return $ empty ==> resultType
-    else throwError $ TypeMismatch t blockType
+    if isArrowMatch t bt
+    then return bt
+    else throwError $ TypeMismatch t bt
 getInstrType Loop { resultType, body } = do
     let blockType = empty ==> resultType
     t <- withLabel [] $ getExpressionType body
