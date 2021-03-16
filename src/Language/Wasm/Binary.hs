@@ -167,6 +167,29 @@ getResultType = do
         0x7C -> return [F64]
         _ -> fail "unexpected byte in result type position"
 
+putBlockType :: BlockType -> Put
+putBlockType (Inline Nothing) = putWord8 0x40
+putBlockType (Inline (Just valType)) = put valType
+putBlockType (TypeIndex idx) = putSLEB128 idx
+
+getInlineBlockType :: Get (Maybe (Maybe ValueType))
+getInlineBlockType = do
+    op <- getWord8
+    case op of
+        0x40 -> return $ Just Nothing
+        0x7F -> return $ Just (Just I32)
+        0x7E -> return $ Just (Just I64)
+        0x7D -> return $ Just (Just F32)
+        0x7C -> return $ Just (Just F64)
+        _ -> return Nothing
+
+getBlockType :: Get BlockType
+getBlockType = do
+    inlineType <- lookAheadM getInlineBlockType
+    case inlineType of
+        Just inline -> return $ Inline inline
+        Nothing -> TypeIndex <$> getSLEB128 33
+
 data SectionType =
     CustomSection
     | TypeSection
@@ -304,9 +327,9 @@ instance Serialize MemArg where
 instance Serialize (Instruction Natural) where
     put Unreachable = putWord8 0x00
     put Nop = putWord8 0x01
-    put (Block result body) = do
+    put (Block blockType body) = do
         putWord8 0x02
-        putResultType result
+        putBlockType blockType
         putExpression body
     put (Loop result body) = do
         putWord8 0x03
@@ -504,7 +527,7 @@ instance Serialize (Instruction Natural) where
         case op of
             0x00 -> return Unreachable
             0x01 -> return Nop
-            0x02 -> Block <$> getResultType <*> getExpression
+            0x02 -> Block <$> getBlockType <*> getExpression
             0x03 -> Loop <$> getResultType <*> getExpression
             0x04 -> do
                 resultType <- getResultType
