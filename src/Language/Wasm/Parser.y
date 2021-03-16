@@ -576,7 +576,7 @@ plaininstr :: { PlainInstr }
 
 typeuse :: { TypeUse }
     : '(' typeuse1 { $2 }
-    | {- empty -} { AnonimousTypeUse $ FuncType [] [] }
+    | {- empty -} { emptyTypeUse }
 
 typeuse1 :: { TypeUse }
     : 'type' index ')' typedtypeuse { IndexedTypeUse $2 $4 }
@@ -644,28 +644,28 @@ raw_block :: { Maybe Ident -> Either String Instruction }
     : 'end' opt(ident) {
         \ident ->
             if ident == $2 || isNothing $2
-            then Right $ BlockInstr ident [] []
+            then Right $ BlockInstr ident emptyTypeUse []
             else Left "Block labels have to match"
     }
     | raw_instr list(instruction) 'end' opt(ident) {
         \ident ->
             if ident == $4 || isNothing $4
-            then Right $ BlockInstr ident [] ($1 ++ concat $2)
+            then Right $ BlockInstr ident emptyTypeUse ($1 ++ concat $2)
             else Left "Block labels have to match"
     }
     | '(' raw_block1 { $2 }
 
 raw_block1 :: { Maybe Ident -> Either String Instruction }
-    : 'result' list(valtype) ')' list(instruction) 'end' opt(ident) {
+    : typeuse1 list(instruction) 'end' opt(ident) {
         \ident ->
-            if ident == $6 || isNothing $6
-            then Right $ BlockInstr ident $2 (concat $4)
+            if ident == $4 || isNothing $4
+            then Right $ BlockInstr ident $1 (concat $2)
             else Left "Block labels have to match"
     }
     | folded_instr1 list(instruction) 'end' opt(ident) {
         \ident ->
             if ident == $4 || isNothing $4
-            then Right $ BlockInstr ident [] ($1 ++ concat $2)
+            then Right $ BlockInstr ident emptyTypeUse ($1 ++ concat $2)
             else Left "Block labels have to match"
     }
 
@@ -737,7 +737,7 @@ raw_else :: { ([Instruction], Maybe Ident) }
 
 raw_call_indirect :: { [Instruction] }
     : '(' raw_call_indirect_typeuse { (PlainInstr $ CallIndirect $ fst $2) : snd $2 }
-    | {- empty -} { [PlainInstr $ CallIndirect $ AnonimousTypeUse $ FuncType [] []] }
+    | {- empty -} { [PlainInstr $ CallIndirect emptyTypeUse] }
 
 raw_call_indirect_typeuse :: { (TypeUse, [Instruction]) }
     : 'type' index ')' raw_call_indirect_functype {
@@ -780,13 +780,13 @@ folded_instr1 :: { [Instruction] }
     | 'if' opt(ident) '(' folded_if_result { $4 $2 }
 
 folded_block :: { Maybe Ident -> Instruction }
-    : ')' { \ident -> BlockInstr ident [] [] }
+    : ')' { \ident -> BlockInstr ident emptyTypeUse [] }
     | '(' folded_block1 { $2 }
-    | raw_instr list(instruction) ')' { \ident -> BlockInstr ident [] ($1 ++ concat $2) }
+    | raw_instr list(instruction) ')' { \ident -> BlockInstr ident emptyTypeUse ($1 ++ concat $2) }
 
 folded_block1 :: { Maybe Ident -> Instruction }
-    : 'result' list(valtype) ')' list(instruction) ')' { \ident -> BlockInstr ident $2 (concat $4) }
-    | folded_instr1 list(instruction) ')' { \ident -> BlockInstr ident [] ($1 ++ concat $2) }
+    : typeuse1 list(instruction) ')' { \ident -> BlockInstr ident $1 (concat $2) }
+    | folded_instr1 list(instruction) ')' { \ident -> BlockInstr ident emptyTypeUse ($1 ++ concat $2) }
 
 folded_loop :: { Maybe Ident -> Instruction }
     : ')' { \ident -> LoopInstr ident [] [] }
@@ -821,7 +821,7 @@ folded_else :: { [Instruction] }
     | '(' 'else' list(instruction) ')' ')' { concat $3 }
 
 folded_call_indirect :: { [Instruction] }
-    : ')' { [PlainInstr $ CallIndirect $ AnonimousTypeUse $ FuncType [] []] }
+    : ')' { [PlainInstr $ CallIndirect emptyTypeUse] }
     | '(' folded_call_indirect_typeuse { snd $2 ++ [PlainInstr $ CallIndirect $ fst $2] }
 
 folded_call_indirect_typeuse :: { (TypeUse, [Instruction]) }
@@ -1308,11 +1308,13 @@ data TypeUse =
     | AnonimousTypeUse FuncType
     deriving (Show, Eq, Generic, NFData)
 
+emptyTypeUse = AnonimousTypeUse emptyFuncType
+
 data Instruction =
     PlainInstr PlainInstr
     | BlockInstr {
         label :: Maybe Ident,
-        resultType :: [ValueType],
+        blockType :: TypeUse,
         body :: [Instruction]
     }
     | LoopInstr {
@@ -1593,8 +1595,8 @@ desugarize fields = do
         extractTypeDefFromInstruction :: [TypeDef] -> Instruction -> [TypeDef]
         extractTypeDefFromInstruction defs (PlainInstr (CallIndirect typeUse)) =
             matchTypeUse defs typeUse
-        extractTypeDefFromInstruction defs (BlockInstr { body }) =
-            extractTypeDefFromInstructions defs body
+        extractTypeDefFromInstruction defs (BlockInstr { body, blockType }) =
+            extractTypeDefFromInstructions (matchTypeUse defs blockType) body
         extractTypeDefFromInstruction defs (LoopInstr { body }) =
             extractTypeDefFromInstructions defs body
         extractTypeDefFromInstruction defs (IfInstr { trueBranch, falseBranch }) =
@@ -1742,9 +1744,15 @@ desugarize fields = do
         synInstrToStruct _ (PlainInstr F64PromoteF32) = return $ S.F64PromoteF32
         synInstrToStruct _ (PlainInstr (IReinterpretF sz)) = return $ S.IReinterpretF sz
         synInstrToStruct _ (PlainInstr (FReinterpretI sz)) = return $ S.FReinterpretI sz
-        synInstrToStruct ctx BlockInstr {label, resultType, body} =
-            let ctx' = ctx { ctxLabels = label : ctxLabels ctx } in
-            S.Block resultType <$> mapM (synInstrToStruct ctx') body
+        synInstrToStruct ctx@FunCtx { ctxMod = Module { types } } BlockInstr {label, blockType, body} = do
+            let ctx' = ctx { ctxLabels = label : ctxLabels ctx }
+            bt <- case blockType of
+                AnonimousTypeUse (FuncType [] []) -> return $ S.Inline Nothing
+                AnonimousTypeUse (FuncType [] [vt]) -> return $ S.Inline (Just vt)
+                typed -> case getTypeIndex types typed of
+                    Just idx -> return $ S.TypeIndex idx
+                    Nothing -> Left "unknown type"
+            S.Block bt <$> mapM (synInstrToStruct ctx') body
         synInstrToStruct ctx LoopInstr {label, resultType, body} =
             let ctx' = ctx { ctxLabels = label : ctxLabels ctx } in
             S.Loop resultType <$> mapM (synInstrToStruct ctx') body
