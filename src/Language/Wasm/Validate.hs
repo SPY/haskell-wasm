@@ -200,6 +200,20 @@ getResultType (TypeIndex typeIdx) = do
 =======
 >>>>>>> 40291c3 (more grammar fixes)
 
+getBlockType :: BlockType -> Checker Arrow
+getBlockType (Inline Nothing) = return $ empty ==> empty
+getBlockType (Inline (Just valType)) = return $ empty ==> valType
+getBlockType (TypeIndex typeIdx) = do
+    Ctx { types } <- ask
+    maybeToEither TypeIndexOutOfRange $ asArrow <$> types !? typeIdx
+
+getResultType :: BlockType -> Checker [ValueType]
+getResultType (Inline Nothing) = return []
+getResultType (Inline (Just valType)) = return [valType]
+getResultType (TypeIndex typeIdx) = do
+    Ctx { types } <- ask
+    maybeToEither TypeIndexOutOfRange $ results <$> types !? typeIdx
+
 getInstrType :: Instruction Natural -> Checker Arrow
 getInstrType Unreachable = return $ Any ==> Any
 getInstrType Nop = return $ empty ==> empty
