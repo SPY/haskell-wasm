@@ -16,7 +16,8 @@ module Language.Wasm (
     Assertion(..),
     Ident(..),
     Meta(..),
-    runScript
+    runScript,
+    Valid.getModule
 ) where
 
 import qualified Data.ByteString as BS
