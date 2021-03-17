@@ -574,6 +574,43 @@ plaininstr :: { PlainInstr }
     | 'f32.reinterpret_i32'          { FReinterpretI BS32 }
     | 'f64.reinterpret_i64'          { FReinterpretI BS64 }
 
+typeuse_cont(next)
+    : '(' typeuse1_cont(next) { $2 }
+    | {- empty -} { (emptyTypeUse, Nothing) }
+
+typeuse1_cont(next)
+    : 'type' index ')' typesign(next) { let (ft, next) = $4 in (IndexedTypeUse $2 (Just ft), next) }
+    | typesign1(next) {
+        let (ft, next) = $1 in
+        (AnonimousTypeUse ft, next)
+    }
+
+typesign(next)
+    : '(' typesign1(next) { $2 }
+    | {- empty -} { (emptyFuncType, Nothing) }
+
+typesign1(next)
+    : 'param' list(valtype) ')' typesign(next) {
+        let (ft, next) = $4 in
+        (mergeFuncType (FuncType (map (ParamType Nothing) $2) []) ft, next)
+    }
+    | 'param' ident valtype ')' typesign(next) {
+         let (ft, next) = $5 in
+        (mergeFuncType (FuncType [ParamType (Just $2) $3] []) ft, next)
+    }
+    | typesign_result1(next) { $1 }
+
+typesign_result(next)
+    : '(' typesign_result1(next) { $2 }
+    | {- empty -} { (emptyFuncType, Nothing) }
+
+typesign_result1(next)
+    : 'result' list(valtype) ')' typesign_result(next) {
+        let (ft, next) = $4 in
+        (mergeFuncType (FuncType [] $2) ft, next)
+    }
+    | next { (emptyFuncType, Just $1) }
+
 typeuse :: { TypeUse }
     : '(' typeuse1 { $2 }
     | {- empty -} { emptyTypeUse }
@@ -641,31 +678,12 @@ raw_instr :: { [Instruction] }
     | 'if' opt(ident) raw_if_result {% $3 $2 }
 
 raw_block :: { Maybe Ident -> Either String Instruction }
-    : 'end' opt(ident) {
-        \ident ->
-            if ident == $2 || isNothing $2
-            then Right $ BlockInstr ident emptyTypeUse []
-            else Left "Block labels have to match"
-    }
-    | raw_instr list(instruction) 'end' opt(ident) {
+    : typeuse_cont(folded_instr1) list(instruction) 'end' opt(ident) {
         \ident ->
             if ident == $4 || isNothing $4
-            then Right $ BlockInstr ident emptyTypeUse ($1 ++ concat $2)
-            else Left "Block labels have to match"
-    }
-    | '(' raw_block1 { $2 }
-
-raw_block1 :: { Maybe Ident -> Either String Instruction }
-    : typeuse1 list(instruction) 'end' opt(ident) {
-        \ident ->
-            if ident == $4 || isNothing $4
-            then Right $ BlockInstr ident $1 (concat $2)
-            else Left "Block labels have to match"
-    }
-    | folded_instr1 list(instruction) 'end' opt(ident) {
-        \ident ->
-            if ident == $4 || isNothing $4
-            then Right $ BlockInstr ident emptyTypeUse ($1 ++ concat $2)
+            then
+                let (tu, instr) = $1 in
+                Right $ BlockInstr ident tu (fromMaybe [] instr ++ concat $2)
             else Left "Block labels have to match"
     }
 
@@ -736,57 +754,26 @@ raw_else :: { ([Instruction], Maybe Ident) }
     }
 
 raw_call_indirect :: { [Instruction] }
-    : '(' raw_call_indirect_typeuse { (PlainInstr $ CallIndirect $ fst $2) : snd $2 }
-    | {- empty -} { [PlainInstr $ CallIndirect emptyTypeUse] }
-
-raw_call_indirect_typeuse :: { (TypeUse, [Instruction]) }
-    : 'type' index ')' raw_call_indirect_functype {
-        (IndexedTypeUse $2 $ fst $4, snd $4)
+    : typeuse_cont(folded_instr1) {
+        let (tu, instr) = $1 in
+        [PlainInstr $ CallIndirect tu] ++ fromMaybe [] instr
     }
-    | raw_call_indirect_functype1 {
-        (AnonimousTypeUse $ fromMaybe (FuncType [] []) $ fst $1, snd $1)
-    }
-
-raw_call_indirect_functype :: { (Maybe FuncType, [Instruction]) }
-    : '(' raw_call_indirect_functype1 { $2 }
-    | {- empty -} { (Nothing, []) }
-
-raw_call_indirect_functype1 :: { (Maybe FuncType, [Instruction]) }
-    : 'param' list(valtype) ')' raw_call_indirect_functype {
-        let ft = fromMaybe emptyFuncType $ fst $4 in
-        (Just $ ft { params = map (ParamType Nothing) $2 ++ params ft }, snd $4)
-    }
-    | raw_call_indirect_return_functype1 { $1 }
-
-raw_call_indirect_return_functype :: { (Maybe FuncType, [Instruction]) }
-    : '(' raw_call_indirect_return_functype1 { $2 }
-    | {- empty -} { (Nothing, []) }
-
-raw_call_indirect_return_functype1 :: { (Maybe FuncType, [Instruction]) }
-    : 'result' list(valtype) ')' raw_call_indirect_return_functype {
-        let ft = fromMaybe emptyFuncType $ fst $4 in
-        (Just $ ft { results = $2 ++ results ft }, snd $4)
-    }
-    | folded_instr1 { (Nothing, $1) }
 
 folded_instr :: { [Instruction] }
     : '(' folded_instr1 { $2 }
 
 folded_instr1 :: { [Instruction] }
     : plaininstr list(folded_instr) ')' { concat $2 ++ [PlainInstr $1] }
-    | 'call_indirect' folded_call_indirect { $2 }
-    | 'block' opt(ident) folded_block { [$3 $2] }
+    | 'call_indirect' typeuse_cont(folded_instr1) list(instruction) ')' {
+        let (tu, instr) = $2 in
+        [PlainInstr $ CallIndirect tu] ++ fromMaybe [] instr ++ concat $3
+    }
+    | 'block' opt(ident) typeuse_cont(folded_instr1) list(instruction) ')' {
+        let (typeUse, instr) = $3 in
+        [BlockInstr $2 typeUse (fromMaybe [] instr ++ concat $4)]
+    }
     | 'loop' opt(ident) folded_loop { [$3 $2] }
     | 'if' opt(ident) '(' folded_if_result { $4 $2 }
-
-folded_block :: { Maybe Ident -> Instruction }
-    : ')' { \ident -> BlockInstr ident emptyTypeUse [] }
-    | '(' folded_block1 { $2 }
-    | raw_instr list(instruction) ')' { \ident -> BlockInstr ident emptyTypeUse ($1 ++ concat $2) }
-
-folded_block1 :: { Maybe Ident -> Instruction }
-    : typeuse1 list(instruction) ')' { \ident -> BlockInstr ident $1 (concat $2) }
-    | folded_instr1 list(instruction) ')' { \ident -> BlockInstr ident emptyTypeUse ($1 ++ concat $2) }
 
 folded_loop :: { Maybe Ident -> Instruction }
     : ')' { \ident -> LoopInstr ident [] [] }
@@ -819,40 +806,6 @@ folded_then_else :: { ([Instruction], ([Instruction], [Instruction])) }
 folded_else :: { [Instruction] }
     : ')' { [] }
     | '(' 'else' list(instruction) ')' ')' { concat $3 }
-
-folded_call_indirect :: { [Instruction] }
-    : ')' { [PlainInstr $ CallIndirect emptyTypeUse] }
-    | '(' folded_call_indirect_typeuse { snd $2 ++ [PlainInstr $ CallIndirect $ fst $2] }
-
-folded_call_indirect_typeuse :: { (TypeUse, [Instruction]) }
-    : 'type' index ')' folded_call_indirect_functype {
-        (IndexedTypeUse $2 $ fst $4, snd $4)
-    }
-    | folded_call_indirect_functype1 {
-        (AnonimousTypeUse $ fromMaybe (FuncType [] []) $ fst $1, snd $1)
-    }
-
-folded_call_indirect_functype :: { (Maybe FuncType, [Instruction]) }
-    : '(' folded_call_indirect_functype1 { $2 }
-    | ')' { (Nothing, []) }
-
-folded_call_indirect_functype1 :: { (Maybe FuncType, [Instruction]) }
-    : 'param' list(valtype) ')' folded_call_indirect_functype {
-        let ft = fromMaybe emptyFuncType $ fst $4 in
-        (Just $ ft { params = map (ParamType Nothing) $2 ++ params ft }, snd $4)
-    }
-    | folded_call_indirect_return_functype1 { $1 }
-
-folded_call_indirect_return_functype :: { (Maybe FuncType, [Instruction]) }
-    : '(' folded_call_indirect_return_functype1 { $2 }
-    | ')' { (Nothing, []) }
-
-folded_call_indirect_return_functype1 :: { (Maybe FuncType, [Instruction]) }
-    : 'result' list(valtype) ')' folded_call_indirect_return_functype {
-        let ft = fromMaybe emptyFuncType $ fst $4 in
-        (Just $ ft { results = $2 ++ results ft }, snd $4)
-    }
-    | folded_instr1 list(folded_instr) ')' { (Nothing, $1 ++ concat $2) }
 
 importdesc :: { ImportDesc }
     : 'func' opt(ident) typeuse ')' { ImportFunc $2 $3 }
