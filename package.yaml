@@ -22,6 +22,7 @@ library:
   exposed-modules:
   - Language.Wasm.Script
   - Language.Wasm.Lexer
+  - Language.Wasm.Structure
   - Language.Wasm
   dependencies:
   - array                >= 0.5
