@@ -579,7 +579,11 @@ typeuse_cont(next)
     | {- empty -} { (emptyTypeUse, Nothing) }
 
 typeuse1_cont(next)
-    : 'type' index ')' typesign(next) { let (ft, next) = $4 in (IndexedTypeUse $2 (Just ft), next) }
+    : 'type' index ')' typesign(next) {
+        case $4 of
+            (FuncType [] [], next) -> (IndexedTypeUse $2 Nothing, next)
+            (ft, next) -> (IndexedTypeUse $2 (Just ft), next)
+    }
     | typesign1(next) {
         let (ft, next) = $1 in
         (AnonimousTypeUse ft, next)
@@ -611,48 +615,16 @@ typesign_result1(next)
     }
     | next { (emptyFuncType, Just $1) }
 
+never : EOF { () }
+
 typeuse :: { TypeUse }
-    : '(' typeuse1 { $2 }
-    | {- empty -} { emptyTypeUse }
-
-typeuse1 :: { TypeUse }
-    : 'type' index ')' typedtypeuse { IndexedTypeUse $2 $4 }
-    | paramsresultstypeuse { AnonimousTypeUse $1 }
-
-typedtypeuse :: { Maybe FuncType }
-    : '(' paramsresultstypeuse { Just $2 }
-    | {- empty -} { Nothing }
+    : typeuse_cont(never) { fst $1 }
 
 typedef :: { TypeDef }
     : 'type' opt(ident) functype ')' { TypeDef $2 $3 }
 
 functype :: { FuncType }
-    : '(' 'func' params_results { $3 }
-
-params_results :: { FuncType }
-    : ')' { emptyFuncType }
-    | '(' params_results1 { $2 }
-
-params_results1 :: { FuncType }
-    : 'param' list(valtype) ')' params_results { mergeFuncType (FuncType (map (ParamType Nothing) $2) []) $4 }
-    | 'param' ident valtype ')' params_results { mergeFuncType (FuncType [ParamType (Just $2) $3] []) $5 }
-    | results1 { $1 }
-
-results :: { FuncType }
-    : ')' { emptyFuncType }
-    | '(' results1 { $2 }
-
-results1 :: { FuncType }
-    : 'result' list(valtype) ')' results { mergeFuncType (FuncType [] $2) $4 }
-
-paramsresultstypeuse :: { FuncType }
-    : paramsresultstypeuse '(' paramsresulttypeuse { mergeFuncType $1 $3 }
-    | paramsresulttypeuse { $1 }
-
-paramsresulttypeuse :: { FuncType }
-    : 'param' list(valtype) ')' { FuncType (map (ParamType Nothing) $2) [] }
-    | 'param' ident valtype ')' { FuncType [ParamType (Just $2) $3] [] }
-    | 'result' list(valtype) ')' { FuncType [] $2 }
+    : '(' 'func' typesign(never) ')' { fst $3 }
 
 memarg1 :: { MemArg }
     : opt(offset) opt(align) {% parseMemArg 1 $1 $2 }
@@ -672,7 +644,10 @@ instruction :: { [Instruction] }
 
 raw_instr :: { [Instruction] }
     : plaininstr { [PlainInstr $1] }
-    | 'call_indirect' raw_call_indirect { $2 }
+    | 'call_indirect' typeuse_cont(folded_instr1) {
+        let (tu, instr) = $2 in
+        [PlainInstr $ CallIndirect tu] ++ fromMaybe [] instr
+    }
     | 'block' opt(ident) raw_block {% (: []) `fmap` $3 $2 }
     | 'loop' opt(ident) raw_loop {% (: []) `fmap` $3 $2 }
     | 'if' opt(ident) raw_if_result {% $3 $2 }
@@ -753,12 +728,6 @@ raw_else :: { ([Instruction], Maybe Ident) }
         else Left "If labels have to match"
     }
 
-raw_call_indirect :: { [Instruction] }
-    : typeuse_cont(folded_instr1) {
-        let (tu, instr) = $1 in
-        [PlainInstr $ CallIndirect tu] ++ fromMaybe [] instr
-    }
-
 folded_instr :: { [Instruction] }
     : '(' folded_instr1 { $2 }
 
@@ -766,7 +735,7 @@ folded_instr1 :: { [Instruction] }
     : plaininstr list(folded_instr) ')' { concat $2 ++ [PlainInstr $1] }
     | 'call_indirect' typeuse_cont(folded_instr1) list(instruction) ')' {
         let (tu, instr) = $2 in
-        [PlainInstr $ CallIndirect tu] ++ fromMaybe [] instr ++ concat $3
+        fromMaybe [] instr ++ concat $3 ++ [PlainInstr $ CallIndirect tu]
     }
     | 'block' opt(ident) typeuse_cont(folded_instr1) list(instruction) ')' {
         let (typeUse, instr) = $3 in
