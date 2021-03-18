@@ -471,17 +471,14 @@ ctxFromModule locals labels returns m@Module {types, tables, mems, globals, impo
 isFunctionValid :: Function -> Validator
 isFunctionValid Function {funcType, localTypes = locals, body} mod@Module {types} =
     if fromIntegral funcType < length types
-    then
-        let FuncType params results = types !! fromIntegral funcType in
-        if length results > 1
-        then Left InvalidResultArity
-        else do
-            let r = safeHead results
-            let ctx = ctxFromModule (params ++ locals) [r] r mod
-            arr <- runChecker ctx $ getExpressionType body
-            if isArrowMatch arr (empty ==> results)
-            then return ()
-            else Left $ TypeMismatch arr (empty ==> results)
+    then do
+        let FuncType params results = types !! fromIntegral funcType
+        let r = safeHead results
+        let ctx = ctxFromModule (params ++ locals) [r] r mod
+        arr <- runChecker ctx $ getExpressionType body
+        if isArrowMatch arr (empty ==> results)
+        then return ()
+        else Left $ TypeMismatch arr (empty ==> results)
     else Left TypeIndexOutOfRange
 
 functionsShouldBeValid :: Validator
@@ -633,12 +630,6 @@ importsShouldBeValid Module { imports, types } =
         isImportValid (Import _ _ (ImportMemory _)) = return () -- checked in mems section
         isImportValid (Import _ _ (ImportGlobal _)) = return ()
 
-typesShouldBeValid :: Validator
-typesShouldBeValid Module { types } = foldMap isTypeValid types
-    where
-        isTypeValid :: FuncType -> ValidationResult
-        isTypeValid FuncType { results } = if length results <= 1 then return () else Left InvalidResultArity
-
 newtype ValidModule = ValidModule { getModule :: Module } deriving (Show, Eq)
 
 validate :: Module -> Either ValidationError ValidModule
@@ -646,7 +637,6 @@ validate mod = const (ValidModule mod) <$> foldMap ($ mod) validators
     where
         validators :: [Validator]
         validators = [
-                typesShouldBeValid,
                 functionsShouldBeValid,
                 tablesShouldBeValid,
                 memoryShouldBeValid,
