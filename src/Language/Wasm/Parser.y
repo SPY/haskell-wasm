@@ -584,10 +584,7 @@ typeuse1_cont(next)
             (FuncType [] [], next) -> (IndexedTypeUse $2 Nothing, next)
             (ft, next) -> (IndexedTypeUse $2 (Just ft), next)
     }
-    | typesign1(next) {
-        let (ft, next) = $1 in
-        (AnonimousTypeUse ft, next)
-    }
+    | typesign1(next) { (AnonimousTypeUse $ fst $1, snd $1) }
 
 typesign(next)
     : '(' typesign1(next) { $2 }
@@ -648,19 +645,15 @@ raw_instr :: { [Instruction] }
         let (tu, instr) = $2 in
         [PlainInstr $ CallIndirect tu] ++ fromMaybe [] instr
     }
-    | 'block' opt(ident) raw_block {% (: []) `fmap` $3 $2 }
+    | 'block' opt(ident) typeuse_cont(folded_instr1_list) 'end' opt(ident) {%
+        if $2 == $5 || isNothing $5
+        then
+            let (tu, instr) = $3 in
+            Right $ [BlockInstr $2 tu (fromMaybe [] instr)]
+        else Left "Block labels have to match"
+    }
     | 'loop' opt(ident) raw_loop {% (: []) `fmap` $3 $2 }
     | 'if' opt(ident) raw_if_result {% $3 $2 }
-
-raw_block :: { Maybe Ident -> Either String Instruction }
-    : typeuse_cont(folded_instr1) list(instruction) 'end' opt(ident) {
-        \ident ->
-            if ident == $4 || isNothing $4
-            then
-                let (tu, instr) = $1 in
-                Right $ BlockInstr ident tu (fromMaybe [] instr ++ concat $2)
-            else Left "Block labels have to match"
-    }
 
 raw_loop :: { Maybe Ident -> Either String Instruction }
     : 'end' opt(ident) {
@@ -731,15 +724,19 @@ raw_else :: { ([Instruction], Maybe Ident) }
 folded_instr :: { [Instruction] }
     : '(' folded_instr1 { $2 }
 
+folded_instr1_list :: { [Instruction] }
+    : folded_instr1_list instruction { $1 ++ $2 }
+    | folded_instr1 { $1 }
+
 folded_instr1 :: { [Instruction] }
     : plaininstr list(folded_instr) ')' { concat $2 ++ [PlainInstr $1] }
-    | 'call_indirect' typeuse_cont(folded_instr1) list(instruction) ')' {
+    | 'call_indirect' typeuse_cont(folded_instr1_list) ')' {
         let (tu, instr) = $2 in
-        fromMaybe [] instr ++ concat $3 ++ [PlainInstr $ CallIndirect tu]
+        fromMaybe [] instr ++ [PlainInstr $ CallIndirect tu]
     }
-    | 'block' opt(ident) typeuse_cont(folded_instr1) list(instruction) ')' {
+    | 'block' opt(ident) typeuse_cont(folded_instr1_list) ')' {
         let (typeUse, instr) = $3 in
-        [BlockInstr $2 typeUse (fromMaybe [] instr ++ concat $4)]
+        [BlockInstr $2 typeUse (fromMaybe [] instr)]
     }
     | 'loop' opt(ident) folded_loop { [$3 $2] }
     | 'if' opt(ident) '(' folded_if_result { $4 $2 }
