@@ -1,0 +1,87 @@
+cabal-version:  2.2
+name:           wasm
+version:        1.0.1.0
+synopsis:       WebAssembly Language Toolkit and Interpreter
+description:
+  Library for parsing and interpreting WebAssembly, including:
+  * WebAssembly Text Representation Parser
+  * WebAssembly Binary Represetnation encoder and decoder
+  * Spec-compatible Module validator (checked with Spec Core Test Suite)
+  * Spec-compatible Interpreter (checked with Spec Core Test Suite)
+  * Extended scripting grammar parser and executor
+  * WebAssembly Module building eDSL
+author:         Ilya Rezvov
+maintainer:     rezvov.ilya@gmail.com
+license:        MIT
+license-file:   LICENSE
+build-type:     Simple
+category:       Language
+homepage:       https:github.com/SPY/haskell-wasm
+bug-reports:    https:github.com/SPY/haskell-wasm/issues
+tested-with:    GHC==8.6.5, GHC==8.8.4, GHC==8.10.4
+extra-source-files:
+    README.md
+    src/Language/Wasm/Parser.y
+    src/Language/Wasm/Lexer.x
+
+source-repository head
+  type: git
+  location: https://github.com/SPY/haskell-wasm
+    
+library
+  exposed-modules:
+      Language.Wasm.Script
+      Language.Wasm.Lexer
+      Language.Wasm.Structure
+      Language.Wasm
+  other-modules:
+      Language.Wasm.Binary
+      Language.Wasm.Builder
+      Language.Wasm.FloatUtils
+      Language.Wasm.Interpreter
+      Language.Wasm.Parser
+      Language.Wasm.Validate
+      Paths_wasm
+  autogen-modules:
+      Paths_wasm
+  hs-source-dirs: src
+  ghc-options: -Wwarn
+               -Wcompat
+               -Wpartial-fields
+               -Wincomplete-uni-patterns
+               -fwarn-incomplete-patterns
+               -fwarn-unused-imports
+  build-tool-depends:
+      alex:alex >=3.1.3 && < 3.3
+    , happy:happy >=1.9.4 && < 1.21
+  build-depends:
+      array >=0.5 && < 0.6
+    , base >=4.6 && < 5
+    , bytestring >=0.10 && < 0.12
+    , cereal >=0.5 && < 0.6
+    , containers >=0.5 && < 0.7
+    , deepseq >=1.4 && < 1.5
+    , ieee754 >=0.8 && < 0.9
+    , mtl >=2.2.1 && < 2.3
+    , primitive >=0.7 && < 0.8
+    , text >=1.1 && < 1.3
+    , transformers >=0.4 && < 0.6
+    , utf8-string >=1.0 && < 1.1
+    , vector >=0.12 && < 0.13
+  default-language: Haskell2010
+
+test-suite test
+  type: exitcode-stdio-1.0
+  main-is: Test.hs
+  hs-source-dirs: tests
+  build-depends:
+      base
+    , bytestring
+    , directory >=1.3
+    , filepath >=1.3
+    , mtl
+    , tasty >=0.7
+    , tasty-hunit >=0.4.1
+    , text
+    , wasm
+  default-language: Haskell2010
