@@ -576,44 +576,44 @@ plaininstr :: { PlainInstr }
 
 typeuse_cont(close, next)
     : '(' typeuse1_cont(close, next) { $2 }
-    | next { (emptyTypeUse, Nothing, $1) }
+    | next { (emptyTypeUse, Left $1) }
 
 typeuse1_cont(close, next)
     : 'type' index ')' typesign(close, next) {
         case $4 of
-            (FuncType [] [], close, next) -> (IndexedTypeUse $2 Nothing, close, next)
-            (ft, close, next) -> (IndexedTypeUse $2 (Just ft), close, next)
+            (FuncType [] [], rest) -> (IndexedTypeUse $2 Nothing, rest)
+            (ft, rest) -> (IndexedTypeUse $2 (Just ft), rest)
     }
     | typesign1(close, next) {
-        let (fnType, close, next) = $1 in
-        (AnonimousTypeUse fnType, close, next)
+        let (fnType, rest) = $1 in
+        (AnonimousTypeUse fnType, rest)
     }
 
 typesign(close, next)
     : '(' typesign1(close, next) { $2 }
-    | next { (emptyFuncType, Nothing, $1) }
+    | next { (emptyFuncType, Left $1) }
 
 typesign1(close, next)
     : 'param' list(valtype) ')' typesign(close, next) {
-        let (ft, close, next) = $4 in
-        (mergeFuncType (FuncType (map (ParamType Nothing) $2) []) ft, close, next)
+        let (ft, rest) = $4 in
+        (mergeFuncType (FuncType (map (ParamType Nothing) $2) []) ft, rest)
     }
     | 'param' ident valtype ')' typesign(close, next) {
-         let (ft, close, next) = $5 in
-        (mergeFuncType (FuncType [ParamType (Just $2) $3] []) ft, close, next)
+         let (ft, rest) = $5 in
+        (mergeFuncType (FuncType [ParamType (Just $2) $3] []) ft, rest)
     }
     | typesign_result1(close, next) { $1 }
 
 typesign_result(close, next)
     : '(' typesign_result1(close, next) { $2 }
-    | next { (emptyFuncType, Nothing, $1) }
+    | next { (emptyFuncType, Left $1) }
 
 typesign_result1(close, next)
     : 'result' list(valtype) ')' typesign_result(close, next) {
-        let (ft, close, next) = $4 in
-        (mergeFuncType (FuncType [] $2) ft, close, next)
+        let (ft, rest) = $4 in
+        (mergeFuncType (FuncType [] $2) ft, rest)
     }
-    | close next { (emptyFuncType, Just $1, $2) }
+    | close { (emptyFuncType, Right $1) }
 
 never : EOF { () }
 
@@ -623,7 +623,7 @@ typedef :: { TypeDef }
     : 'type' opt(ident) functype ')' { TypeDef $2 $3 }
 
 functype :: { FuncType }
-    : '(' 'func' typesign(never, ')')  { let (ft, _, _) = $3 in ft }
+    : '(' 'func' typesign(never, ')')  { let (ft, _) = $3 in ft }
 
 memarg1 :: { MemArg }
     : opt(offset) opt(align) {% parseMemArg 1 $1 $2 }
@@ -650,13 +650,14 @@ block_end
 raw_instr :: { [Instruction] }
     : plaininstr { [PlainInstr $1] }
     | 'call_indirect' typeuse_cont(folded_instr1, empty) {
-        let (tu, instr, _) = $2 in
-        [PlainInstr $ CallIndirect tu] ++ fromMaybe [] instr
+        let (tu, instr) = $2 in
+        [PlainInstr $ CallIndirect tu] ++ either (const []) id instr
     }
-    | 'block' opt(ident) typeuse_cont(folded_instr1_list, block_end) {%
-        let (tu, instr, (rest, identAfter)) = $3 in
+    | 'block' opt(ident) typeuse_cont(pair(folded_instr1_list, block_end), block_end) {%
+        let (tu, rest) = $3 in
+        let (instr, (instr', identAfter)) = either (\a -> ([], a)) id rest in
         if $2 == identAfter || isNothing identAfter
-        then Right $ [BlockInstr $2 tu (fromMaybe [] instr ++ rest)]
+        then Right $ [BlockInstr $2 tu (instr ++ instr')]
         else Left "Block labels have to match"
     }
     | 'loop' opt(ident) raw_loop {% (: []) `fmap` $3 $2 }
@@ -737,13 +738,15 @@ instr_list_closed
 
 folded_instr1 :: { [Instruction] }
     : plaininstr list(folded_instr) ')' { concat $2 ++ [PlainInstr $1] }
-    | 'call_indirect' typeuse_cont(folded_instr1_list, instr_list_closed) {
-        let (tu, instr, rest) = $2 in
-        fromMaybe [] instr ++ rest ++ [PlainInstr $ CallIndirect tu]
+    | 'call_indirect' typeuse_cont(pair(folded_instr1_list, instr_list_closed), instr_list_closed) {
+        let (tu, rest) = $2 in
+        let (instr, instr') = either (\a -> ([], a)) id rest in
+        instr ++ instr' ++ [PlainInstr $ CallIndirect tu]
     }
-    | 'block' opt(ident) typeuse_cont(folded_instr1_list, instr_list_closed) {
-        let (typeUse, instr, rest) = $3 in
-        [BlockInstr $2 typeUse (fromMaybe [] instr ++ rest)]
+    | 'block' opt(ident) typeuse_cont(pair(folded_instr1_list, instr_list_closed), instr_list_closed) {
+        let (typeUse, rest) = $3 in
+        let (instr, instr') = either (\a -> ([], a)) id rest in
+        [BlockInstr $2 typeUse (instr ++ instr')]
     }
     | 'loop' opt(ident) folded_loop { [$3 $2] }
     | 'if' opt(ident) '(' folded_if_result { $4 $2 }
@@ -782,7 +785,7 @@ folded_else :: { [Instruction] }
 
 importdesc :: { ImportDesc }
     : 'func' opt(ident) typeuse_cont(never, ')') {
-        let (ft, _, _) = $3 in ImportFunc $2 ft
+        let (ft, _) = $3 in ImportFunc $2 ft
     }
     | 'table' opt(ident) tabletype ')' { ImportTable $2 $3 }
     | 'memory' opt(ident) limits ')' { ImportMemory $2 $3 }
@@ -814,55 +817,27 @@ export_import_typeuse_locals_body1 :: { Maybe Ident -> ModuleField }
 
 import_typeuse_locals_body1 :: { Maybe Ident -> ModuleField }
     : 'import' name name ')' typeuse_cont(never, ')') {
-        let (ft, _, _) = $5 in
+        let (ft, _) = $5 in
         \ident -> MFImport $ Import [] $2 $3 $ ImportFunc ident ft
     }
-    | typeuse_locals_body1 { MFFunc . $1 }
-
-typeuse_locals_body1 :: { Maybe Ident -> Function }
-    : 'type' index ')' signature_locals_body {
-        \i ->
-            let (AnonimousTypeUse signature) = funcType $4 in
-            let typeSign = if signature == emptyFuncType then Nothing else Just signature in
-            $4 { funcType = IndexedTypeUse $2 typeSign, ident = i }
-    }
-    | signature_locals_body1 { \i -> $1 { ident = i } }
-
-signature_locals_body :: { Function }
-    : ')' { emptyFunction }
-    | '(' signature_locals_body1 { $2 }
-
-signature_locals_body1 :: { Function }
-    : 'param' list(valtype) ')' signature_locals_body {
-        prependFuncParams (map (ParamType Nothing) $2) $4
-    }
-    | 'param' ident valtype ')' signature_locals_body {
-        prependFuncParams [ParamType (Just $2) $3] $5
-    }
-    | result_locals_body1 { $1 }
-
-result_locals_body :: { Function }
-    : ')' { emptyFunction }
-    | '(' result_locals_body1 { $2 }
-    | raw_instr list(instruction) ')' { emptyFunction { body = $1 ++ concat $2 } }
-
-result_locals_body1 :: { Function }
-    : 'result' list(valtype) ')' result_locals_body {
-        prependFuncResults $2 $4
-    }
-    | locals_body1 {
-        emptyFunction { locals = fst $1, body = snd $1 }
+    | typeuse1_cont(func_mid1, func_end) {
+        let (funcType, rest) = $1 in
+        let (locals, body) = either (\a -> ([], a)) id rest in
+        \ident -> MFFunc $ emptyFunction { locals, body, ident, funcType }
     }
 
-locals_body :: { ([LocalType], [Instruction]) }
-    : ')' { ([], []) }
-    | raw_instr list(instruction) ')' { ([], $1 ++ concat $2)}
-    | '(' locals_body1 { $2 }
+func_mid :: { ([LocalType], [Instruction]) }
+    : func_end { ([], $1) }
+    | '(' func_mid1 { $2 }
 
-locals_body1 :: { ([LocalType], [Instruction]) }
-    : 'local' list(valtype) ')' locals_body { (map (LocalType Nothing) $2 ++ fst $4, snd $4) }
-    | 'local' ident valtype ')' locals_body { (LocalType (Just $2) $3 : fst $5, snd $5) }
+func_mid1 :: { ([LocalType], [Instruction]) }
+    : 'local' list(valtype) ')' func_mid { (map (LocalType Nothing) $2 ++ fst $4, snd $4) }
+    | 'local' ident valtype ')' func_mid { (LocalType (Just $2) $3 : fst $5, snd $5) }
     | folded_instr1 list(instruction) ')' { ([], $1 ++ concat $2) }
+
+func_end
+    : ')' { [] }
+    | raw_instr list(instruction) ')' { $1 ++ concat $2 }
 
 -- FUNCTION END --
 
