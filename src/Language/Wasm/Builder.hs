@@ -41,7 +41,7 @@ module Language.Wasm.Builder (
     memorySize, growMemory,
     nop, Language.Wasm.Builder.drop, select,
     call, callIndirect, finish, br, brIf, brTable,
-    if', loop, {-block,-} when, for, while,
+    {-if', loop, block, when, for, while,-}
     trap, unreachable,
     appendExpr, after,
     Producer, OutType, produce, Consumer, (.=)
@@ -681,7 +681,7 @@ finish val = do
     appendExpr [Return]
 
 newtype Label i = Label Natural deriving (Show, Eq)
-
+{-
 when :: (Producer pred, OutType pred ~ Proxy I32)
     => pred
     -> GenFun ()
@@ -704,28 +704,28 @@ while pred body = do
             body
             loopLabel <- label
             if' () pred (br loopLabel) (return ())
-    if' () pred (loop () loopBody) (return ())
+    if' () pred (loop () loopBody) (return ())-}
 
 label :: GenFun (Label t)
 label = Label <$> ask
 
-if' :: (Producer pred, OutType pred ~ Proxy I32, Returnable res)
-    => res
-    -> pred
-    -> GenFun res
-    -> GenFun res
-    -> GenFun res
-if' res pred true false = do
-    produce pred
-    deep <- (+1) <$> ask
-    appendExpr [If (asResultValue res) (genExpr deep $ true) (genExpr deep $ false)]
-    return returnableValue
+-- if' :: (Producer pred, OutType pred ~ Proxy I32, Returnable res)
+--     => res
+--     -> pred
+--     -> GenFun res
+--     -> GenFun res
+--     -> GenFun res
+-- if' res pred true false = do
+--     produce pred
+--     deep <- (+1) <$> ask
+--     appendExpr [If (asResultValue res) (genExpr deep $ true) (genExpr deep $ false)]
+--     return returnableValue
 
-loop :: (Returnable res) => res -> GenFun res -> GenFun res
-loop res body = do
-    deep <- (+1) <$> ask
-    appendExpr [Loop (asResultValue res) (genExpr deep $ body)]
-    return returnableValue
+-- loop :: (Returnable res) => res -> GenFun res -> GenFun res
+-- loop res body = do
+--     deep <- (+1) <$> ask
+--     appendExpr [Loop (asResultValue res) (genExpr deep $ body)]
+--     return returnableValue
 
 -- block :: (Returnable res) => res -> GenFun res -> GenFun res
 -- block res body = do
@@ -988,39 +988,39 @@ asWord64 i
     | i >= 0 = fromIntegral i
     | otherwise = 0xFFFFFFFFFFFFFFFF - (fromIntegral (abs i)) + 1
 
-rts :: Module
-rts = genMod $ do
-    gc <- importFunction "rts" "gc" () [I32]
-    memory 10 Nothing
+-- rts :: Module
+-- rts = genMod $ do
+--     gc <- importFunction "rts" "gc" () [I32]
+--     memory 10 Nothing
 
-    stackStart <- global Const i32 0
-    stackEnd <- global Const i32 0
-    stackBase <- global Mut i32 0
-    stackTop <- global Mut i32 0
+--     stackStart <- global Const i32 0
+--     stackEnd <- global Const i32 0
+--     stackBase <- global Mut i32 0
+--     stackTop <- global Mut i32 0
 
-    retReg <- global Mut i32 0
-    tmpReg <- global Mut i32 0
+--     retReg <- global Mut i32 0
+--     tmpReg <- global Mut i32 0
 
-    heapStart <- global Mut i32 0
-    heapNext <- global Mut i32 0
-    heapEnd <- global Mut i32 0
+--     heapStart <- global Mut i32 0
+--     heapNext <- global Mut i32 0
+--     heapEnd <- global Mut i32 0
 
-    aligned <- fun i32 $ do
-        size <- param i32
-        (size `add` i32c 3) `and` i32c 0xFFFFFFFC
-    alloc <- funRec i32 $ \self -> do
-        size <- param i32
-        alignedSize <- local i32
-        addr <- local i32
-        alignedSize .= call aligned [arg size]
-        if' i32 ((heapNext `add` alignedSize) `lt_u` heapEnd)
-            (do
-                addr .= heapNext
-                heapNext .= heapNext `add` alignedSize
-                ret addr
-            )
-            (do
-                call gc []
-                call self [arg size]
-            )
-    return ()
+--     aligned <- fun i32 $ do
+--         size <- param i32
+--         (size `add` i32c 3) `and` i32c 0xFFFFFFFC
+--     alloc <- funRec i32 $ \self -> do
+--         size <- param i32
+--         alignedSize <- local i32
+--         addr <- local i32
+--         alignedSize .= call aligned [arg size]
+--         if' i32 ((heapNext `add` alignedSize) `lt_u` heapEnd)
+--             (do
+--                 addr .= heapNext
+--                 heapNext .= heapNext `add` alignedSize
+--                 ret addr
+--             )
+--             (do
+--                 call gc []
+--                 call self [arg size]
+--             )
+--     return ()

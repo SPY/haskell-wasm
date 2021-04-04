@@ -331,17 +331,17 @@ instance Serialize (Instruction Natural) where
         putWord8 0x02
         putBlockType blockType
         putExpression body
-    put (Loop result body) = do
+    put (Loop blockType body) = do
         putWord8 0x03
-        putResultType result
+        putBlockType blockType
         putExpression body
-    put If {resultType, true, false = []} = do
+    put If {blockType, true, false = []} = do
         putWord8 0x04
-        putResultType resultType
+        putBlockType blockType
         putExpression true
-    put If {resultType, true, false} = do
+    put If {blockType, true, false} = do
         putWord8 0x04
-        putResultType resultType
+        putBlockType blockType
         mapM_ put true
         putWord8 0x05 -- ELSE
         putExpression false
@@ -528,12 +528,12 @@ instance Serialize (Instruction Natural) where
             0x00 -> return Unreachable
             0x01 -> return Nop
             0x02 -> Block <$> getBlockType <*> getExpression
-            0x03 -> Loop <$> getResultType <*> getExpression
+            0x03 -> Loop <$> getBlockType <*> getExpression
             0x04 -> do
-                resultType <- getResultType
+                blockType <- getBlockType
                 (true, hasElse) <- getTrueBranch
                 false <- if hasElse then getExpression else return []
-                return $ If resultType true false
+                return $ If blockType true false
             0x0C -> Br <$> getULEB128 32
             0x0D -> BrIf <$> getULEB128 32
             0x0E -> BrTable <$> (map unIndex <$> getVec) <*> getULEB128 32

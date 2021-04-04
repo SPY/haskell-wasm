@@ -126,8 +126,8 @@ data Instruction index =
     Unreachable
     | Nop
     | Block { blockType :: BlockType, body :: Expression }
-    | Loop { resultType :: ResultType, body :: Expression }
-    | If { resultType :: ResultType, true :: Expression, false :: Expression }
+    | Loop { blockType :: BlockType, body :: Expression }
+    | If { blockType :: BlockType, true :: Expression, false :: Expression }
     | Br index
     | BrIf index
     | BrTable [index] index

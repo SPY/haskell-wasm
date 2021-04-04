@@ -646,14 +646,22 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
                 Break n r ctx' -> return $ Break (n - 1) r ctx'
                 Done ctx'@EvalCtx{ labels = (_:rest) } -> return $ Done ctx' { labels = rest }
                 command -> return command
-        step ctx loop@(Loop resType expr) = do
+        step ctx loop@(Loop blockType expr) = do
+            let resType = case blockType of
+                    Inline Nothing -> []
+                    Inline (Just valType) -> [valType]
+                    TypeIndex typeIdx -> results $ funcTypes moduleInstance ! fromIntegral typeIdx
             res <- go ctx { labels = Label resType : labels ctx } expr
             case res of
                 Break 0 r EvalCtx{ locals = ls } -> step ctx { locals = ls, stack = r ++ stack ctx } loop
                 Break n r ctx' -> return $ Break (n - 1) r ctx'
                 Done ctx'@EvalCtx{ labels = (_:rest) } -> return $ Done ctx' { labels = rest }
                 command -> return command
-        step ctx@EvalCtx{ stack = (VI32 v): rest } (If resType true false) = do
+        step ctx@EvalCtx{ stack = (VI32 v): rest } (If blockType true false) = do
+            let resType = case blockType of
+                    Inline Nothing -> []
+                    Inline (Just valType) -> [valType]
+                    TypeIndex typeIdx -> results $ funcTypes moduleInstance ! fromIntegral typeIdx
             let expr = if v /= 0 then true else false
             res <- go ctx { labels = Label resType : labels ctx, stack = rest } expr
             case res of

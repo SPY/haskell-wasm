@@ -660,68 +660,32 @@ raw_instr :: { [Instruction] }
         then Right $ [BlockInstr $2 tu (instr ++ instr')]
         else Left "Block labels have to match"
     }
-    | 'loop' opt(ident) raw_loop {% (: []) `fmap` $3 $2 }
-    | 'if' opt(ident) raw_if_result {% $3 $2 }
-
-raw_loop :: { Maybe Ident -> Either String Instruction }
-    : 'end' opt(ident) {
-        \ident ->
-            if ident == $2 || isNothing $2
-            then Right $ LoopInstr ident [] []
-            else Left "Loop labels have to match"
+    | 'loop' opt(ident) typeuse_cont(pair(folded_instr1_list, block_end), block_end) {%
+        let (tu, rest) = $3 in
+        let (instr, (instr', identAfter)) = either (\a -> ([], a)) id rest in
+        if $2 == identAfter || isNothing identAfter
+        then Right $ [LoopInstr $2 tu (instr ++ instr')]
+        else Left "Block labels have to match"
     }
-    | raw_instr list(instruction) 'end' opt(ident) {
-        \ident ->
-            if ident == $4 || isNothing $4
-            then Right $ LoopInstr ident [] ($1 ++ concat $2)
-            else Left "Loop labels have to match"
-    }
-    | '(' raw_loop1 { $2 }
-
-raw_loop1 :: { Maybe Ident -> Either String Instruction }
-    : 'result' list(valtype) ')' list(instruction) 'end' opt(ident) {
-        \ident ->
-            if ident == $6 || isNothing $6
-            then Right $ LoopInstr ident $2 (concat $4)
-            else Left "Loop labels have to match"
-    }
-    | folded_instr1 list(instruction) 'end' opt(ident) {
-        \ident ->
-            if ident == $4 || isNothing $4
-            then Right $ LoopInstr ident [] ($1 ++ concat $2)
-            else Left "Loop labels have to match"
+    | 'if' opt(ident) typeuse_cont(pair(folded_instr1_list, raw_if_end), raw_if_end) {%
+        let (tu, rest) = $3 in
+        let (trueBranch, falseBranch, identAfter) = either id (\(t, (t', f, i)) -> (t ++ t', f, i)) rest in
+        if $2 == identAfter || isNothing identAfter
+        then Right $ [IfInstr $2 tu trueBranch falseBranch]
+        else Left "If labels have to match"
     }
 
-raw_if_result :: { Maybe Ident -> Either String [Instruction] }
-    : raw_else {
-        \ident ->
-            if ident == (snd $1) || isNothing (snd $1)
-            then Right [IfInstr ident [] [] $ fst $1]
-            else Left "If labels have to match"
+raw_if_end
+    : raw_if_else {
+        let (falseBranch, ident) = $1 in
+        ([], falseBranch, ident)
     }
-    | raw_instr list(instruction) raw_else {
-        \ident ->
-            if ident == (snd $3) || isNothing (snd $3)
-            then Right [IfInstr ident [] ($1 ++ concat $2) $ fst $3]
-            else Left "If labels have to match"
-    }
-    | '(' raw_if_result1 { $2 }
-
-raw_if_result1 :: { Maybe Ident -> Either String [Instruction] }
-    : 'result' list(valtype) ')' list(instruction) raw_else {
-        \ident ->
-            if ident == (snd $5) || isNothing (snd $5)
-            then Right [IfInstr ident $2 (concat $4) $ fst $5]
-            else Left "If labels have to match"
-    }
-    | folded_instr1 list(instruction) raw_else {
-        \ident ->
-            if ident == (snd $3) || isNothing (snd $3)
-            then Right [IfInstr ident [] ($1 ++ concat $2) $ fst $3]
-            else Left "If labels have to match"
+    | raw_instr list(instruction) raw_if_else {
+        let (falseBranch, ident) = $3 in
+        ($1 ++ concat $2, falseBranch, ident)
     }
 
-raw_else :: { ([Instruction], Maybe Ident) }
+raw_if_else :: { ([Instruction], Maybe Ident) }
     : 'end' opt(ident) { ([], $2) }
     | 'else' opt(ident) list(instruction) 'end' opt(ident) {%
         if matchIdents $2 $5
@@ -748,28 +712,14 @@ folded_instr1 :: { [Instruction] }
         let (instr, instr') = either (\a -> ([], a)) id rest in
         [BlockInstr $2 typeUse (instr ++ instr')]
     }
-    | 'loop' opt(ident) folded_loop { [$3 $2] }
-    | 'if' opt(ident) '(' folded_if_result { $4 $2 }
-
-folded_loop :: { Maybe Ident -> Instruction }
-    : ')' { \ident -> LoopInstr ident [] [] }
-    | '(' folded_loop1 { $2 }
-    | raw_instr list(instruction) ')' { \ident -> LoopInstr ident [] ($1 ++ concat $2) }
-
-folded_loop1 :: { Maybe Ident -> Instruction }
-    : 'result' list(valtype) ')' list(instruction) ')' { \ident -> LoopInstr ident $2 (concat $4) }
-    | folded_instr1 list(instruction) ')' { \ident -> LoopInstr ident [] ($1 ++ concat $2) }
-
-folded_if_result :: { Maybe Ident -> [Instruction] }
-    : 'result' list(valtype) ')' '(' folded_then_else {
-        \ident ->
-            let (pred, (trueBranch, falseBranch)) = $5 in
-            pred ++ [IfInstr ident $2 trueBranch falseBranch]
+    | 'loop' opt(ident) typeuse_cont(pair(folded_instr1_list, instr_list_closed), instr_list_closed) {
+        let (typeUse, rest) = $3 in
+        let (instr, instr') = either (\a -> ([], a)) id rest in
+        [LoopInstr $2 typeUse (instr ++ instr')]
     }
-    | folded_then_else {
-        \ident ->
-            let (pred, (trueBranch, falseBranch)) = $1 in
-            pred ++ [IfInstr ident [] trueBranch falseBranch]
+    | 'if' opt(ident) '(' typeuse1_cont(folded_then_else, never) {
+        let (typeUse, Right (pred, (trueBranch, falseBranch))) = $4 in
+        pred ++ [IfInstr $2 typeUse trueBranch falseBranch]
     }
 
 folded_then_else :: { ([Instruction], ([Instruction], [Instruction])) }
@@ -1225,12 +1175,12 @@ data Instruction =
     }
     | LoopInstr {
         label :: Maybe Ident,
-        resultType :: [ValueType],
+        blockType :: TypeUse,
         body :: [Instruction]
     }
     | IfInstr {
         label :: Maybe Ident,
-        resultType :: [ValueType],
+        blockType :: TypeUse,
         trueBranch :: [Instruction],
         falseBranch :: [Instruction]
     }
@@ -1503,10 +1453,10 @@ desugarize fields = do
             matchTypeUse defs typeUse
         extractTypeDefFromInstruction defs (BlockInstr { body, blockType }) =
             extractTypeDefFromInstructions (matchTypeUse defs blockType) body
-        extractTypeDefFromInstruction defs (LoopInstr { body }) =
-            extractTypeDefFromInstructions defs body
-        extractTypeDefFromInstruction defs (IfInstr { trueBranch, falseBranch }) =
-            extractTypeDefFromInstructions defs $ trueBranch ++ falseBranch
+        extractTypeDefFromInstruction defs (LoopInstr { body, blockType }) =
+            extractTypeDefFromInstructions (matchTypeUse defs blockType) body
+        extractTypeDefFromInstruction defs (IfInstr { blockType, trueBranch, falseBranch }) =
+            extractTypeDefFromInstructions (matchTypeUse defs blockType) $ trueBranch ++ falseBranch
         extractTypeDefFromInstruction defs _ = defs
 
         funcTypesEq :: FuncType -> FuncType -> Bool
@@ -1659,14 +1609,26 @@ desugarize fields = do
                     Just idx -> return $ S.TypeIndex idx
                     Nothing -> Left "unknown type"
             S.Block bt <$> mapM (synInstrToStruct ctx') body
-        synInstrToStruct ctx LoopInstr {label, resultType, body} =
-            let ctx' = ctx { ctxLabels = label : ctxLabels ctx } in
-            S.Loop resultType <$> mapM (synInstrToStruct ctx') body
-        synInstrToStruct ctx IfInstr {label, resultType, trueBranch, falseBranch} = do
+        synInstrToStruct ctx@FunCtx { ctxMod = Module { types } } LoopInstr {label, blockType, body} = do
             let ctx' = ctx { ctxLabels = label : ctxLabels ctx }
+            bt <- case blockType of
+                AnonimousTypeUse (FuncType [] []) -> return $ S.Inline Nothing
+                AnonimousTypeUse (FuncType [] [vt]) -> return $ S.Inline (Just vt)
+                typed -> case getTypeIndex types typed of
+                    Just idx -> return $ S.TypeIndex idx
+                    Nothing -> Left "unknown type"
+            S.Loop bt <$> mapM (synInstrToStruct ctx') body
+        synInstrToStruct ctx@FunCtx { ctxMod = Module { types } } IfInstr {label, blockType, trueBranch, falseBranch} = do
+            let ctx' = ctx { ctxLabels = label : ctxLabels ctx }
+            bt <- case blockType of
+                AnonimousTypeUse (FuncType [] []) -> return $ S.Inline Nothing
+                AnonimousTypeUse (FuncType [] [vt]) -> return $ S.Inline (Just vt)
+                typed -> case getTypeIndex types typed of
+                    Just idx -> return $ S.TypeIndex idx
+                    Nothing -> Left "unknown type"
             trueBranch' <- mapM (synInstrToStruct ctx') trueBranch
             falseBranch' <- mapM (synInstrToStruct ctx') falseBranch
-            return $ S.If resultType trueBranch' falseBranch'
+            return $ S.If bt trueBranch' falseBranch'
         
         synFunctionToStruct :: Module -> Function -> Either String S.Function
         synFunctionToStruct mod Function { funcType, locals, body } = do
