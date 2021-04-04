@@ -224,19 +224,26 @@ getInstrType Block { blockType, body } = do
     if isArrowMatch t bt
     then return bt
     else throwError $ TypeMismatch t bt
-getInstrType Loop { resultType, body } = do
-    let blockType = empty ==> resultType
-    t <- withLabel [] $ getExpressionType body
-    if isArrowMatch t blockType
-    then return $ empty ==> resultType
-    else throwError $ TypeMismatch t blockType
-getInstrType If { resultType, true, false } = do
-    let blockType = empty ==> resultType
+getInstrType Loop { blockType, body } = do
+    bt <- getBlockType blockType
+    resultType <- getResultType blockType
+    t <- withLabel resultType $ getExpressionType body
+    if isArrowMatch t bt
+    then return bt
+    else throwError $ TypeMismatch t bt
+getInstrType If { blockType, true, false } = do
+    bt <- getBlockType blockType
+    resultType <- getResultType blockType
     l <- withLabel resultType $ getExpressionType true
     r <- withLabel resultType $ getExpressionType false
-    if isArrowMatch l blockType
-    then (if isArrowMatch r blockType then (return $ I32 ==> resultType) else (throwError $ TypeMismatch r blockType))
-    else throwError $ TypeMismatch l blockType
+    if isArrowMatch l bt
+    then (
+            if isArrowMatch r bt
+            then let Arrow from to = bt in
+                (return $ (from ++ [Val I32]) ==> to)
+            else (throwError $ TypeMismatch r bt)
+        )
+    else throwError $ TypeMismatch l bt
 getInstrType (Br lbl) = do
     r <- map Val . maybeToList <$> getLabel lbl
     return $ (Any : r) ==> Any
