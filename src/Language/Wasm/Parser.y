@@ -641,6 +641,48 @@ instruction :: { [Instruction] }
     : raw_instr { $1 }
     | folded_instr { $1 }
 
+instruction_list(terminator)
+    : terminator { ($1, []) }
+    | plaininstr mixed_instruction_list(terminator) { ([PlainInstr $1] ++) `fmap` $2 }
+    | 'call_indirect' typeuse_cont(folded_instr_list(terminator), instruction_list(terminator)) {
+        let (tu, rest) = $2 in
+        ([PlainInstr $ CallIndirect tu] ++) `fmap` (either id id rest)
+    }
+    | 'block' opt(ident) typeuse_cont(folded_instr_list('end'), instruction_list('end')) opt(ident) mixed_instruction_list(terminator) {%
+        let (tu, rest) = $3 in
+        let (_, instr) = either id id rest in
+        if $2 == $4 || isNothing $4
+        then Right $ ([BlockInstr $2 tu instr] ++) `fmap` $5
+        else Left "Block labels have to match"
+    }
+    | 'loop' opt(ident) typeuse_cont(folded_instr_list('end'), instruction_list('end')) opt(ident) mixed_instruction_list(terminator) {%
+        let (tu, rest) = $3 in
+        let (_, instr) = either id id rest in
+        if $2 == $4 || isNothing $4
+        then Right $ ([LoopInstr $2 tu instr] ++) `fmap` $5
+        else Left "Loop labels have to match"
+    }
+    | 'if' opt(ident) typeuse_cont(folded_instr_list(if_else), instruction_list(if_else)) mixed_instruction_list(terminator) {%
+        let (tu, rest) = $3 in
+        let ((falseBranch, identAfter), trueBranch) = either id id rest in
+        if $2 == identAfter || isNothing identAfter
+        then Right $ ([IfInstr $2 tu trueBranch falseBranch] ++) `fmap` $4
+        else Left "If labels have to match"
+    }
+
+mixed_instruction_list(terminator)
+    : '(' folded_instr1 mixed_instruction_list(terminator) { ($2 ++) `fmap` $3 }
+    | instruction_list(terminator) { $1 }
+
+if_else :: { ([Instruction], Maybe Ident) }
+    : 'end' opt(ident) { ([], $2) }
+    | 'else' opt(ident) mixed_instruction_list('end') opt(ident) {%
+        if matchIdents $2 $4
+        then Right (snd $3, if isNothing $2 then $4 else $2)
+        else Left "If labels have to match"
+    }
+folded_instr_list(terminator) : folded_instr1 mixed_instruction_list(terminator) { ($1 ++) `fmap` $2 }
+
 folded_instr1_list : folded_instr1 list(folded_instr) { $1 ++ concat $2 }
 
 block_end
