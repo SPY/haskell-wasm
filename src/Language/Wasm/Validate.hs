@@ -182,23 +182,6 @@ checkMemoryInstr size memarg = do
     isMemArgValid size memarg
     Ctx { mems } <- ask 
     if length mems < 1 then throwError (MemoryIndexOutOfRange 0) else return ()
-<<<<<<< HEAD
-
-getBlockType :: BlockType -> Checker Arrow
-getBlockType (Inline Nothing) = return $ empty ==> empty
-getBlockType (Inline (Just valType)) = return $ empty ==> valType
-getBlockType (TypeIndex typeIdx) = do
-    Ctx { types } <- ask
-    maybeToEither TypeIndexOutOfRange $ asArrow <$> types !? typeIdx
-
-getResultType :: BlockType -> Checker [ValueType]
-getResultType (Inline Nothing) = return []
-getResultType (Inline (Just valType)) = return [valType]
-getResultType (TypeIndex typeIdx) = do
-    Ctx { types } <- ask
-    maybeToEither TypeIndexOutOfRange $ results <$> types !? typeIdx
-=======
->>>>>>> 40291c3 (more grammar fixes)
 
 getBlockType :: BlockType -> Checker Arrow
 getBlockType (Inline Nothing) = return $ empty ==> empty
