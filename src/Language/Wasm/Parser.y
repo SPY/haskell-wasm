@@ -621,7 +621,7 @@ typedef :: { TypeDef }
     : 'type' opt(ident) functype ')' { TypeDef $2 $3 }
 
 functype :: { FuncType }
-    : '(' 'func' typesign(never, ')')  { let (ft, _) = $3 in ft }
+    : '(' 'func' typesign(')', ')')  { let (ft, _) = $3 in ft }
 
 memarg1 :: { MemArg }
     : opt(offset) opt(align) {% parseMemArg 1 $1 $2 }
@@ -715,7 +715,7 @@ folded_else :: { [Instruction] }
     | '(' 'else' mixed_instruction_list(')') ')' { snd $3 }
 
 importdesc :: { ImportDesc }
-    : 'func' opt(ident) typeuse_cont(never, ')') {
+    : 'func' opt(ident) typeuse_cont(')', ')') {
         let (ft, _) = $3 in ImportFunc $2 ft
     }
     | 'table' opt(ident) tabletype ')' { ImportTable $2 $3 }
@@ -747,7 +747,7 @@ export_import_typeuse_locals_body1 :: { Maybe Ident -> ModuleField }
     | import_typeuse_locals_body1 { $1 }
 
 import_typeuse_locals_body1 :: { Maybe Ident -> ModuleField }
-    : 'import' name name ')' typeuse_cont(never, ')') {
+    : 'import' name name ')' typeuse_cont(')', ')') {
         let (ft, _) = $5 in
         \ident -> MFImport $ Import [] $2 $3 $ ImportFunc ident ft
     }
