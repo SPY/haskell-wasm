@@ -730,8 +730,7 @@ function :: { ModuleField }
     : 'func' opt(ident) export_import_typeuse_locals_body { $3 $2 }
 
 export_import_typeuse_locals_body :: { Maybe Ident -> ModuleField }
-    : ')' { \i -> MFFunc emptyFunction { ident = i } }
-    | instruction_list(')') {
+    : instruction_list(')') {
         \i -> MFFunc emptyFunction { ident = i, body = snd $1 }
     }
     | '(' export_import_typeuse_locals_body1 { $2 }
@@ -751,24 +750,20 @@ import_typeuse_locals_body1 :: { Maybe Ident -> ModuleField }
         let (ft, _) = $5 in
         \ident -> MFImport $ Import [] $2 $3 $ ImportFunc ident ft
     }
-    | typeuse1_cont(func_mid1, func_end) {
+    | typeuse1_cont(func_mid1, instruction_list(')')) {
         let (funcType, rest) = $1 in
-        let (locals, body) = either (\a -> ([], a)) id rest in
+        let (locals, body) = either (\a -> ([], snd a)) id rest in
         \ident -> MFFunc $ emptyFunction { locals, body, ident, funcType }
     }
 
 func_mid :: { ([LocalType], [Instruction]) }
-    : func_end { ([], $1) }
+    : instruction_list(')') { ([], snd $1) }
     | '(' func_mid1 { $2 }
 
 func_mid1 :: { ([LocalType], [Instruction]) }
     : 'local' list(valtype) ')' func_mid { (map (LocalType Nothing) $2 ++ fst $4, snd $4) }
     | 'local' ident valtype ')' func_mid { (LocalType (Just $2) $3 : fst $5, snd $5) }
     | folded_instr_list(')') { ([], snd $1) }
-
-func_end
-    : ')' { [] }
-    | instruction_list(')') { snd $1 }
 
 -- FUNCTION END --
 
