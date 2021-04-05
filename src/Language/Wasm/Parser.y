@@ -574,11 +574,15 @@ plaininstr :: { PlainInstr }
     | 'f32.reinterpret_i32'          { FReinterpretI BS32 }
     | 'f64.reinterpret_i64'          { FReinterpretI BS64 }
 
-typeuse_cont(close, next)
-    : '(' typeuse1_cont(close, next) { $2 }
-    | next { (emptyTypeUse, Left $1) }
+typeuse(next)
+    : '(' typeuse1(folded_instr_list(next), instruction_list(next)) {
+        let (tu, rest) = $2 in
+        let (next, instr) = either id id rest in
+        (tu, instr, next)
+    }
+    | instruction_list(next) { let (next, instr) = $1 in (emptyTypeUse, instr, next) }
 
-typeuse1_cont(close, next)
+typeuse1(close, next)
     : 'type' index ')' typesign(close, next) {
         case $4 of
             (FuncType [] [], rest) -> (IndexedTypeUse $2 Nothing, rest)
@@ -638,28 +642,25 @@ memarg8 :: { MemArg }
 instruction_list(terminator)
     : terminator { ($1, []) }
     | plaininstr mixed_instruction_list(terminator) { ([PlainInstr $1] ++) `fmap` $2 }
-    | 'call_indirect' typeuse_cont(folded_instr_list(terminator), instruction_list(terminator)) {
-        let (tu, rest) = $2 in
-        ([PlainInstr $ CallIndirect tu] ++) `fmap` (either id id rest)
+    | 'call_indirect' typeuse(terminator) {
+        let (tu, instr, end) = $2 in
+        (end, [PlainInstr $ CallIndirect tu] ++ instr)
     }
-    | 'block' opt(ident) typeuse_cont(folded_instr_list('end'), instruction_list('end')) opt(ident) mixed_instruction_list(terminator) {%
-        let (tu, rest) = $3 in
-        let (_, instr) = either id id rest in
-        if $2 == $4 || isNothing $4
+    | 'block' opt(ident) typeuse('end') opt(ident) mixed_instruction_list(terminator) {%
+        let (tu, instr, _) = $3 in
+        if matchIdents $2 $4
         then Right $ ([BlockInstr $2 tu instr] ++) `fmap` $5
         else Left "Block labels have to match"
     }
-    | 'loop' opt(ident) typeuse_cont(folded_instr_list('end'), instruction_list('end')) opt(ident) mixed_instruction_list(terminator) {%
-        let (tu, rest) = $3 in
-        let (_, instr) = either id id rest in
-        if $2 == $4 || isNothing $4
+    | 'loop' opt(ident) typeuse('end') opt(ident) mixed_instruction_list(terminator) {%
+        let (tu, instr, _) = $3 in
+        if matchIdents $2 $4
         then Right $ ([LoopInstr $2 tu instr] ++) `fmap` $5
         else Left "Loop labels have to match"
     }
-    | 'if' opt(ident) typeuse_cont(folded_instr_list(if_else), instruction_list(if_else)) mixed_instruction_list(terminator) {%
-        let (tu, rest) = $3 in
-        let ((falseBranch, identAfter), trueBranch) = either id id rest in
-        if $2 == identAfter || isNothing identAfter
+    | 'if' opt(ident) typeuse(if_else) mixed_instruction_list(terminator) {%
+        let (tu, trueBranch, (falseBranch, identAfter)) = $3 in
+        if matchIdents $2 identAfter
         then Right $ ([IfInstr $2 tu trueBranch falseBranch] ++) `fmap` $4
         else Left "If labels have to match"
     }
@@ -683,22 +684,19 @@ folded_instr :: { [Instruction] }
 
 folded_instr1 :: { [Instruction] }
     : plaininstr mixed_instruction_list(')') { snd $2 ++ [PlainInstr $1] }
-    | 'call_indirect' typeuse_cont(folded_instr_list(')'), instruction_list(')')) {
-        let (tu, rest) = $2 in
-        let instr = snd $ either id id rest in
+    | 'call_indirect' typeuse(')') {
+        let (tu, instr, _) = $2 in
         instr ++ [PlainInstr $ CallIndirect tu]
     }
-    | 'block' opt(ident) typeuse_cont(folded_instr_list(')'), instruction_list(')')) {
-        let (typeUse, rest) = $3 in
-        let instr = snd $ either id id rest in
+    | 'block' opt(ident) typeuse(')') {
+        let (typeUse, instr, _) = $3 in
         [BlockInstr $2 typeUse instr]
     }
-    | 'loop' opt(ident) typeuse_cont(folded_instr_list(')'), instruction_list(')')) {
-        let (typeUse, rest) = $3 in
-        let instr = snd $ either id id rest in
+    | 'loop' opt(ident) typeuse(')') {
+        let (typeUse, instr, _) = $3 in
         [LoopInstr $2 typeUse instr]
     }
-    | 'if' opt(ident) '(' typeuse1_cont(folded_then_else, never) {
+    | 'if' opt(ident) '(' typeuse1(folded_then_else, never) {
         let (typeUse, Right (pred, (trueBranch, falseBranch))) = $4 in
         pred ++ [IfInstr $2 typeUse trueBranch falseBranch]
     }
@@ -715,8 +713,8 @@ folded_else :: { [Instruction] }
     | '(' 'else' mixed_instruction_list(')') ')' { snd $3 }
 
 importdesc :: { ImportDesc }
-    : 'func' opt(ident) typeuse_cont(')', ')') {
-        let (ft, _) = $3 in ImportFunc $2 ft
+    : 'func' opt(ident) typeuse(')') {
+        let (ft, _, _) = $3 in ImportFunc $2 ft
     }
     | 'table' opt(ident) tabletype ')' { ImportTable $2 $3 }
     | 'memory' opt(ident) limits ')' { ImportMemory $2 $3 }
@@ -746,11 +744,11 @@ export_import_typeuse_locals_body1 :: { Maybe Ident -> ModuleField }
     | import_typeuse_locals_body1 { $1 }
 
 import_typeuse_locals_body1 :: { Maybe Ident -> ModuleField }
-    : 'import' name name ')' typeuse_cont(')', ')') {
-        let (ft, _) = $5 in
+    : 'import' name name ')' typeuse(')') {
+        let (ft, _, _) = $5 in
         \ident -> MFImport $ Import [] $2 $3 $ ImportFunc ident ft
     }
-    | typeuse1_cont(func_mid1, instruction_list(')')) {
+    | typeuse1(func_mid1, instruction_list(')')) {
         let (funcType, rest) = $1 in
         let (locals, body) = either (\a -> ([], snd a)) id rest in
         \ident -> MFFunc $ emptyFunction { locals, body, ident, funcType }
