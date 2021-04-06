@@ -130,8 +130,8 @@ data Ctx = Ctx {
     mems :: [Limit],
     globals :: [GlobalType],
     locals :: [ValueType],
-    labels :: [Maybe ValueType],
-    returns :: Maybe ValueType,
+    labels :: [[ValueType]],
+    returns :: [ValueType],
     importedGlobals :: Natural
 } deriving (Show, Eq)
 
@@ -164,7 +164,7 @@ shouldBeMut :: GlobalType -> Checker ()
 shouldBeMut (Mut _) = return ()
 shouldBeMut (Const v) = throwError GlobalIsImmutable
 
-getLabel :: LabelIndex -> Checker (Maybe ValueType)
+getLabel :: LabelIndex -> Checker [ValueType]
 getLabel lbl = do
     Ctx { labels } <- ask
     case labels !? lbl of
@@ -172,7 +172,7 @@ getLabel lbl = do
         Just v -> return v
 
 withLabel :: [ValueType] -> Checker a -> Checker a
-withLabel result = withReaderT (\ctx -> ctx { labels = safeHead result : labels ctx })
+withLabel result = withReaderT (\ctx -> ctx { labels = result : labels ctx })
 
 isMemArgValid :: Int -> MemArg -> Checker ()
 isMemArgValid sizeInBytes MemArg { align } = if 2 ^ align <= sizeInBytes then return () else throwError AlignmentOverflow
@@ -201,24 +201,24 @@ getInstrType :: Instruction Natural -> Checker Arrow
 getInstrType Unreachable = return $ Any ==> Any
 getInstrType Nop = return $ empty ==> empty
 getInstrType Block { blockType, body } = do
-    bt <- getBlockType blockType
+    bt@(Arrow from _) <- getBlockType blockType
     resultType <- getResultType blockType
-    t <- withLabel resultType $ getExpressionType body
+    t <- withLabel resultType $ getExpressionTypeWithInput from body
     if isArrowMatch t bt
     then return bt
     else throwError $ TypeMismatch t bt
 getInstrType Loop { blockType, body } = do
-    bt <- getBlockType blockType
+    bt@(Arrow from _) <- getBlockType blockType
     resultType <- getResultType blockType
-    t <- withLabel resultType $ getExpressionType body
+    t <- withLabel resultType $ getExpressionTypeWithInput from body
     if isArrowMatch t bt
     then return bt
     else throwError $ TypeMismatch t bt
 getInstrType If { blockType, true, false } = do
-    bt <- getBlockType blockType
+    bt@(Arrow from _) <- getBlockType blockType
     resultType <- getResultType blockType
-    l <- withLabel resultType $ getExpressionType true
-    r <- withLabel resultType $ getExpressionType false
+    l <- withLabel resultType $ getExpressionTypeWithInput from true
+    r <- withLabel resultType $ getExpressionTypeWithInput from false
     if isArrowMatch l bt
     then (
             if isArrowMatch r bt
@@ -228,20 +228,20 @@ getInstrType If { blockType, true, false } = do
         )
     else throwError $ TypeMismatch l bt
 getInstrType (Br lbl) = do
-    r <- map Val . maybeToList <$> getLabel lbl
+    r <- map Val <$> getLabel lbl
     return $ (Any : r) ==> Any
 getInstrType (BrIf lbl) = do
-    r <- map Val . maybeToList <$> getLabel lbl
+    r <- map Val <$> getLabel lbl
     return $ (r ++ [Val I32]) ==> r
 getInstrType (BrTable lbls lbl) = do
     r <- getLabel lbl
     rs <- mapM getLabel lbls
     if all (== r) rs
-    then return $ ([Any] ++ (map Val $ maybeToList r) ++ [Val I32]) ==> Any
+    then return $ ([Any] ++ (map Val r) ++ [Val I32]) ==> Any
     else throwError ResultTypeDoesntMatch
 getInstrType Return = do
     Ctx { returns } <- ask
-    return $ (Any : (map Val $ maybeToList returns)) ==> Any
+    return $ (Any : (map Val returns)) ==> Any
 getInstrType (Call fun) = do
     Ctx { funcs } <- ask
     maybeToEither FunctionIndexOutOfRange $ asArrow <$> funcs !? fun
@@ -403,8 +403,8 @@ replace :: (Eq a) => a -> a -> [a] -> [a]
 replace _ _ [] = []
 replace x y (v:r) = (if x == v then y else v) : replace x y r
 
-getExpressionType :: Expression -> Checker Arrow
-getExpressionType = fmap ([] `Arrow`) . foldM go []
+getExpressionTypeWithInput :: [VType] -> Expression -> Checker Arrow
+getExpressionTypeWithInput inp = fmap ((inp `Arrow`) . reverse) . foldM go inp
     where
         go :: [VType] -> Instruction Natural -> Checker [VType]
         go stack instr = do
@@ -424,6 +424,9 @@ getExpressionType = fmap ([] `Arrow`) . foldM go []
         matchStack stack [] res = return $ res ++ stack
         matchStack [] args res = throwError $ TypeMismatch ((reverse args) `Arrow` res) ([] `Arrow` [])
         matchStack _ _ _ = error "inconsistent checker state"
+
+getExpressionType :: Expression -> Checker Arrow
+getExpressionType = getExpressionTypeWithInput []
 
 isConstExpression :: Expression -> Checker ()
 isConstExpression [] = return ()
@@ -449,7 +452,7 @@ getFuncTypes Module {types, functions, imports} =
         getFuncType (Import _ _ (ImportFunc typeIdx)) = Just $ types !! (fromIntegral typeIdx)
         getFuncType _ = Nothing
 
-ctxFromModule :: [ValueType] -> [Maybe ValueType] -> Maybe ValueType -> Module -> Ctx
+ctxFromModule :: [ValueType] -> [[ValueType]] -> [ValueType] -> Module -> Ctx
 ctxFromModule locals labels returns m@Module {types, tables, mems, globals, imports} =
     let tableImports = catMaybes $ map getTableType imports in
     let memsImports = catMaybes $ map getMemType imports in
@@ -480,8 +483,7 @@ isFunctionValid Function {funcType, localTypes = locals, body} mod@Module {types
     if fromIntegral funcType < length types
     then do
         let FuncType params results = types !! fromIntegral funcType
-        let r = safeHead results
-        let ctx = ctxFromModule (params ++ locals) [r] r mod
+        let ctx = ctxFromModule (params ++ locals) [results] results mod
         arr <- runChecker ctx $ getExpressionType body
         if isArrowMatch arr (empty ==> results)
         then return ()
@@ -524,7 +526,7 @@ memoryShouldBeValid Module { imports, mems } =
 
 globalsShouldBeValid :: Validator
 globalsShouldBeValid m@Module { imports, globals } =
-    let ctx = ctxFromModule [] [] Nothing m in
+    let ctx = ctxFromModule [] [] [] m in
     foldMap (isGlobalValid ctx) globals
     where
         getGlobalType :: GlobalType -> ValueType
@@ -540,7 +542,7 @@ globalsShouldBeValid m@Module { imports, globals } =
 
 elemsShouldBeValid :: Validator
 elemsShouldBeValid m@Module { elems, functions, tables, imports } =
-    let ctx = ctxFromModule [] [] Nothing m in
+    let ctx = ctxFromModule [] [] [] m in
     foldMap (isElemValid ctx) elems
     where
         isElemValid :: Ctx -> ElemSegment -> ValidationResult
@@ -565,7 +567,7 @@ elemsShouldBeValid m@Module { elems, functions, tables, imports } =
 
 datasShouldBeValid :: Validator
 datasShouldBeValid m@Module { datas, mems, imports } =
-    let ctx = ctxFromModule [] [] Nothing m in
+    let ctx = ctxFromModule [] [] [] m in
     foldMap (isDataValid ctx) datas
     where
         isDataValid :: Ctx -> DataSegment -> ValidationResult
