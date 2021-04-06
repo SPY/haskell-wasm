@@ -923,7 +923,10 @@ mod :: { S.Module }
 
 -- Wasm Script Extended Grammar
 script :: { Script }
-    : list(command) EOF { $1 }
+    : '(' command1 list(command) EOF { $2 : $3 }
+    | '(' modulefield1 list(modulefield) EOF {%
+        (\m -> [ModuleDef $ RawModDef Nothing m]) `fmap` (desugarize $ $2 ++ concat $3)
+    }
 
 command :: { Command }
     : '(' command1 { $2 }
@@ -939,7 +942,6 @@ module1 :: { ModuleDef }
     : 'module' opt(ident) 'binary' datastring ')' { BinaryModDef $2 $4 }
     | 'module' opt(ident) 'quote' list(string) ')' { TextModDef $2 (TL.concat $4) }
     | 'module' opt(ident) list(modulefield) ')' {% RawModDef $2 `fmap` (desugarize $ concat $3) }
-    | modulefield1 list(modulefield) {% RawModDef Nothing `fmap` (desugarize $ $1 ++ concat $2) }
 
 action1 :: { Action }
     : 'invoke' opt(ident) string list(folded_instr) ')' { Invoke $2 $3 (map (map constInstructionToValue) $4) }
