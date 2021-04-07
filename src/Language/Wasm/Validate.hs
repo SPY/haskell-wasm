@@ -210,7 +210,7 @@ getInstrType Block { blockType, body } = do
 getInstrType Loop { blockType, body } = do
     bt@(Arrow from _) <- getBlockType blockType
     resultType <- getResultType blockType
-    t <- withLabel [] $ getExpressionTypeWithInput from body
+    t <- withLabel (map (\(Val v) -> v) from) $ getExpressionTypeWithInput from body
     if isArrowMatch t bt
     then return bt
     else throwError $ TypeMismatch t bt

@@ -187,6 +187,7 @@ runScript onAssertFail script = do
         getFailureString Validate.InvalidResultArity = ["invalid result arity"]
         getFailureString Validate.GlobalIsImmutable = ["global is immutable"]
         getFailureString Validate.InvalidStartFunctionType = ["start function"]
+        getFailureString Validate.InvalidTableType = ["size minimum must not be greater than maximum"]
         getFailureString r = [TL.concat ["not implemented ", (TL.pack $ show r)]]
 
         printFailedAssert :: String -> Assertion -> AssertM ()

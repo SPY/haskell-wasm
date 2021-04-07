@@ -69,6 +69,7 @@ import qualified Data.ByteString.Lazy.Char8 as LBSChar8
 import Data.Maybe (fromMaybe, fromJust, isNothing)
 import Data.List (foldl', findIndex, find)
 import Control.Monad (guard, foldM)
+import Control.Monad.Except (throwError)
 
 import Numeric.Natural (Natural)
 import Data.Word (Word32, Word64)
@@ -642,27 +643,27 @@ memarg8 :: { MemArg }
 instruction_list(terminator)
     : terminator { ($1, []) }
     | plaininstr mixed_instruction_list(terminator) { ([PlainInstr $1] ++) `fmap` $2 }
-    | 'call_indirect' typeuse(terminator) {
+    | 'call_indirect' typeuse(terminator) {%
         let (tu, instr, end) = $2 in
-        (end, [PlainInstr $ CallIndirect tu] ++ instr)
+        onlyAnonimParams tu >> (return (end, [PlainInstr $ CallIndirect tu] ++ instr))
     }
-    | 'block' opt(ident) typeuse('end') opt(ident) mixed_instruction_list(terminator) {%
-        let (tu, instr, _) = $3 in
-        if matchIdents $2 $4
-        then Right $ ([BlockInstr $2 tu instr] ++) `fmap` $5
-        else Left "Block labels have to match"
+    | 'block' opt(ident) typeuse('end') opt(ident) mixed_instruction_list(terminator) {% do
+        let (tu, instr, _) = $3 
+        matchIdents $2 $4
+        onlyAnonimParams tu
+        return $ ([BlockInstr $2 tu instr] ++) `fmap` $5
     }
-    | 'loop' opt(ident) typeuse('end') opt(ident) mixed_instruction_list(terminator) {%
-        let (tu, instr, _) = $3 in
-        if matchIdents $2 $4
-        then Right $ ([LoopInstr $2 tu instr] ++) `fmap` $5
-        else Left "Loop labels have to match"
+    | 'loop' opt(ident) typeuse('end') opt(ident) mixed_instruction_list(terminator) {% do
+        let (tu, instr, _) = $3
+        matchIdents $2 $4
+        onlyAnonimParams tu
+        return $ ([LoopInstr $2 tu instr] ++) `fmap` $5
     }
-    | 'if' opt(ident) typeuse(if_else) mixed_instruction_list(terminator) {%
-        let (tu, trueBranch, (falseBranch, identAfter)) = $3 in
-        if matchIdents $2 identAfter
-        then Right $ ([IfInstr $2 tu trueBranch falseBranch] ++) `fmap` $4
-        else Left "If labels have to match"
+    | 'if' opt(ident) typeuse(if_else) mixed_instruction_list(terminator) {% do
+        let (tu, trueBranch, (falseBranch, identAfter)) = $3
+        matchIdents $2 identAfter
+        onlyAnonimParams tu
+        return $ ([IfInstr $2 tu trueBranch falseBranch] ++) `fmap` $4
     }
 
 mixed_instruction_list(terminator)
@@ -672,9 +673,7 @@ mixed_instruction_list(terminator)
 if_else :: { ([Instruction], Maybe Ident) }
     : 'end' opt(ident) { ([], $2) }
     | 'else' opt(ident) mixed_instruction_list('end') opt(ident) {%
-        if matchIdents $2 $4
-        then Right (snd $3, if isNothing $2 then $4 else $2)
-        else Left "If labels have to match"
+        matchIdents $2 $4 >> return (snd $3, if isNothing $2 then $4 else $2)
     }
 
 folded_instr_list(terminator) : folded_instr1 mixed_instruction_list(terminator) { ($1 ++) `fmap` $2 }
@@ -684,21 +683,21 @@ folded_instr :: { [Instruction] }
 
 folded_instr1 :: { [Instruction] }
     : plaininstr mixed_instruction_list(')') { snd $2 ++ [PlainInstr $1] }
-    | 'call_indirect' typeuse(')') {
+    | 'call_indirect' typeuse(')') {%
         let (tu, instr, _) = $2 in
-        instr ++ [PlainInstr $ CallIndirect tu]
+        onlyAnonimParams tu >> (return $ instr ++ [PlainInstr $ CallIndirect tu])
     }
-    | 'block' opt(ident) typeuse(')') {
+    | 'block' opt(ident) typeuse(')') {%
         let (typeUse, instr, _) = $3 in
-        [BlockInstr $2 typeUse instr]
+        onlyAnonimParams typeUse >> (return [BlockInstr $2 typeUse instr])
     }
-    | 'loop' opt(ident) typeuse(')') {
+    | 'loop' opt(ident) typeuse(')') {%
         let (typeUse, instr, _) = $3 in
-        [LoopInstr $2 typeUse instr]
+        onlyAnonimParams typeUse >> (return [LoopInstr $2 typeUse instr])
     }
-    | 'if' opt(ident) '(' typeuse1(folded_then_else, never) {
+    | 'if' opt(ident) '(' typeuse1(folded_then_else, never) {%
         let (typeUse, Right (pred, (trueBranch, falseBranch))) = $4 in
-        pred ++ [IfInstr $2 typeUse trueBranch falseBranch]
+        onlyAnonimParams typeUse >> (return $ pred ++ [IfInstr $2 typeUse trueBranch falseBranch])
     }
 
 folded_then_else :: { ([Instruction], ([Instruction], [Instruction])) }
@@ -997,10 +996,23 @@ prependFuncResults prep f@(Function { funcType = AnonimousTypeUse ft }) =
 mergeFuncType :: FuncType -> FuncType -> FuncType
 mergeFuncType (FuncType lps lrs) (FuncType rps rrs) = FuncType (lps ++ rps) (lrs ++ rrs)
 
-matchIdents :: Maybe Ident -> Maybe Ident -> Bool
-matchIdents Nothing _ = True
-matchIdents _ Nothing = True
-matchIdents a b = a == b
+matchIdents :: Maybe Ident -> Maybe Ident -> Either String ()
+matchIdents Nothing Nothing = return ()
+matchIdents (Just a) (Just b) = if a == b then return () else throwError "mismatching label"
+matchIdents Nothing (Just _) = throwError "mismatching label"
+matchIdents (Just _) Nothing = return ()
+
+onlyAnonimParams :: TypeUse -> Either String ()
+onlyAnonimParams (IndexedTypeUse _ (Just ft)) = onlyAnonimFT ft
+onlyAnonimParams (AnonimousTypeUse ft) = onlyAnonimFT ft
+onlyAnonimParams _ = return ()
+
+onlyAnonimFT :: FuncType -> Either String ()
+onlyAnonimFT (FuncType params _) = mapM_ isAnonim params
+    where
+        isAnonim ParamType{ ident = Just _ } =
+            throwError "only anonimous params allowed in block signatures"
+        isAnonim _ = return ()
 
 asOffset :: LBS.ByteString -> Maybe Natural
 asOffset str = do
@@ -1350,6 +1362,7 @@ desugarize fields = do
     elements <- mapM (synElemToStruct mod) $ elems mod
     segments <- mapM (synDataToStruct mod) $ datas mod
     globs <- mapM (synGlobalToStruct mod) $ globals mod
+    checkTableIdentsUniqueness mod
     checkMemoryIdentsUniqueness mod
     checkGlobalIdentsUniqueness mod
     return S.Module {
@@ -1666,6 +1679,23 @@ desugarize fields = do
         synTableToStruct :: Table -> S.Table
         synTableToStruct (Table _ _ tableType) = S.Table tableType
 
+        checkTableIdentsUniqueness :: Module -> Either String ()
+        checkTableIdentsUniqueness m@Module { imports, tables } = do
+            mapM_ checkImportUniqueness $ filter isTableImport imports
+            mapM_ checkTableUniqueness tables
+            where
+                checkImportUniqueness Import { desc = ImportTable (Just id) _ } =
+                    if length (getTableIndexes m id) > 1
+                    then throwError "duplicate table"
+                    else return ()
+                checkImportUniqueness _ = return ()
+
+                checkTableUniqueness (Table _ (Just id) _) =
+                    if length (getTableIndexes m id) > 1
+                    then throwError "duplicate table"
+                    else return ()
+                checkTableUniqueness _ = return ()
+
         extractTable :: [Table] -> ModuleField -> [Table]
         extractTable tables (MFTable table) = table : tables
         extractTable tables _ = tables
@@ -1674,15 +1704,20 @@ desugarize fields = do
         isTableImport Import { desc = ImportTable _ _ } = True
         isTableImport _ = False
 
+        getTableIndexes :: Module -> Ident -> [Natural]
+        getTableIndexes Module { imports, tables } id =
+            let tableImports = zip [0..] $ filter isTableImport imports in
+            let importIndexes = map fst $ filter (\(_, Import { desc = ImportTable ident _ }) -> ident == Just id) tableImports in
+            let isIdent (_, (Table _ (Just id) _)) = True in
+            let tableIndexes = map fst $ filter isIdent $ zip [length tableImports..] tables in
+            map fromIntegral $ importIndexes ++ tableIndexes
+
         getTableIndex :: Module -> TableIndex -> Maybe Natural
-        getTableIndex Module { imports, tables } (Named id) =
-            let tableImports = filter isTableImport imports in
-            case findIndex (\(Import { desc = ImportTable ident _ }) -> ident == Just id) tableImports of
-                Just idx -> return $ fromIntegral idx
-                Nothing ->
-                    let isIdent (Table _ (Just id) _) = True in
-                    fromIntegral . (+ length tableImports) <$> findIndex isIdent tables
-        getTableIndex Module { imports, tables } (Index idx) = Just idx
+        getTableIndex mod (Named id) =
+            case getTableIndexes mod id of
+                [idx] -> return idx
+                _ -> Nothing
+        getTableIndex _ (Index idx) = Just idx
 
         -- memory
         synMemoryToStruct :: Memory -> S.Memory
@@ -1726,7 +1761,7 @@ desugarize fields = do
             case getMemIndexes mod id of
                 [idx] -> return idx
                 _ -> Nothing
-        getMemIndex Module { imports, mems } (Index idx) = Just idx
+        getMemIndex _ (Index idx) = Just idx
 
         -- global
         synGlobalToStruct :: Module -> Global -> Either String S.Global
