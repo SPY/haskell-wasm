@@ -636,13 +636,13 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
         step _ Unreachable = return Trap
         step ctx Nop = return $ Done ctx
         step ctx (Block blockType expr) = do
-            let resType = case blockType of
-                    Inline Nothing -> []
-                    Inline (Just valType) -> [valType]
-                    TypeIndex typeIdx -> results $ funcTypes moduleInstance ! fromIntegral typeIdx
+            let FuncType paramType resType = case blockType of
+                    Inline Nothing -> FuncType [] []
+                    Inline (Just valType) -> FuncType [] [valType]
+                    TypeIndex typeIdx -> funcTypes moduleInstance ! fromIntegral typeIdx
             res <- go ctx { labels = Label resType : labels ctx } expr
             case res of
-                Break 0 r EvalCtx{ locals = ls } -> return $ Done ctx { locals = ls, stack = r ++ stack ctx }
+                Break 0 r EvalCtx{ locals = ls } -> return $ Done ctx { locals = ls, stack = r ++ (drop (length paramType) $ stack ctx) }
                 Break n r ctx' -> return $ Break (n - 1) r ctx'
                 Done ctx'@EvalCtx{ labels = (_:rest) } -> return $ Done ctx' { labels = rest }
                 command -> return command
@@ -653,26 +653,26 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
                     TypeIndex typeIdx -> results $ funcTypes moduleInstance ! fromIntegral typeIdx
             res <- go ctx { labels = Label resType : labels ctx } expr
             case res of
-                Break 0 r EvalCtx{ locals = ls } -> step ctx { locals = ls, stack = r ++ stack ctx } loop
+                Break 0 r EvalCtx{ locals = ls, stack = st } -> step ctx { locals = ls, stack = st } loop
                 Break n r ctx' -> return $ Break (n - 1) r ctx'
                 Done ctx'@EvalCtx{ labels = (_:rest) } -> return $ Done ctx' { labels = rest }
                 command -> return command
         step ctx@EvalCtx{ stack = (VI32 v): rest } (If blockType true false) = do
-            let resType = case blockType of
-                    Inline Nothing -> []
-                    Inline (Just valType) -> [valType]
-                    TypeIndex typeIdx -> results $ funcTypes moduleInstance ! fromIntegral typeIdx
+            let FuncType paramType resType = case blockType of
+                    Inline Nothing -> FuncType [] []
+                    Inline (Just valType) -> FuncType [] [valType]
+                    TypeIndex typeIdx -> funcTypes moduleInstance ! fromIntegral typeIdx
             let expr = if v /= 0 then true else false
             res <- go ctx { labels = Label resType : labels ctx, stack = rest } expr
             case res of
-                Break 0 r EvalCtx{ locals = ls } -> return $ Done ctx { locals = ls, stack = r ++ rest }
+                Break 0 r EvalCtx{ locals = ls } -> return $ Done ctx { locals = ls, stack = r ++ (drop (length paramType) rest) }
                 Break n r ctx' -> return $ Break (n - 1) r ctx'
                 Done ctx'@EvalCtx{ labels = (_:rest) } -> return $ Done ctx' { labels = rest }
                 command -> return command
         step ctx@EvalCtx{ stack, labels } (Br label) = do
             let idx = fromIntegral label
             let Label resType = labels !! idx
-            case sequence $ zipWith checkValType resType $ take (length resType) stack of
+            case sequence $ zipWith checkValType (reverse resType) $ take (length resType) stack of
                 Just result -> return $ Break idx result ctx
                 Nothing -> return Trap
         step ctx@EvalCtx{ stack = (VI32 v): rest } (BrIf label) =
@@ -685,7 +685,7 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
             step ctx { stack = rest } (Br lbl)
         step EvalCtx{ stack } Return =
             let resType = results funcType in
-            case sequence $ zipWith checkValType resType $ take (length resType) stack of
+            case sequence $ zipWith checkValType (reverse resType) $ take (length resType) stack of
                 Just result -> return $ ReturnFn $ reverse result
                 Nothing -> return Trap
         step ctx (Call fun) = do

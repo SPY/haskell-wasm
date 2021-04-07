@@ -98,7 +98,7 @@ data Arrow = Arrow End End deriving (Show, Eq)
 (==>) a b = Arrow (toEnd a) (toEnd b)
 
 asArrow :: FuncType -> Arrow
-asArrow (FuncType params results) = Arrow (map Val params) (map Val results)
+asArrow (FuncType params results) = Arrow (map Val params) (map Val $ reverse results)
 
 isArrowMatch :: Arrow -> Arrow -> Bool
 isArrowMatch (f `Arrow` t) ( f' `Arrow` t') = isEndMatch f f' && isEndMatch t t'
@@ -210,7 +210,7 @@ getInstrType Block { blockType, body } = do
 getInstrType Loop { blockType, body } = do
     bt@(Arrow from _) <- getBlockType blockType
     resultType <- getResultType blockType
-    t <- withLabel resultType $ getExpressionTypeWithInput from body
+    t <- withLabel [] $ getExpressionTypeWithInput from body
     if isArrowMatch t bt
     then return bt
     else throwError $ TypeMismatch t bt
@@ -404,7 +404,7 @@ replace _ _ [] = []
 replace x y (v:r) = (if x == v then y else v) : replace x y r
 
 getExpressionTypeWithInput :: [VType] -> Expression -> Checker Arrow
-getExpressionTypeWithInput inp = fmap ((inp `Arrow`) . reverse) . foldM go inp
+getExpressionTypeWithInput inp = fmap (inp `Arrow`) . foldM go inp
     where
         go :: [VType] -> Instruction Natural -> Checker [VType]
         go stack instr = do
@@ -485,9 +485,9 @@ isFunctionValid Function {funcType, localTypes = locals, body} mod@Module {types
         let FuncType params results = types !! fromIntegral funcType
         let ctx = ctxFromModule (params ++ locals) [results] results mod
         arr <- runChecker ctx $ getExpressionType body
-        if isArrowMatch arr (empty ==> results)
+        if isArrowMatch arr (empty ==> (reverse results))
         then return ()
-        else Left $ TypeMismatch arr (empty ==> results)
+        else Left $ TypeMismatch arr (empty ==> (reverse results))
     else Left TypeIndexOutOfRange
 
 functionsShouldBeValid :: Validator
