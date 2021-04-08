@@ -1461,6 +1461,11 @@ desugarize fields = do
             else (TypeDef Nothing funcType) : defs
         matchTypeUse defs _ = defs
 
+        nth :: Natural -> [a] -> Maybe a
+        nth 0 (x : xs) = Just x
+        nth n (_ : xs) = nth (n - 1) xs
+        nth _ _ = Nothing
+
         getTypeIndex :: [TypeDef] -> TypeUse -> Maybe Natural
         getTypeIndex defs (AnonimousTypeUse funcType) =
             fromIntegral <$> findIndex (matchTypeFunc funcType) defs
@@ -1471,7 +1476,8 @@ desugarize fields = do
         getTypeIndex defs (IndexedTypeUse (Named ident) Nothing) =
             fromIntegral <$> findIndex (\(TypeDef i _) -> i == Just ident) defs
         getTypeIndex defs (IndexedTypeUse (Index n) (Just funcType)) = do
-            guard $ matchTypeFunc funcType $ defs !! fromIntegral n
+            def <- nth n defs
+            guard $ matchTypeFunc funcType def
             return n
         getTypeIndex defs (IndexedTypeUse (Index n) Nothing) = return n
         

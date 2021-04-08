@@ -14,9 +14,9 @@ import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Char as Char
 import qualified Data.ByteString.Lazy.UTF8 as LBSUtf8
 import Control.Monad (when)
-import Numeric.IEEE (infinity, nan)
+import Numeric.IEEE (infinity, nan, nanWithPayload)
 import Language.Wasm.FloatUtils (makeNaN, doubleToFloat)
-import Data.Word (Word8)
+import Data.Word (Word8, Word64)
 import Data.List (isPrefixOf)
 import Text.Read (readEither)
 
@@ -62,8 +62,8 @@ tokens :-
 <0> "nan"                                 { constToken $ TFloatLit $ BinRep (abs nan) }
 <0> "+nan"                                { constToken $ TFloatLit $ BinRep (abs nan) }
 <0> "-nan"                                { constToken $ TFloatLit $ BinRep nan }
-<0> "nan:canonical"                       { constToken $ TFloatLit $ BinRep nan }
-<0> "nan:arithmetic"                      { constToken $ TFloatLit $ BinRep nan }
+<0> "nan:canonical"                       { constToken $ TFloatLit $ NanRep Canonical }
+<0> "nan:arithmetic"                      { constToken $ TFloatLit $ NanRep Arithmetic }
 <0> $sign? @nanhex                        { parseNanSigned }
 <0> "inf"                                 { constToken $ TFloatLit $ BinRep inf }
 <0> "+inf"                                { constToken $ TFloatLit $ BinRep inf }
@@ -131,9 +131,13 @@ parseHexalSignedInt = token $ \(pos, _, s, _) len ->
 
 parseNanSigned :: AlexAction Lexeme
 parseNanSigned = token $ \(pos, _, s, _) len -> 
-    let (sign, slen) = parseSign s in
+    let (sign, slen) = case LBSUtf8.decode s of
+            Just ('-', _) -> (False, 1)
+            Just ('+', _) -> (True, 1)
+            otherwise -> (True, 0)
+    in
     let num = readHexFromPrefix (len - 6 - slen) $ LBSUtf8.drop (6 + slen) s in
-    Lexeme (Just pos) $ TFloatLit $ BinRep $ sign $ makeNaN $ fromIntegral num
+    Lexeme (Just pos) $ TFloatLit $ NanRep $ NanHex sign $ fromIntegral num
 
 parseDecimalSignedInt :: AlexAction Lexeme
 parseDecimalSignedInt = token $ \(pos, _, s, _) len ->
@@ -218,11 +222,23 @@ asFloat :: FloatRep -> Either String Float
 asFloat (BinRep d) = Right $ doubleToFloat d
 asFloat (HexRep s) = doubleToFloat <$> readHexFloat 128 "ffffff" s
 asFloat (DecRep s) = readDecFloat s
+asFloat (NanRep Canonical) = Right nan
+asFloat (NanRep Arithmetic) = Right nan
+asFloat (NanRep (NanHex isPos payload)) =
+    if payload >= 1 && payload < 2 ^ 23
+    then return $ doubleToFloat $ (if isPos then id else negate) $ makeNaN payload
+    else Left "constant out of range"
 
 asDouble :: FloatRep -> Either String Double
 asDouble (BinRep d) = Right d
 asDouble (HexRep s) = readHexFloat 1024 "fffffffffffff8" s
 asDouble (DecRep s) = readDecDouble s
+asDouble (NanRep Canonical) = Right nan
+asDouble (NanRep Arithmetic) = Right nan
+asDouble (NanRep (NanHex isPos payload)) =
+    if payload >= 1 && payload < 2 ^ 52
+    then return $ (if isPos then id else negate) $ makeNaN payload
+    else Left "constant out of range"
 
 startBlockComment :: AlexAction Lexeme
 startBlockComment _inp _len = do
@@ -300,6 +316,13 @@ data FloatRep
     = BinRep Double
     | DecRep String
     | HexRep String
+    | NanRep NaN
+    deriving (Show, Eq)
+
+data NaN
+    = Canonical
+    | Arithmetic
+    | NanHex Bool Word64
     deriving (Show, Eq)
 
 data Token = TKeyword LBS.ByteString
