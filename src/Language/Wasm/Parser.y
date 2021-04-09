@@ -66,8 +66,8 @@ import qualified Data.Text.Lazy.Read as TLRead
 
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Lazy.Char8 as LBSChar8
-import Data.Maybe (fromMaybe, fromJust, isNothing)
-import Data.List (foldl', findIndex, find)
+import Data.Maybe (fromMaybe, fromJust, isNothing, catMaybes)
+import Data.List (foldl', findIndex, find, nub)
 import Control.Monad (guard, foldM)
 import Control.Monad.Except (throwError)
 
@@ -724,7 +724,11 @@ import :: { Import }
 
 -- FUNCTION --
 function :: { ModuleField }
-    : 'func' opt(ident) export_import_typeuse_locals_body { $3 $2 }
+    : 'func' opt(ident) export_import_typeuse_locals_body {%
+        case $3 $2 of
+            mf@(MFFunc fn) -> checkLocalIdentUniqueness fn >> return mf
+            mf -> return mf
+    }
 
 export_import_typeuse_locals_body :: { Maybe Ident -> ModuleField }
     : instruction_list(')') {
@@ -1013,6 +1017,19 @@ onlyAnonimFT (FuncType params _) = mapM_ isAnonim params
         isAnonim ParamType{ ident = Just _ } =
             throwError "only anonimous params allowed in block signatures"
         isAnonim _ = return ()
+
+checkLocalIdentUniqueness :: Function -> Either String Function
+checkLocalIdentUniqueness fn@Function { funcType, locals } =
+    let ps = case funcType of
+            (AnonimousTypeUse ft) -> params ft
+            IndexedTypeUse _ ft -> params $ fromMaybe emptyFuncType ft
+    in
+    let allIdents = (catMaybes $ map (\(LocalType { ident }) -> ident) locals)
+            ++ (catMaybes $ map (\(ParamType { ident }) -> ident) ps)
+    in
+    if nub allIdents == allIdents
+    then return fn
+    else throwError "duplicate local"
 
 asOffset :: LBS.ByteString -> Maybe Natural
 asOffset str = do
@@ -1362,6 +1379,7 @@ desugarize fields = do
     elements <- mapM (synElemToStruct mod) $ elems mod
     segments <- mapM (synDataToStruct mod) $ datas mod
     globs <- mapM (synGlobalToStruct mod) $ globals mod
+    checkFuncIdentsUniqueness mod
     checkTableIdentsUniqueness mod
     checkMemoryIdentsUniqueness mod
     checkGlobalIdentsUniqueness mod
@@ -1671,15 +1689,37 @@ desugarize fields = do
         isFuncImport Import { desc = ImportFunc _ _ } = True
         isFuncImport _ = False
 
+        checkFuncIdentsUniqueness :: Module -> Either String ()
+        checkFuncIdentsUniqueness m@Module { imports, functions } = do
+            mapM_ checkImportUniqueness $ filter isFuncImport imports
+            mapM_ checkFuncUniqueness functions
+            where
+                checkImportUniqueness Import { desc = ImportFunc (Just id) _ } =
+                    if length (getFuncIndexes m id) > 1
+                    then throwError "duplicate func"
+                    else return ()
+                checkImportUniqueness _ = return ()
+
+                checkFuncUniqueness Function { ident = Just id } =
+                    if length (getFuncIndexes m id) > 1
+                    then throwError "duplicate func"
+                    else return ()
+                checkFuncUniqueness _ = return ()
+
+        getFuncIndexes :: Module -> Ident -> [Natural]
+        getFuncIndexes Module { imports, functions } id =
+            let funcImports = zip [0..] $ filter isFuncImport imports in
+            let importIndexes = map fst $ filter (\(_, Import { desc = ImportFunc ident _ }) -> ident == Just id) funcImports in
+            let isIdent (_, Function { ident }) = ident == Just id in
+            let funcIndexes = map fst $ filter isIdent $ zip [length funcImports..] functions in
+            map fromIntegral $ importIndexes ++ funcIndexes
+
         getFuncIndex :: Module -> FuncIndex -> Maybe Natural
-        getFuncIndex Module { imports, functions } (Named id) =
-            let funImports = filter isFuncImport imports in
-            case findIndex (\(Import { desc = ImportFunc ident _ }) -> ident == Just id) funImports of
-                Just idx -> return $ fromIntegral idx
-                Nothing ->
-                    let isIdent (Function { ident }) = ident == Just id in
-                    fromIntegral . (+ length funImports) <$> findIndex isIdent functions
-        getFuncIndex Module { imports, functions } (Index idx) = Just idx
+        getFuncIndex mod (Named id) =
+            case getFuncIndexes mod id of
+                [idx] -> return idx
+                _ -> Nothing
+        getFuncIndex _ (Index idx) = Just idx
 
         -- tables
         synTableToStruct :: Table -> S.Table
@@ -1714,7 +1754,7 @@ desugarize fields = do
         getTableIndexes Module { imports, tables } id =
             let tableImports = zip [0..] $ filter isTableImport imports in
             let importIndexes = map fst $ filter (\(_, Import { desc = ImportTable ident _ }) -> ident == Just id) tableImports in
-            let isIdent (_, (Table _ (Just id) _)) = True in
+            let isIdent (_, (Table _ ident _)) = ident == Just id in
             let tableIndexes = map fst $ filter isIdent $ zip [length tableImports..] tables in
             map fromIntegral $ importIndexes ++ tableIndexes
 
@@ -1758,7 +1798,7 @@ desugarize fields = do
         getMemIndexes Module { imports, mems } id =
             let memImports = zip [0..] $ filter isMemImport imports in
             let importIndexes = map fst $ filter (\(_, Import { desc = ImportMemory ident _ }) -> ident == Just id) memImports in
-            let isIdent (_, (Memory _ (Just id) _)) = True in
+            let isIdent (_, (Memory _ ident _)) = ident == Just id in
             let memIndexes = map fst $ filter isIdent $ zip [length memImports..] mems in
             map fromIntegral $ importIndexes ++ memIndexes
 
