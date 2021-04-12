@@ -137,8 +137,8 @@ runScript onAssertFail script = do
         isValueEqual :: Interpreter.Value -> Interpreter.Value -> Bool
         isValueEqual (Interpreter.VI32 v1) (Interpreter.VI32 v2) = v1 == v2
         isValueEqual (Interpreter.VI64 v1) (Interpreter.VI64 v2) = v1 == v2
-        isValueEqual (Interpreter.VF32 v1) (Interpreter.VF32 v2) = identicalIEEE v1 v2
-        isValueEqual (Interpreter.VF64 v1) (Interpreter.VF64 v2) = identicalIEEE v1 v2
+        isValueEqual (Interpreter.VF32 v1) (Interpreter.VF32 v2) = (isNaN v1 && isNaN v2) || identicalIEEE v1 v2
+        isValueEqual (Interpreter.VF64 v1) (Interpreter.VF64 v2) = (isNaN v1 && isNaN v2) || identicalIEEE v1 v2
         isValueEqual _ _ = False
 
         isNaNReturned :: Action -> Assertion -> AssertM ()

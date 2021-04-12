@@ -421,6 +421,9 @@ getExpressionTypeWithInput inp = fmap (inp `Arrow`) . foldM go inp
         matchStack (Val v:stack) (Var:args) res =
             let subst = replace Var (Val v) in
             matchStack stack (subst args) (subst res)
+        matchStack (Var:stack) (Val v:args) res =
+            let subst = replace Var (Val v) in
+            matchStack stack (subst args) (subst res)
         matchStack stack [] res = return $ res ++ stack
         matchStack [] args res = throwError $ TypeMismatch ((reverse args) `Arrow` res) ([] `Arrow` [])
         matchStack _ _ _ = error "inconsistent checker state"
