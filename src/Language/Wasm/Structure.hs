@@ -185,6 +185,8 @@ data Instruction index =
     | I32WrapI64
     | ITruncFU {- Int Size -} BitSize {- Float Size -} BitSize
     | ITruncFS {- Int Size -} BitSize {- Float Size -} BitSize
+    | ITruncSatFU {- Int Size -} BitSize {- Float Size -} BitSize
+    | ITruncSatFS {- Int Size -} BitSize {- Float Size -} BitSize
     | I64ExtendSI32
     | I64ExtendUI32
     | FConvertIU {- Float Size -} BitSize {- Int Size -} BitSize

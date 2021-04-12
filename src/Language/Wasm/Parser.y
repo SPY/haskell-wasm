@@ -271,12 +271,20 @@ import Language.Wasm.Lexer (
 'i32.trunc_f32_u'     { Lexeme _ (TKeyword "i32.trunc_f32_u") }
 'i32.trunc_f64_s'     { Lexeme _ (TKeyword "i32.trunc_f64_s") }
 'i32.trunc_f64_u'     { Lexeme _ (TKeyword "i32.trunc_f64_u") }
+'i32.trunc_sat_f32_s' { Lexeme _ (TKeyword "i32.trunc_sat_f32_s") }
+'i32.trunc_sat_f32_u' { Lexeme _ (TKeyword "i32.trunc_sat_f32_u") }
+'i32.trunc_sat_f64_s' { Lexeme _ (TKeyword "i32.trunc_sat_f64_s") }
+'i32.trunc_sat_f64_u' { Lexeme _ (TKeyword "i32.trunc_sat_f64_u") }
 'i64.extend_i32_s'    { Lexeme _ (TKeyword "i64.extend_i32_s") }
 'i64.extend_i32_u'    { Lexeme _ (TKeyword "i64.extend_i32_u") }
 'i64.trunc_f32_s'     { Lexeme _ (TKeyword "i64.trunc_f32_s") }
 'i64.trunc_f32_u'     { Lexeme _ (TKeyword "i64.trunc_f32_u") }
 'i64.trunc_f64_s'     { Lexeme _ (TKeyword "i64.trunc_f64_s") }
 'i64.trunc_f64_u'     { Lexeme _ (TKeyword "i64.trunc_f64_u") }
+'i64.trunc_sat_f32_s' { Lexeme _ (TKeyword "i64.trunc_sat_f32_s") }
+'i64.trunc_sat_f32_u' { Lexeme _ (TKeyword "i64.trunc_sat_f32_u") }
+'i64.trunc_sat_f64_s' { Lexeme _ (TKeyword "i64.trunc_sat_f64_s") }
+'i64.trunc_sat_f64_u' { Lexeme _ (TKeyword "i64.trunc_sat_f64_u") }
 'f32.convert_i32_s'   { Lexeme _ (TKeyword "f32.convert_i32_s") }
 'f32.convert_i32_u'   { Lexeme _ (TKeyword "f32.convert_i32_u") }
 'f32.convert_i64_s'   { Lexeme _ (TKeyword "f32.convert_i64_s") }
@@ -554,12 +562,20 @@ plaininstr :: { PlainInstr }
     | 'i32.trunc_f32_u'              { ITruncFU BS32 BS32 }
     | 'i32.trunc_f64_s'              { ITruncFS BS32 BS64 }
     | 'i32.trunc_f64_u'              { ITruncFU BS32 BS64 }
+    | 'i32.trunc_sat_f32_s'          { ITruncSatFS BS32 BS32 }
+    | 'i32.trunc_sat_f32_u'          { ITruncSatFU BS32 BS32 }
+    | 'i32.trunc_sat_f64_s'          { ITruncSatFS BS32 BS64 }
+    | 'i32.trunc_sat_f64_u'          { ITruncSatFU BS32 BS64 }
     | 'i64.extend_i32_s'             { I64ExtendSI32 }
     | 'i64.extend_i32_u'             { I64ExtendUI32 }
     | 'i64.trunc_f32_s'              { ITruncFS BS64 BS32 }
     | 'i64.trunc_f32_u'              { ITruncFU BS64 BS32 }
     | 'i64.trunc_f64_s'              { ITruncFS BS64 BS64 }
     | 'i64.trunc_f64_u'              { ITruncFU BS64 BS64 }
+    | 'i64.trunc_sat_f32_s'          { ITruncSatFS BS64 BS32 }
+    | 'i64.trunc_sat_f32_u'          { ITruncSatFU BS64 BS32 }
+    | 'i64.trunc_sat_f64_s'          { ITruncSatFS BS64 BS64 }
+    | 'i64.trunc_sat_f64_u'          { ITruncSatFU BS64 BS64 }
     | 'f32.convert_i32_s'            { FConvertIS BS32 BS32 }
     | 'f32.convert_i32_u'            { FConvertIU BS32 BS32 }
     | 'f32.convert_i64_s'            { FConvertIS BS32 BS64 }
@@ -1150,6 +1166,8 @@ data PlainInstr =
     | I32WrapI64
     | ITruncFU {- Int Size -} BitSize {- Float Size -} BitSize
     | ITruncFS {- Int Size -} BitSize {- Float Size -} BitSize
+    | ITruncSatFU {- Int Size -} BitSize {- Float Size -} BitSize
+    | ITruncSatFS {- Int Size -} BitSize {- Float Size -} BitSize
     | I64ExtendSI32
     | I64ExtendUI32
     | FConvertIU {- Float Size -} BitSize {- Int Size -} BitSize
@@ -1603,6 +1621,8 @@ desugarize fields = do
         synInstrToStruct _ (PlainInstr I32WrapI64) = return $ S.I32WrapI64
         synInstrToStruct _ (PlainInstr (ITruncFU sz sz')) = return $ S.ITruncFU sz sz'
         synInstrToStruct _ (PlainInstr (ITruncFS sz sz')) = return $ S.ITruncFS sz sz'
+        synInstrToStruct _ (PlainInstr (ITruncSatFU sz sz')) = return $ S.ITruncSatFU sz sz'
+        synInstrToStruct _ (PlainInstr (ITruncSatFS sz sz')) = return $ S.ITruncSatFS sz sz'
         synInstrToStruct _ (PlainInstr I64ExtendSI32) = return $ S.I64ExtendSI32
         synInstrToStruct _ (PlainInstr I64ExtendUI32) = return $ S.I64ExtendUI32
         synInstrToStruct _ (PlainInstr (FConvertIU sz sz')) = return $ S.FConvertIU sz sz'

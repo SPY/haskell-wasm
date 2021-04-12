@@ -381,6 +381,14 @@ getInstrType (ITruncFS BS32 BS32) = return $ F32 ==> I32
 getInstrType (ITruncFS BS32 BS64) = return $ F64 ==> I32
 getInstrType (ITruncFS BS64 BS32) = return $ F32 ==> I64
 getInstrType (ITruncFS BS64 BS64) = return $ F64 ==> I64
+getInstrType (ITruncSatFU BS32 BS32) = return $ F32 ==> I32
+getInstrType (ITruncSatFU BS32 BS64) = return $ F64 ==> I32
+getInstrType (ITruncSatFU BS64 BS32) = return $ F32 ==> I64
+getInstrType (ITruncSatFU BS64 BS64) = return $ F64 ==> I64
+getInstrType (ITruncSatFS BS32 BS32) = return $ F32 ==> I32
+getInstrType (ITruncSatFS BS32 BS64) = return $ F64 ==> I32
+getInstrType (ITruncSatFS BS64 BS32) = return $ F32 ==> I64
+getInstrType (ITruncSatFS BS64 BS64) = return $ F64 ==> I64
 getInstrType I64ExtendSI32 = return $ I32 ==> I64
 getInstrType I64ExtendUI32 = return $ I32 ==> I64
 getInstrType (FConvertIU BS32 BS32) = return $ I32 ==> F32
