@@ -1079,21 +1079,81 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
             then return Trap
             else return $ Done ctx { stack = VI64 (truncate v) : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncFS BS32 BS32) =
-            if isNaN v || isInfinite v || v >= 2^31 || v < -2^31
+            if isNaN v || isInfinite v || v >= 2^31 || v < -2^31 - 1
             then return Trap
             else return $ Done ctx { stack = VI32 (asWord32 $ truncate v) : rest }
         step ctx@EvalCtx{ stack = (VF64 v:rest) } (ITruncFS BS32 BS64) =
-            if isNaN v || isInfinite v || v >= 2^31 || v < -2^31
+            if isNaN v || isInfinite v || v >= 2^31 || v <= -2^31 - 1
             then return Trap
             else return $ Done ctx { stack = VI32 (asWord32 $ truncate v) : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncFS BS64 BS32) =
-            if isNaN v || isInfinite v || v >= 2^63 || v < -2^63
+            if isNaN v || isInfinite v || v >= 2^63 || v < -2^63 - 1
             then return Trap
             else return $ Done ctx { stack = VI64 (asWord64 $ truncate v) : rest }
         step ctx@EvalCtx{ stack = (VF64 v:rest) } (ITruncFS BS64 BS64) =
-            if isNaN v || isInfinite v || v >= 2^63 || v < -2^63
+            if isNaN v || isInfinite v || v >= 2^63 || v < -2^63 - 1
             then return Trap
             else return $ Done ctx { stack = VI64 (asWord64 $ truncate v) : rest }
+
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncSatFS BS32 BS32) | isNaN v =
+            return $ Done ctx { stack = VI32 0 : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } (ITruncSatFS BS32 BS64) | isNaN v =
+            return $ Done ctx { stack = VI32 0 : rest }
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncSatFS BS64 BS32) | isNaN v =
+            return $ Done ctx { stack = VI64 0 : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } (ITruncSatFS BS64 BS64) | isNaN v =
+            return $ Done ctx { stack = VI64 0 : rest }
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncSatFU BS32 BS32) | v <= -1 || isNaN v =
+            return $ Done ctx { stack = VI32 0 : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } (ITruncSatFU BS32 BS64) | v <= -1 || isNaN v =
+            return $ Done ctx { stack = VI32 0 : rest }
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncSatFU BS64 BS32) | v <= -1 || isNaN v =
+            return $ Done ctx { stack = VI64 0 : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } (ITruncSatFU BS64 BS64) | v <= -1 || isNaN v =
+            return $ Done ctx { stack = VI64 0 : rest }
+
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncSatFS BS32 BS32) | v >= 2^31 =
+            return $ Done ctx { stack = VI32 0x7fffffff : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } (ITruncSatFS BS32 BS64) | v >= 2^31 =
+            return $ Done ctx { stack = VI32 0x7fffffff : rest }
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncSatFS BS64 BS32) | v >= 2^63 =
+            return $ Done ctx { stack = VI64 0x7fffffffffffffff : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } (ITruncSatFS BS64 BS64) | v >= 2^63 =
+            return $ Done ctx { stack = VI64 0x7fffffffffffffff : rest }
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncSatFU BS32 BS32) | v >= 2^32 =
+            return $ Done ctx { stack = VI32 0xffffffff : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } (ITruncSatFU BS32 BS64) | v >= 2^32 =
+            return $ Done ctx { stack = VI32 0xffffffff : rest }
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncSatFU BS64 BS32) | v >= 2^64 =
+            return $ Done ctx { stack = VI64 0xffffffffffffffff : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } (ITruncSatFU BS64 BS64) | v >= 2^64 =
+            return $ Done ctx { stack = VI64 0xffffffffffffffff : rest }
+        
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncSatFS BS32 BS32) | v <= -2^31 - 1 =
+            return $ Done ctx { stack = VI32 0x80000000 : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } (ITruncSatFS BS32 BS64) | v <= -2^31 - 1 =
+            return $ Done ctx { stack = VI32 0x80000000 : rest }
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncSatFS BS64 BS32) | v <= -2^63 - 1 =
+            return $ Done ctx { stack = VI64 0x8000000000000000 : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } (ITruncSatFS BS64 BS64) | v <= -2^63 - 1 =
+            return $ Done ctx { stack = VI64 0x8000000000000000 : rest }
+
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncSatFU BS32 BS32) =
+            return $ Done ctx { stack = VI32 (truncate v) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } (ITruncSatFU BS32 BS64) =
+            return $ Done ctx { stack = VI32 (truncate v) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncSatFU BS64 BS32) =
+            return $ Done ctx { stack = VI64 (truncate v) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } (ITruncSatFU BS64 BS64) =
+            return $ Done ctx { stack = VI64 (truncate v) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncSatFS BS32 BS32) =
+            return $ Done ctx { stack = VI32 (asWord32 $ truncate v) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } (ITruncSatFS BS32 BS64) =
+            return $ Done ctx { stack = VI32 (asWord32 $ truncate v) : rest }
+        step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncSatFS BS64 BS32) =
+            return $ Done ctx { stack = VI64 (asWord64 $ truncate v) : rest }
+        step ctx@EvalCtx{ stack = (VF64 v:rest) } (ITruncSatFS BS64 BS64) =
+            return $ Done ctx { stack = VI64 (asWord64 $ truncate v) : rest }
         step ctx@EvalCtx{ stack = (VI32 v:rest) } I64ExtendUI32 =
             return $ Done ctx { stack = VI64 (fromIntegral v) : rest }
         step ctx@EvalCtx{ stack = (VI32 v:rest) } I64ExtendSI32 =

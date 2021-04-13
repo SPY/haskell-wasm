@@ -130,7 +130,10 @@ getSection sectionType parser def = do
     where
         parseSection op
             | op == 0 = skipCustomSection >> getSection sectionType parser def
-            | op == fromEnum sectionType = getWord8 >> (getULEB128 32 :: Get Natural) >> parser
+            | op == fromEnum sectionType = do
+                getWord8
+                len <- getULEB128 32
+                isolate len parser
             | op > fromEnum DataSection = fail "invalid section id"
             | op > fromEnum sectionType = return def
             | otherwise =
@@ -522,6 +525,15 @@ instance Serialize (Instruction Natural) where
     put (IUnOp BS64 IExtend16S) = putWord8 0xC3
     put (IUnOp BS64 IExtend32S) = putWord8 0xC4
 
+    put (ITruncSatFS BS32 BS32) = putWord8 0xFC >> putULEB128 (0x00 :: Word32)
+    put (ITruncSatFU BS32 BS32) = putWord8 0xFC >> putULEB128 (0x01 :: Word32)
+    put (ITruncSatFS BS32 BS64) = putWord8 0xFC >> putULEB128 (0x02 :: Word32)
+    put (ITruncSatFU BS32 BS64) = putWord8 0xFC >> putULEB128 (0x03 :: Word32)
+    put (ITruncSatFS BS64 BS32) = putWord8 0xFC >> putULEB128 (0x04 :: Word32)
+    put (ITruncSatFU BS64 BS32) = putWord8 0xFC >> putULEB128 (0x05 :: Word32)
+    put (ITruncSatFS BS64 BS64) = putWord8 0xFC >> putULEB128 (0x06 :: Word32)
+    put (ITruncSatFU BS64 BS64) = putWord8 0xFC >> putULEB128 (0x07 :: Word32)
+
     get = do
         op <- getWord8
         case op of
@@ -711,6 +723,18 @@ instance Serialize (Instruction Natural) where
             0xC2 -> return $ IUnOp BS64 IExtend8S
             0xC3 -> return $ IUnOp BS64 IExtend16S
             0xC4 -> return $ IUnOp BS64 IExtend32S
+            0xFC -> do -- misc
+                ext <- getULEB128 32
+                case (ext :: Word32) of
+                    0x00 -> return $ ITruncSatFS BS32 BS32
+                    0x01 -> return $ ITruncSatFU BS32 BS32
+                    0x02 -> return $ ITruncSatFS BS32 BS64
+                    0x03 -> return $ ITruncSatFU BS32 BS64
+                    0x04 -> return $ ITruncSatFS BS64 BS32
+                    0x05 -> return $ ITruncSatFU BS64 BS32
+                    0x06 -> return $ ITruncSatFS BS64 BS64
+                    0x07 -> return $ ITruncSatFU BS64 BS64
+                    _ -> fail "Unknown byte value after misc instruction byte"
             _ -> fail "Unknown byte value in place of instruction opcode"
 
 putExpression :: Expression -> Put
@@ -792,7 +816,10 @@ instance Serialize Function where
         putByteString bs
     get = do
         _size <- getULEB128 32 :: Get Natural
-        locals <- concat . map (\(LocalTypeRange n val) -> replicate (fromIntegral n) val) <$> getVec
+        localRanges <- getVec
+        let localLen = sum $ map (\(LocalTypeRange n _) -> n) localRanges
+        if localLen < 2^32 then return () else fail "too many locals"
+        let locals = concat $ map (\(LocalTypeRange n val) -> replicate (fromIntegral n) val) localRanges 
         body <- getExpression
         return $ Function 0 locals body
 
