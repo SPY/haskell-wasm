@@ -15,7 +15,7 @@ import qualified Data.Char as Char
 import qualified Data.ByteString.Lazy.UTF8 as LBSUtf8
 import Control.Monad (when)
 import Numeric.IEEE (infinity, nan, nanWithPayload)
-import Language.Wasm.FloatUtils (makeNaN, doubleToFloat, wordToFloat)
+import Language.Wasm.FloatUtils (makeNaN, doubleToFloat, wordToFloat, wordToDouble)
 import Data.Word (Word8, Word64)
 import Data.List (isPrefixOf)
 import Text.Read (readEither)
@@ -190,40 +190,11 @@ parseHexFloat :: AlexAction Lexeme
 parseHexFloat = token $ \(pos, _, s, _) len ->
     Lexeme (Just pos) $ TFloatLit $ HexRep $ filter (/= '_') $ takeChars len s
 
-readHexFloat :: Int -> String -> String -> Either String Double
-readHexFloat expLimit restrictedPrefix str =
-    let (sign, '0':'x':rest) = case str of
-            ('+':rest) -> (abs, rest)
-            ('-':rest) -> (negate, rest)
-            rest -> (abs, rest)
-    in
-    let (val, exp) = splitBy (\c -> c == 'P' || c == 'p') rest in
-    let (int, frac) = splitBy (== '.') val in
-    let intLen = length int in
-    let expInt = expAsInt exp in
-    if int == "1" && ((restrictedPrefix `isPrefixOf` frac && expInt == expLimit - 1) || expInt >= expLimit)
-    then Left $ "constant out of range"
-    else
-        let intVal = sum $ zipWith (\i c -> readHexFromChar c * (16 ^ (intLen - i))) [1..] int in
-        Right $ sign $ (intVal + readHexFrac frac) * readHexExp exp
-    where
-        readHexExp :: String -> Double
-        readHexExp [] = 1
-        readHexExp ('+' : rest) = readHexExp rest
-        readHexExp ('-' : rest) = 1 / readHexExp rest
-        readHexExp expStr = 2 ^ read expStr
-
-        readHexFrac :: String -> Double
-        readHexFrac [] = 0
-        readHexFrac val =
-            let len = length val in
-            sum $ zipWith (\i c -> readHexFromChar c / (16 ^ i)) [1..] val
-
-readHexFloat' :: String -> Either String Float
-readHexFloat' str = do
+readHexFloat :: (Integral w, Bits w) => (w -> f) -> Int -> Int -> Int -> String -> Either String f
+readHexFloat toFloat sz expLimit manitisaSize str = do
     let (sign, '0':'x':rest) = case str of
             ('+':rest) -> (0, rest)
-            ('-':rest) -> (0x80000000, rest)
+            ('-':rest) -> (1 `shiftL` (sz - 1), rest)
             rest -> (0, rest)
     let (val, expStr) = splitBy (\c -> c == 'P' || c == 'p') rest
     let (intRaw, fracRaw) = splitBy (== '.') val
@@ -232,26 +203,31 @@ readHexFloat' str = do
     let frac = dropWhile (== '0') fracWithZeros
     let exp = expAsInt expStr + length int * 4 - (length $ takeWhile (== '0') fracWithZeros) * 4
     if length frac == 0
-    then return $ wordToFloat sign
+    then return $ toFloat sign
     else do
         let fracBits = reverse $ dropWhile (== False) $ reverse $ toBits frac
         let exp' = exp - (length $ takeWhile (== False) fracBits) - 1
         let bits = dropWhile (== False) fracBits
-        let (bits', a, exp'') = if length bits <= 24
+        let budget = min (manitisaSize + 1) $ (expLimit + manitisaSize) + exp'
+        let (bits', a, exp'') = if length bits <= budget
                 then (bits, 0, exp')
                 else do
-                    let rounded = take 24 bits
-                    let rest = drop 24 bits
-                    if head rest == True && (length rest > 1 || last rounded == True)
+                    let rounded = take budget bits
+                    let rest = drop budget bits
+                    if head rest == True && (length rest > 1 || (length rounded > 0 && last rounded == True))
                     then do
-                        if all (== True) rounded
-                        then ([True, False], 0, exp' + 1)
+                        if length rounded > 0 && all (== True) rounded
+                        then ([True], 0, exp' + 1)
                         else (rounded, 1, exp')
                     else (rounded, 0, exp')
-        if exp'' > 127 || exp'' < -150 then Left "constant out of range" else return ()
-        if exp'' >= -126
-        then return $ wordToFloat $ sign .|. ((fromIntegral $ exp'' + 127) `shiftL` 23) .|. ((fromBits (tail bits') + a) `shiftL` (24 - length bits'))
-        else return $ wordToFloat $ sign .|. ((fromBits bits' + a) `shiftL` (150 - length bits' - abs exp''))
+        if exp'' > expLimit || exp'' < (negate $ expLimit + manitisaSize) then Left "constant out of range" else return ()
+        if exp'' >= (negate $ expLimit - 1)
+        then return $ toFloat $ sign .|. ((fromIntegral $ exp'' + expLimit) `shiftL` manitisaSize) .|. ((fromBits (tail bits') + a) `shiftL` (manitisaSize + 1 - length bits'))
+        else do
+            let shift = expLimit + manitisaSize - length bits' - abs exp''
+            if shift < 0
+            then return $ toFloat sign
+            else return $ toFloat $ sign .|. ((fromBits bits' + a) `shiftL` shift)
 
 type BitString = [Bool]
 
@@ -271,7 +247,7 @@ fromBits = foldr (\b acc -> acc * 2 + if b then 1 else 0) 0 . reverse . dropWhil
 
 asFloat :: FloatRep -> Either String Float
 asFloat (BinRep d) = Right $ doubleToFloat d
-asFloat (HexRep s) = readHexFloat' s
+asFloat (HexRep s) = readHexFloat wordToFloat 32 127 23 s
 asFloat (DecRep s) = readDecFloat s
 asFloat (NanRep Canonical) = Right nan
 asFloat (NanRep Arithmetic) = Right nan
@@ -282,7 +258,7 @@ asFloat (NanRep (NanHex isPos payload)) =
 
 asDouble :: FloatRep -> Either String Double
 asDouble (BinRep d) = Right d
-asDouble (HexRep s) = readHexFloat 1024 "fffffffffffff8" s
+asDouble (HexRep s) = readHexFloat wordToDouble 64 1023 52 s
 asDouble (DecRep s) = readDecDouble s
 asDouble (NanRep Canonical) = Right nan
 asDouble (NanRep Arithmetic) = Right nan
