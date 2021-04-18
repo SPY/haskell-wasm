@@ -15,10 +15,11 @@ import qualified Data.Char as Char
 import qualified Data.ByteString.Lazy.UTF8 as LBSUtf8
 import Control.Monad (when)
 import Numeric.IEEE (infinity, nan, nanWithPayload)
-import Language.Wasm.FloatUtils (makeNaN, doubleToFloat)
+import Language.Wasm.FloatUtils (makeNaN, doubleToFloat, wordToFloat)
 import Data.Word (Word8, Word64)
 import Data.List (isPrefixOf)
 import Text.Read (readEither)
+import Data.Bits
 
 }
 
@@ -218,9 +219,59 @@ readHexFloat expLimit restrictedPrefix str =
             let len = length val in
             sum $ zipWith (\i c -> readHexFromChar c / (16 ^ i)) [1..] val
 
+readHexFloat' :: String -> Either String Float
+readHexFloat' str = do
+    let (sign, '0':'x':rest) = case str of
+            ('+':rest) -> (0, rest)
+            ('-':rest) -> (0x80000000, rest)
+            rest -> (0, rest)
+    let (val, expStr) = splitBy (\c -> c == 'P' || c == 'p') rest
+    let (intRaw, fracRaw) = splitBy (== '.') val
+    let int = dropWhile (== '0') intRaw
+    let fracWithZeros = int ++ (reverse $ dropWhile (== '0') $ reverse fracRaw)
+    let frac = dropWhile (== '0') fracWithZeros
+    let exp = expAsInt expStr + length int * 4 - (length $ takeWhile (== '0') fracWithZeros) * 4
+    if length frac == 0
+    then return $ wordToFloat sign
+    else do
+        let fracBits = reverse $ dropWhile (== False) $ reverse $ toBits frac
+        let exp' = exp - (length $ takeWhile (== False) fracBits) - 1
+        let bits = dropWhile (== False) fracBits
+        let (bits', a, exp'') = if length bits <= 24
+                then (bits, 0, exp')
+                else do
+                    let rounded = take 24 bits
+                    let rest = drop 24 bits
+                    if head rest == True && (length rest > 1 || last rounded == True)
+                    then do
+                        if all (== True) rounded
+                        then ([True, False], 0, exp' + 1)
+                        else (rounded, 1, exp')
+                    else (rounded, 0, exp')
+        if exp'' > 127 || exp'' < -150 then Left "constant out of range" else return ()
+        if exp'' >= -126
+        then return $ wordToFloat $ sign .|. ((fromIntegral $ exp'' + 127) `shiftL` 23) .|. ((fromBits (tail bits') + a) `shiftL` (24 - length bits'))
+        else return $ wordToFloat $ sign .|. ((fromBits bits' + a) `shiftL` (150 - length bits' - abs exp''))
+
+type BitString = [Bool]
+
+toBits :: String -> BitString
+toBits = concat . map (asBits . readHexFromChar)
+    where
+        asBits :: Word8 -> BitString
+        asBits w = [
+                if w .&. 8 == 0 then False else True,
+                if w .&. 4 == 0 then False else True,
+                if w .&. 2 == 0 then False else True,
+                if w .&. 1 == 0 then False else True
+            ]
+
+fromBits :: (Integral i) => BitString -> i
+fromBits = foldr (\b acc -> acc * 2 + if b then 1 else 0) 0 . reverse . dropWhile (== False)
+
 asFloat :: FloatRep -> Either String Float
 asFloat (BinRep d) = Right $ doubleToFloat d
-asFloat (HexRep s) = doubleToFloat <$> readHexFloat 128 "ffffff" s
+asFloat (HexRep s) = readHexFloat' s
 asFloat (DecRep s) = readDecFloat s
 asFloat (NanRep Canonical) = Right nan
 asFloat (NanRep Arithmetic) = Right nan
