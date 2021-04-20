@@ -94,7 +94,8 @@ import Language.Wasm.Lexer (
         Lexeme(..),
         AlexPosn(..),
         asFloat,
-        asDouble
+        asDouble,
+        doubleFromInteger
     )
 
 }
@@ -401,7 +402,7 @@ float64 :: { Double }
     : int {%
         let maxInt = round (maxFinite :: Double) in
         if $1 <= maxInt && $1 >= -maxInt
-        then return $ fromIntegral $1
+        then doubleFromInteger $1
         else Left "constant out of range"
     }
     | f64 {% asDouble $1 }

@@ -7,7 +7,8 @@ module Language.Wasm.Lexer (
     AlexPosn(..),
     scanner,
     asFloat,
-    asDouble
+    asDouble,
+    doubleFromInteger
 ) where
 
 import qualified Data.ByteString.Lazy as LBS
@@ -20,6 +21,7 @@ import Data.Word (Word8, Word64)
 import Data.List (isPrefixOf)
 import Text.Read (readEither)
 import Data.Bits
+import Numeric (showHex)
 
 }
 
@@ -266,6 +268,9 @@ asDouble (NanRep (NanHex isPos payload)) =
     if payload >= 1 && payload < 2 ^ 52
     then return $ (if isPos then id else negate) $ makeNaN payload
     else Left "constant out of range"
+
+doubleFromInteger :: Integer -> Either String Double
+doubleFromInteger int = asDouble . HexRep . ((if int < 0 then "-0x" else "0x") ++) . flip showHex "" $ abs int
 
 startBlockComment :: AlexAction Lexeme
 startBlockComment _inp _len = do
