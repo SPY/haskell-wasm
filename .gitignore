@@ -8,3 +8,5 @@ dist-newstyle/
 doc/
 setup-config
 wasm-*-docs.tar.gz
+cache
+packagedb
