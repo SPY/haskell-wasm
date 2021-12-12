@@ -1,6 +1,6 @@
 cabal-version:  2.2
 name:           wasm
-version:        1.0.1.0
+version:        1.1.1
 synopsis:       WebAssembly Language Toolkit and Interpreter
 description:
   Library for parsing and interpreting WebAssembly, including:
@@ -33,14 +33,14 @@ library
       Language.Wasm.Script
       Language.Wasm.Lexer
       Language.Wasm.Structure
-      Language.Wasm
-  other-modules:
-      Language.Wasm.Binary
-      Language.Wasm.Builder
-      Language.Wasm.FloatUtils
       Language.Wasm.Interpreter
       Language.Wasm.Parser
       Language.Wasm.Validate
+      Language.Wasm.Binary
+      Language.Wasm.Builder
+      Language.Wasm
+  other-modules:
+      Language.Wasm.FloatUtils
       Paths_wasm
   autogen-modules:
       Paths_wasm
