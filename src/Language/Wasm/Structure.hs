@@ -108,6 +108,8 @@ data ValueType =
     | I64
     | F32
     | F64
+    | Func
+    | Extern
     deriving (Show, Eq, Generic, NFData)
 
 type ResultType = [ValueType]
@@ -134,6 +136,10 @@ data Instruction index =
     | Return
     | Call index
     | CallIndirect index
+    -- Reference instructions
+    | RefNull ElemType
+    | RefIsNull
+    | RefFunc index
     -- Parametric instructions
     | Drop
     | Select
@@ -207,7 +213,7 @@ data Function = Function {
 
 data Limit = Limit Natural (Maybe Natural) deriving (Show, Eq, Generic, NFData)
 
-data ElemType = FuncRef deriving (Show, Eq, Generic, NFData)
+data ElemType = FuncRef | ExternRef deriving (Show, Eq, Generic, NFData)
 
 data TableType = TableType Limit ElemType deriving (Show, Eq, Generic, NFData)
 

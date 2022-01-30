@@ -122,6 +122,8 @@ runScript onAssertFail script = do
         asArg [Struct.F32Const v] = Interpreter.VF32 v
         asArg [Struct.I64Const v] = Interpreter.VI64 v
         asArg [Struct.F64Const v] = Interpreter.VF64 v
+        asArg [Struct.RefNull Struct.FuncRef] = Interpreter.RF Nothing
+        asArg [Struct.RefNull Struct.ExternRef] = Interpreter.RE Nothing
         asArg _                   = error "Only const instructions supported as arguments for actions"
 
         runAction :: ScriptState -> Action -> IO (Maybe [Interpreter.Value])
@@ -139,6 +141,8 @@ runScript onAssertFail script = do
         isValueEqual (Interpreter.VI64 v1) (Interpreter.VI64 v2) = v1 == v2
         isValueEqual (Interpreter.VF32 v1) (Interpreter.VF32 v2) = (isNaN v1 && isNaN v2) || identicalIEEE v1 v2
         isValueEqual (Interpreter.VF64 v1) (Interpreter.VF64 v2) = (isNaN v1 && isNaN v2) || identicalIEEE v1 v2
+        isValueEqual (Interpreter.RF f1) (Interpreter.RF f2) = f1 == f2
+        isValueEqual (Interpreter.RE e1) (Interpreter.RE e2) = e1 == e2
         isValueEqual _ _ = False
 
         isNaNReturned :: Action -> Assertion -> AssertM ()

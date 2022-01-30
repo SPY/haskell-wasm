@@ -258,6 +258,16 @@ getInstrType Drop = do
 getInstrType Select = do
     var <- freshVar
     return $ [var, var, Val I32] ==> var
+getInstrType (RefNull elType) = do
+    let t = case elType of { FuncRef -> Func; ExternRef -> Extern }
+    return $ empty ==> Val t
+getInstrType RefIsNull = do
+    return $ empty ==> Val I32
+getInstrType (RefFunc funIdx) = do
+    Ctx { funcs } <- ask
+    if fromIntegral funIdx < length funcs
+    then return $ empty ==> Val I32
+    else throwError FunctionIndexOutOfRange
 getInstrType (GetLocal local) = do
     Ctx { locals }  <- ask
     t <- maybeToEither (LocalIndexOutOfRange local) $ locals !? local
@@ -445,6 +455,8 @@ isConstExpression ((I32Const _):rest) = isConstExpression rest
 isConstExpression ((I64Const _):rest) = isConstExpression rest
 isConstExpression ((F32Const _):rest) = isConstExpression rest
 isConstExpression ((F64Const _):rest) = isConstExpression rest
+isConstExpression ((RefNull _):rest) = isConstExpression rest
+isConstExpression ((RefFunc _):rest) = isConstExpression rest
 isConstExpression ((GetGlobal idx):rest) = do
     Ctx {globals, importedGlobals} <- ask
     if importedGlobals <= idx
