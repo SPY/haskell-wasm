@@ -74,6 +74,8 @@ data Value =
     | VI64 Word64
     | VF32 Float
     | VF64 Double
+    | RF (Maybe Natural)
+    | RE (Maybe Natural)
     deriving (Eq, Show)
 
 asInt32 :: Word32 -> Int32
@@ -191,6 +193,8 @@ getValueType (VI32 _) = I32
 getValueType (VI64 _) = I64
 getValueType (VF32 _) = F32
 getValueType (VF64 _) = F64
+getValueType (RF _) = Func
+genValueType (RE _) = Extern
 
 data ExportInstance = ExportInstance TL.Text ExternalValue deriving (Eq, Show)
 
@@ -426,6 +430,9 @@ evalConstExpr _ _ [I32Const v] = return $ VI32 v
 evalConstExpr _ _ [I64Const v] = return $ VI64 v
 evalConstExpr _ _ [F32Const v] = return $ VF32 v
 evalConstExpr _ _ [F64Const v] = return $ VF64 v
+evalConstExpr _ _ [RefNull FuncRef] = return $ RF Nothing
+evalConstExpr _ _ [RefNull ExternRef] = return $ RE Nothing
+evalConstExpr _ _ [RefFunc idx] = return $ RF $ Just idx
 evalConstExpr inst store [GetGlobal i] = getGlobalValue inst store i
 evalConstExpr _ _ instrs = error $ "Global initializer contains unsupported instructions: " ++ show instrs
 
@@ -722,6 +729,15 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
                         Just res -> return $ Done ctx { stack = reverse res ++ (drop (length params) rest) }
                         Nothing -> return Trap
                 Nothing -> return Trap
+        step ctx@EvalCtx{ stack = st } (RefNull FuncRef) =
+            return $ Done ctx { stack = RF Nothing : st }
+        step ctx@EvalCtx{ stack = st } (RefNull ExternRef) =
+            return $ Done ctx { stack = RE Nothing : st }
+        step ctx@EvalCtx{ stack = v:rest } RefIsNull =
+            let r = case v of { RE Nothing -> 1; RF Nothing -> 1; _ -> 0 } in
+            return $ Done ctx { stack = VI32 r : rest }
+        step ctx@EvalCtx{ stack = st } (RefFunc index) =
+            return $ Done ctx { stack = RF (Just index) : st }
         step ctx@EvalCtx{ stack = (_:rest) } Drop = return $ Done ctx { stack = rest }
         step ctx@EvalCtx{ stack = (VI32 test:val2:val1:rest) } Select =
             if test == 0

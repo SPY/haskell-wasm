@@ -119,6 +119,8 @@ import Language.Wasm.Lexer (
 'f64'                 { Lexeme _ (TKeyword "f64") }
 'mut'                 { Lexeme _ (TKeyword "mut") }
 'funcref'             { Lexeme _ (TKeyword "funcref") }
+'externref'           { Lexeme _ (TKeyword "externref") }
+'extern'              { Lexeme _ (TKeyword "extern") }
 'type'                { Lexeme _ (TKeyword "type") }
 'unreachable'         { Lexeme _ (TKeyword "unreachable") }
 'nop'                 { Lexeme _ (TKeyword "nop") }
@@ -128,6 +130,9 @@ import Language.Wasm.Lexer (
 'return'              { Lexeme _ (TKeyword "return") }
 'call'                { Lexeme _ (TKeyword "call") }
 'call_indirect'       { Lexeme _ (TKeyword "call_indirect") }
+'ref.null'            { Lexeme _ (TKeyword "ref.null") }
+'ref.is_null'         { Lexeme _ (TKeyword "ref.is_null") }
+'ref.func'            { Lexeme _ (TKeyword "ref.func") }
 'drop'                { Lexeme _ (TKeyword "drop") }
 'select'              { Lexeme _ (TKeyword "select") }
 'get_local'           { Lexeme _ (TKeyword "local.get") }
@@ -363,6 +368,8 @@ valtype :: { ValueType }
     | 'i64' { I64 }
     | 'f32' { F32 }
     | 'f64' { F64 }
+    | 'funcref' { Func }
+    | 'externref' { Extern }
 
 index :: { Index }
     : u32 { Index $1 }
@@ -418,6 +425,10 @@ plaininstr :: { PlainInstr }
     | 'call' index                   { Call $2 }
     | 'drop'                         { Drop }
     | 'select'                       { Select }
+    -- reference instructions
+    | 'ref.null' heaptype            { RefNull $2 }
+    | 'ref.is_null'                  { RefIsNull }
+    | 'ref.func' index               { RefFunc $2 }
     -- variable instructions
     | 'get_local' index              { GetLocal $2 }
     | 'set_local' index              { SetLocal $2 }
@@ -856,6 +867,11 @@ limits :: { Limit }
 
 elemtype :: { ElemType }
     : 'funcref' { FuncRef }
+    | 'externref' { ExternRef }
+
+heaptype :: { ElemType }
+    : 'func' { FuncRef }
+    | 'extern' { ExternRef }
 
 tabletype :: { TableType }
     : limits elemtype { TableType $1 $2 }
@@ -1116,6 +1132,10 @@ data PlainInstr =
     | Return
     | Call FuncIndex
     | CallIndirect TypeUse
+    -- Reference instructions
+    | RefNull ElemType
+    | RefIsNull
+    | RefFunc FuncIndex
     -- Parametric instructions
     | Drop
     | Select
@@ -1376,6 +1396,7 @@ constInstructionToValue (PlainInstr (I32Const v)) = S.I32Const $ integerToWord32
 constInstructionToValue (PlainInstr (F32Const v)) = S.F32Const v
 constInstructionToValue (PlainInstr (I64Const v)) = S.I64Const $ integerToWord64 v
 constInstructionToValue (PlainInstr (F64Const v)) = S.F64Const v
+constInstructionToValue (PlainInstr (RefNull et)) = S.RefNull et
 constInstructionToValue _ = error "Only const instructions supported as arguments for actions"
 
 desugarize :: [ModuleField] -> Either String S.Module
@@ -1562,6 +1583,12 @@ desugarize fields = do
                 Nothing -> Left "unknown type"
         synInstrToStruct _ (PlainInstr Drop) = return $ S.Drop
         synInstrToStruct _ (PlainInstr Select) = return $ S.Select
+        synInstrToStruct _ (PlainInstr (RefNull elType)) = return $ S.RefNull elType
+        synInstrToStruct _ (PlainInstr RefIsNull) = return $ S.RefIsNull
+        synInstrToStruct FunCtx { ctxMod } (PlainInstr (RefFunc funIdx)) =
+            case getFuncIndex ctxMod funIdx of
+                Just idx -> return $ S.RefFunc idx
+                Nothing -> Left "unknown function"
         synInstrToStruct ctx (PlainInstr (GetLocal localIdx)) =
             case getLocalIndex ctx localIdx of
                 Just idx -> return $ S.GetLocal idx
