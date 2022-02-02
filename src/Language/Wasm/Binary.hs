@@ -326,6 +326,12 @@ instance Serialize Index where
     put (Index idx) = putULEB128 idx
     get = Index <$> getULEB128 32
 
+newtype Expr = Expr { unExpr :: Expression } deriving (Show, Eq)
+
+instance Serialize Expr where
+    put (Expr expr) = putExpression expr
+    get = Expr <$> getExpression
+
 instance Serialize MemArg where
     put MemArg { align, offset } = putULEB128 align >> putULEB128 offset
     get = do
@@ -802,17 +808,18 @@ instance Serialize ElemSegment where
     put (ElemSegment elemType Passive elements) = do
         putWord8 0x05
         put elemType
-        putVec $ map putExpression elements
+        putVec $ map Expr elements
     put (ElemSegment elemType (Active tableIndex offset) elements) = do
         putWord8 0x06
         putULEB128 tableIndex
         putExpression offset
         put elemType
-        putVec $ map putExpression elements
+        putVec $ map Expr elements
     put (ElemSegment elemType Declarative elements) = do
         putWord8 0x07
         put elemType
-        putVec $ map putExpression elements
+        putVec $ map Expr elements
+
     get = do
         op <- getWord8
         let funcIndexes = map ((:[]) . RefFunc . unIndex) <$> getVec
