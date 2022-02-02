@@ -318,6 +318,8 @@ import Language.Wasm.Lexer (
 'export'              { Lexeme _ (TKeyword "export") }
 'local'               { Lexeme _ (TKeyword "local") }
 'elem'                { Lexeme _ (TKeyword "elem") }
+'item'                { Lexeme _ (TKeyword "item") }
+'declare'             { Lexeme _ (TKeyword "declare") }
 'data'                { Lexeme _ (TKeyword "data") }
 'offset'              { Lexeme _ (TKeyword "offset") }
 'start'               { Lexeme _ (TKeyword "start") }
@@ -885,7 +887,10 @@ limits_elemtype_elem :: { Maybe Ident -> [ModuleField] }
         \ident ->
             let funcsLen = fromIntegral $ length $4 in [
                 MFTable $ Table [] ident $ TableType (Limit funcsLen (Just funcsLen)) $1,
-                MFElem $ ElemSegment (fromMaybe (Index 0) $ Named `fmap` ident) [PlainInstr $ I32Const 0] $4
+                let tableIndex = (fromMaybe (Index 0) $ Named `fmap` ident) in
+                let offset = [PlainInstr $ I32Const 0] in
+                let elements = funcIndexToExpr $4 in
+                MFElem $ ElemSegment Nothing FuncRef (Active tableIndex offset) elements
             ]
     }
     | '(' import_export_table { $2 }
@@ -916,15 +921,38 @@ export :: { Export }
 start :: { StartFunction }
     : 'start' index ')' { StartFunction $2 }
 
--- TODO: Spec from 09 Jan 2018 declares 'offset' keyword as mandatory,
--- but collection of testcases omits 'offset' in this position
--- I am going to support both options for now, but maybe it has to be updated in future.
 offsetexpr :: { [Instruction] }
     : 'offset' mixed_instruction_list(')') { snd $2 }
     | folded_instr1 { $1 }
 
-elemsegment :: { ElemSegment }
-    : 'elem' opt(index) '(' offsetexpr list(index) ')' { ElemSegment (fromMaybe (Index 0) $2) $4 $5 }
+elem :: { ElemSegment }
+    : 'elem' opt(ident) elem1 { $3{ ident = $2 } }
+
+elem1 :: { ElemSegment }
+    : elemlist ')' { let (t, els) = $1 in ElemSegment Nothing t Passive els }
+    | 'declare' elemlist ')' { let (t, els) = $2 in ElemSegment Nothing t Declarative els }
+    | '(' elem1_active { $2 }
+
+elem1_active :: { ElemSegment }
+    : 'table' index ')' '(' elem1_active_offset {
+        let (offset, t, els) = $5 in ElemSegment Nothing t (Active $2 offset) els
+    }
+    | elem1_active_offset {
+        let (offset, t, els) = $1 in ElemSegment Nothing t (Active (Index 0) offset) els
+    }
+
+elem1_active_offset :: { ([Instruction], ElemType, [[Instruction]]) }
+    : 'offset' mixed_instruction_list(')') elemlist { (snd $2, fst $3, snd $3) }
+    | folded_instr1 elemlist { ($1, fst $2, snd $2) }
+
+elemlist :: { (ElemType, [[Instruction]]) }
+    : 'func' list(index) { (FuncRef, funcIndexToExpr $2) }
+    | 'funcref' list(elemexpr) { (FuncRef, $2) }
+
+elemexpr :: { [Instruction] }
+    : plaininstr { [PlainInstr $1] }
+    | '(' 'item' mixed_instruction_list(')') { snd $3 }
+    | '(' folded_instr1 { $2 }
 
 datasegment :: { DataSegment }
     : 'data' opt(index) '(' offsetexpr datastring ')' { DataSegment (fromMaybe (Index 0) $2) $4 $5 }
@@ -934,7 +962,7 @@ modulefield1_single :: { ModuleField }
     | import { MFImport $1 }
     | export { MFExport $1 }
     | start { MFStart $1 }
-    | elemsegment { MFElem $1 }
+    | elem { MFElem $1 }
     | datasegment { MFData $1 }
     | function { $1 }
     | global { $1 }
@@ -1293,10 +1321,17 @@ data Export = Export {
 
 data StartFunction = StartFunction FuncIndex deriving (Show, Eq, Generic, NFData)
 
+data ElemMode
+    = Passive
+    | Active TableIndex [Instruction]
+    | Declarative
+    deriving (Show, Eq, Generic, NFData)
+
 data ElemSegment = ElemSegment {
-        tableIndex :: TableIndex,
-        offset :: [Instruction],
-        funcIndexes :: [FuncIndex]
+        ident :: Maybe Ident,
+        elemType :: ElemType,
+        mode :: ElemMode,
+        elements :: [[Instruction]]
     }
     deriving (Show, Eq, Generic, NFData)
 
@@ -1399,6 +1434,9 @@ constInstructionToValue (PlainInstr (F64Const v)) = S.F64Const v
 constInstructionToValue (PlainInstr (RefNull et)) = S.RefNull et
 constInstructionToValue _ = error "Only const instructions supported as arguments for actions"
 
+funcIndexToExpr :: [FuncIndex] -> [[Instruction]]
+funcIndexToExpr = map $ (:[]) . PlainInstr . RefFunc
+
 desugarize :: [ModuleField] -> Either String S.Module
 desugarize fields = do
     checkImportsOrder fields
@@ -1484,8 +1522,6 @@ desugarize fields = do
             extractTypeDefFromInstructions (matchTypeUse defs funcType) body
         extractTypeDef defs (MFGlobal Global { initializer }) =
             extractTypeDefFromInstructions defs initializer
-        extractTypeDef defs (MFElem ElemSegment { offset }) =
-            extractTypeDefFromInstructions defs offset
         extractTypeDef defs (MFData DataSegment { offset }) =
             extractTypeDefFromInstructions defs offset
         extractTypeDef defs _ = defs
@@ -1905,12 +1941,18 @@ desugarize fields = do
 
         -- elem segment
         synElemToStruct :: Module -> ElemSegment -> Either String S.ElemSegment
-        synElemToStruct mod ElemSegment { tableIndex, offset, funcIndexes } =
-            let ctx = FunCtx mod [] [] [] in
-            let offsetInstrs = mapM (synInstrToStruct ctx) offset in
-            let idx = fromJust $ getTableIndex mod tableIndex in
-            let indexes = map (fromJust . getFuncIndex mod) funcIndexes in
-            S.ElemSegment idx <$> offsetInstrs <*> return indexes
+        synElemToStruct mod ElemSegment { ident, elemType, mode, elements } = do
+            let ctx = FunCtx mod [] [] []
+            m <- case mode of {
+                Active tableIndex offset ->
+                    let offsetInstrs = mapM (synInstrToStruct ctx) offset in
+                    let idx = fromJust $ getTableIndex mod tableIndex in
+                    S.Active idx <$> offsetInstrs;
+                Passive -> return S.Passive;
+                Declarative -> return S.Declarative
+            }
+            let elemExprs = mapM (mapM (synInstrToStruct ctx)) elements
+            S.ElemSegment elemType m <$> elemExprs
 
         extractElemSegment :: [ElemSegment] -> ModuleField -> [ElemSegment]
         extractElemSegment elems (MFElem elem) = elem : elems
