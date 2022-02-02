@@ -6,6 +6,7 @@ module Language.Wasm.Structure (
     Module(..),
     DataSegment(..),
     ElemSegment(..),
+    ElemMode(..),
     StartFunction(..),
     Export(..),
     ExportDesc(..),
@@ -228,10 +229,16 @@ data Global = Global {
     initializer :: Expression
 } deriving (Show, Eq, Generic, NFData)
 
+data ElemMode =
+    Passive
+    | Active TableIndex Expression
+    | Declarative
+    deriving (Show, Eq, Generic, NFData)
+
 data ElemSegment = ElemSegment {
-    tableIndex :: TableIndex,
-    offset :: Expression,
-    funcIndexes :: [FuncIndex]
+    elemType :: ElemType,
+    mode :: ElemMode,
+    elements :: [Expression]
 } deriving (Show, Eq, Generic, NFData)
 
 data DataSegment = DataSegment {

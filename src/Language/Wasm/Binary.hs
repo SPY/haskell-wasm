@@ -244,7 +244,13 @@ instance Serialize FuncType where
 
 instance Serialize ElemType where
     put FuncRef = putWord8 0x70
-    get = byteGuard 0x70 >> return FuncRef
+    put ExternRef = putWord8 0x6F
+    get = do
+        op <- getWord8
+        case op of
+            0x70 -> return FuncRef
+            0x69 -> return ExternRef
+            _ -> fail "unknown reference type"
 
 instance Serialize Limit where
     put (Limit min Nothing) = putWord8 0x00 >> putULEB128 min
@@ -793,11 +799,55 @@ instance Serialize Export where
     get = Export <$> getName <*> get
 
 instance Serialize ElemSegment where
-    put (ElemSegment tableIndex offset funcIndexes) = do
+    put (ElemSegment elemType Passive elements) = do
+        putWord8 0x05
+        put elemType
+        putVec $ map putExpression elements
+    put (ElemSegment elemType (Active tableIndex offset) elements) = do
+        putWord8 0x06
         putULEB128 tableIndex
         putExpression offset
-        putVec $ map Index funcIndexes
-    get = ElemSegment <$> getULEB128 32 <*> getExpression <*> (map unIndex <$> getVec)
+        put elemType
+        putVec $ map putExpression elements
+    put (ElemSegment elemType Declarative elements) = do
+        putWord8 0x07
+        put elemType
+        putVec $ map putExpression elements
+    get = do
+        op <- getWord8
+        let funcIndexes = map ((:[]) . RefFunc . unIndex) <$> getVec
+        let elemKind = byteGuard 0x00 >> return FuncRef
+        case op of
+            0x00 -> do
+                offset <- getExpression
+                ElemSegment FuncRef (Active 0 offset) <$> funcIndexes
+            0x01 -> do
+                elemType <- elemKind
+                ElemSegment elemType Passive <$> funcIndexes
+            0x02 -> do
+                tableIndex <- getULEB128 32
+                offset <- getExpression
+                elemType <- elemKind
+                ElemSegment elemType (Active tableIndex offset) <$> funcIndexes
+            0x03 -> do
+                elemType <- elemKind
+                ElemSegment elemType Declarative <$> funcIndexes
+            0x04 -> do
+                offset <- getExpression
+                ElemSegment FuncRef (Active 0 offset) <$> funcIndexes
+            0x05 -> do
+                elemType <- get
+                ElemSegment elemType Passive <$> getVec
+            0x06 -> do
+                tableIndex <- getULEB128 32
+                offset <- getExpression
+                elemType <- get
+                ElemSegment elemType (Active tableIndex offset) <$> getVec
+            0x07 -> do
+                elemType <- get
+                ElemSegment elemType Declarative <$> getVec
+            _ ->
+                fail "unknown element segment type"
 
 data LocalTypeRange = LocalTypeRange Natural ValueType deriving (Show, Eq)
 
