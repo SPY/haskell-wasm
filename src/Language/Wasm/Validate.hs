@@ -19,7 +19,7 @@ import Data.Maybe (fromMaybe, maybeToList, catMaybes)
 import Numeric.Natural (Natural)
 import Prelude hiding ((<>))
 
-import Control.Monad (foldM)
+import Control.Monad (foldM, forM_, when, unless)
 import Control.Monad.Reader (ReaderT, runReaderT, withReaderT, ask)
 import Control.Monad.Except (Except, runExcept, throwError)
 
@@ -569,24 +569,20 @@ elemsShouldBeValid m@Module { elems, functions, tables, imports } =
     foldMap (isElemValid ctx) elems
     where
         isElemValid :: Ctx -> ElemSegment -> ValidationResult
-        isElemValid ctx (ElemSegment tableIdx offset funs) =
-            let check = runChecker ctx $ do
+        isElemValid ctx (ElemSegment elemType mode elements) = do
+            forM_ elements $ \elem -> runChecker ctx $ do
+                getExpressionType elem
+                isConstExpression elem
+            case mode of
+                Active tableIdx offset -> runChecker ctx $ do
                     isConstExpression offset
                     t <- getExpressionType offset
-                    if isArrowMatch (empty ==> I32) t
-                    then return ()
-                    else throwError $ TypeMismatch t (empty ==> I32) 
-            in
-            let tableImports = filter isTableImport imports in
-            let isTableIndexValid =
-                    if tableIdx < (fromIntegral $ length tableImports + length tables)
-                    then return ()
-                    else Left (TableIndexOutOfRange tableIdx)
-            in
-            let funImports = filter isFuncImport imports in
-            let funsLength = fromIntegral $ length functions + length funImports in
-            let isFunsValid = foldMap (\i -> if i < funsLength then return () else Left FunctionIndexOutOfRange) funs in
-            check <> isFunsValid <> isTableIndexValid
+                    unless (isArrowMatch (empty ==> I32) t) $ do
+                        throwError $ TypeMismatch t (empty ==> I32)
+                    let tableImports = filter isTableImport imports
+                    when (tableIdx >= fromIntegral (length tableImports + length tables)) $ do
+                        throwError $ TableIndexOutOfRange tableIdx
+                _ -> return ()
 
 datasShouldBeValid :: Validator
 datasShouldBeValid m@Module { datas, mems, imports } =
