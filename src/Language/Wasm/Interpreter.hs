@@ -212,11 +212,17 @@ data FunctionInstance =
         hostCode :: HostFunction
     }
 
+data ElemInstance = ElemInstance ElemType (Vector Value) deriving (Eq, Show)
+
+data DataInstance = DataInstance
+
 data Store = Store {
     funcInstances :: Vector FunctionInstance,
     tableInstances :: Vector TableInstance,
     memInstances :: Vector MemoryInstance,
-    globalInstances :: Vector GlobalInstance
+    globalInstances :: Vector GlobalInstance,
+    elemInstances :: Vector ElemInstance,
+    dataInstances :: Vector DataInstance
 }
 
 emptyStore :: Store
@@ -304,6 +310,8 @@ data ModuleInstance = ModuleInstance {
     tableaddrs :: Vector Address,
     memaddrs :: Vector Address,
     globaladdrs :: Vector Address,
+    elemaddrs :: Vector Address,
+    dataaddrs :: Vector Address,
     exports :: Vector ExportInstance
 } deriving (Eq, Show)
 
@@ -314,15 +322,20 @@ emptyModInstance = ModuleInstance {
     tableaddrs = Vector.empty,
     memaddrs = Vector.empty,
     globaladdrs = Vector.empty,
+    elemaddrs = Vector.empty,
+    dataaddrs = Vector.empty,
     exports = Vector.empty
 }
 
 calcInstance :: Store -> Imports -> Module -> Initialize ModuleInstance
-calcInstance (Store fs ts ms gs) imps Module {functions, types, tables, mems, globals, exports, imports} = do
+calcInstance (Store fs ts ms gs es ds) imps mod = do
+    let Module {functions, types, tables, mems, globals, exports, imports, elems, datas} = mod
     let funLen = length fs
     let tableLen = length ts
     let memLen = length ms
     let globalLen = length gs
+    let elemLen = length es
+    let dataLen = length ds
     funImps <- mapM checkImportType $ filter isFuncImport imports
     tableImps <- mapM checkImportType $ filter isTableImport imports
     memImps <- mapM checkImportType $ filter isMemImport imports
@@ -346,6 +359,8 @@ calcInstance (Store fs ts ms gs) imps Module {functions, types, tables, mems, gl
         tableaddrs = tbls,
         memaddrs = memories,
         globaladdrs = globs,
+        elemaddrs = Vector.fromList [elemLen..elemLen + length elems - 1],
+        dataaddrs = Vector.fromList [dataLen..dataLen + length datas - 1],
         exports = Vector.fromList $ map refExport exports
     }
     where
@@ -361,7 +376,7 @@ calcInstance (Store fs ts ms gs) imps Module {functions, types, tables, mems, gl
             funcAddr <- case idx of
                 ExternFunction funcAddr -> return funcAddr
                 other -> throwError "incompatible import type"
-            let expectedType = types !! fromIntegral typeIdx
+            let expectedType = types mod !! fromIntegral typeIdx
             let actualType = Language.Wasm.Interpreter.funcType $ fs ! funcAddr
             if expectedType == actualType
             then return idx
@@ -447,7 +462,7 @@ allocAndInitGlobals inst store globs = Vector.fromList <$> mapM allocGlob globs
             GIMut vt <$> newIORef val
 
 allocTables :: [Table] -> Vector TableInstance
-allocTables tables = Vector.fromList $ map allocTable tables
+allocTables = Vector.fromList . map allocTable
     where
         allocTable :: Table -> TableInstance
         allocTable (Table (TableType lim@(Limit from to) _)) =
@@ -476,12 +491,22 @@ allocMems mems = Vector.fromList <$> mapM allocMem mems
                 memory
             }
 
+allocElems :: ModuleInstance -> Store -> [ElemSegment] -> IO (Vector ElemInstance)
+allocElems inst st = fmap Vector.fromList . mapM allocElem
+    where
+        allocElem :: ElemSegment -> IO ElemInstance
+        allocElem (ElemSegment t _mode refs) =
+            ElemInstance t . Vector.fromList <$> mapM (evalConstExpr inst st) refs
+
+allocDatas :: ModuleInstance -> Store -> [DataSegment] -> Vector DataInstance
+allocDatas _inst _st = Vector.fromList . map (const DataInstance)
+
 type Initialize = ExceptT String (State.StateT Store IO)
 
 initialize :: ModuleInstance -> Module -> Initialize ()
 initialize inst Module {elems, datas, start} = do
     checkedMems <- mapM checkData datas
-    checkedTables <- mapM checkElem elems
+    checkedTables <- mapM checkElem $ filter isActiveElem elems
     mapM_ initData checkedMems
     mapM_ initElem checkedTables
     st <- State.get
@@ -494,12 +519,21 @@ initialize inst Module {elems, datas, start} = do
                 _ -> throwError "Start function terminated with trap"
         Nothing -> return ()
     where
-        checkElem :: ElemSegment -> Initialize (Address, Int, [Address])
-        checkElem ElemSegment {tableIndex, offset, funcIndexes} = do
+        isActiveElem :: ElemSegment -> Bool
+        isActiveElem (ElemSegment FuncRef (Active _ _) _) = True
+        isActiveElem _ = False
+
+        checkElem :: ElemSegment -> Initialize (Address, Int, [Maybe Address])
+        checkElem ElemSegment {elemType, mode, elements} = do
+            (tableIndex, offset) <- case mode of {
+                Active idx off -> return (idx, off);
+                _ -> throwError "only active mode element can be initialized"
+            }
             st <- State.get
             VI32 val <- liftIO $ evalConstExpr inst st offset
             let from = fromIntegral val
-            let funcs = map ((funcaddrs inst !) . fromIntegral) funcIndexes
+            refs <- liftIO $ mapM (evalConstExpr inst st) elements
+            let funcs = map (\(RF ref) -> (funcaddrs inst !) . fromIntegral <$> ref) refs
             let idx = tableaddrs inst ! fromIntegral tableIndex
             let last = from + length funcs
             let TableInstance lim elems = tableInstances st ! idx
@@ -507,10 +541,10 @@ initialize inst Module {elems, datas, start} = do
             Monad.when (last > len) $ throwError "elements segment does not fit"
             return (idx, from, funcs)
 
-        initElem :: (Address, Int, [Address]) -> Initialize ()
+        initElem :: (Address, Int, [Maybe Address]) -> Initialize ()
         initElem (idx, from, funcs) = State.modify $ \st ->
             let TableInstance lim elems = tableInstances st ! idx in
-            let table = TableInstance lim (elems // zip [from..] (map Just funcs)) in
+            let table = TableInstance lim (elems // zip [from..] funcs) in
             st { tableInstances = tableInstances st Vector.// [(idx, table)] }
 
         checkData :: DataSegment -> Initialize (Int, MemoryStore, LBS.ByteString)
@@ -534,15 +568,19 @@ instantiate :: Store -> Imports -> Valid.ValidModule -> IO (Either String Module
 instantiate st imps mod = flip State.runStateT st $ runExceptT $ do
     let m = Valid.getModule mod
     inst <- calcInstance st imps m
-    let functions = funcInstances st <> (allocFunctions inst $ Struct.functions m)
-    globals <- liftIO $ (globalInstances st <>) <$> (allocAndInitGlobals inst st $ Struct.globals m)
-    let tables = tableInstances st <> (allocTables $ Struct.tables m)
-    mems <- liftIO $ (memInstances st <>) <$> (allocMems $ Struct.mems m)
+    let functions = funcInstances st <> allocFunctions inst (Struct.functions m)
+    globals <- liftIO $ (globalInstances st <>) <$> allocAndInitGlobals inst st (Struct.globals m)
+    let tables = tableInstances st <> allocTables (Struct.tables m)
+    mems <- liftIO $ (memInstances st <>) <$> allocMems (Struct.mems m)
+    elems <- liftIO $ (elemInstances st <>) <$> allocElems inst st (Struct.elems m)
+    let datas = dataInstances st <> allocDatas inst st (Struct.datas m)
     State.put $ st {
         funcInstances = functions,
         tableInstances = tables,
         memInstances = mems,
-        globalInstances = globals
+        globalInstances = globals,
+        elemInstances = elems,
+        dataInstances = datas
     }
     initialize inst m
     return inst
