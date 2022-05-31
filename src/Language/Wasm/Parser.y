@@ -165,6 +165,13 @@ import Language.Wasm.Lexer (
 'i64.store32'         { Lexeme _ (TKeyword "i64.store32") }
 'memory.size'         { Lexeme _ (TKeyword "memory.size") }
 'memory.grow'         { Lexeme _ (TKeyword "memory.grow") }
+'table.init'          { Lexeme _ (TKeyword "table.init") }
+'table.copy'          { Lexeme _ (TKeyword "table.copy") }
+'table.fill'          { Lexeme _ (TKeyword "table.fill") }
+'table.size'          { Lexeme _ (TKeyword "table.size") }
+'table.grow'          { Lexeme _ (TKeyword "table.grow") }
+'table.get'           { Lexeme _ (TKeyword "table.get") }
+'table.set'           { Lexeme _ (TKeyword "table.set") }
 'i32.const'           { Lexeme _ (TKeyword "i32.const") }
 'i64.const'           { Lexeme _ (TKeyword "i64.const") }
 'f32.const'           { Lexeme _ (TKeyword "f32.const") }
@@ -463,6 +470,12 @@ plaininstr :: { PlainInstr }
     | 'i64.store32' memarg4          { I64Store32 $2 }
     | 'memory.size'                  { CurrentMemory }
     | 'memory.grow'                  { GrowMemory }
+    -- table instructions
+    | 'table.init' index opt(index)  {
+        case $3 of
+            Nothing -> TableInit (Index 0) $2
+            Just elemIdx -> TableInit $2 elemIdx
+    }
     -- numeric instructions
     | 'i32.const' int32              { I32Const $2 }
     | 'i64.const' int64              { I64Const $2 }
@@ -883,17 +896,22 @@ table :: { [ModuleField] }
 
 limits_elemtype_elem :: { Maybe Ident -> [ModuleField] }
     : tabletype ')' { \ident -> [MFTable $ Table [] ident $1] }
-    | elemtype '(' 'elem' list(index) ')' ')' {
+    | elemtype '(' 'elem' indexes_or_ref_exprs ')' ')' {
         \ident ->
             let funcsLen = fromIntegral $ length $4 in [
                 MFTable $ Table [] ident $ TableType (Limit funcsLen (Just funcsLen)) $1,
                 let tableIndex = (fromMaybe (Index 0) $ Named `fmap` ident) in
                 let offset = [PlainInstr $ I32Const 0] in
-                let elements = funcIndexToExpr $4 in
+                let elements = $4 in
                 MFElem $ ElemSegment Nothing FuncRef (Active tableIndex offset) elements
             ]
     }
     | '(' import_export_table { $2 }
+
+indexes_or_ref_exprs :: {[[Instruction]]}
+    : index list(index) { funcIndexToExpr ($1:$2) }
+    | elemexpr list(elemexpr) { $1 : $2 }
+    | {- empty -} { [] }
 
 import_export_table :: { Maybe Ident -> [ModuleField] }
     : 'import' name name ')' tabletype ')' {
@@ -931,7 +949,7 @@ elem :: { ElemSegment }
 elem1 :: { ElemSegment }
     : elemlist ')' { let (t, els) = $1 in ElemSegment Nothing t Passive els }
     | 'declare' elemlist ')' { let (t, els) = $2 in ElemSegment Nothing t Declarative els }
-    | '(' elem1_active { $2 }
+    | '(' elem1_active ')' { $2 }
 
 elem1_active :: { ElemSegment }
     : 'table' index ')' '(' elem1_active_offset {
@@ -948,6 +966,7 @@ elem1_active_offset :: { ([Instruction], ElemType, [[Instruction]]) }
 elemlist :: { (ElemType, [[Instruction]]) }
     : 'func' list(index) { (FuncRef, funcIndexToExpr $2) }
     | 'funcref' list(elemexpr) { (FuncRef, $2) }
+    | list(index) { (FuncRef, funcIndexToExpr $1) }
 
 elemexpr :: { [Instruction] }
     : plaininstr { [PlainInstr $1] }
@@ -1149,6 +1168,7 @@ type LocalIndex = Index
 type GlobalIndex = Index
 type TableIndex = Index
 type MemoryIndex = Index
+type ElemIndex = Index
 
 data PlainInstr =
     -- Control instructions
@@ -1199,6 +1219,14 @@ data PlainInstr =
     | I64Store32 MemArg
     | CurrentMemory
     | GrowMemory
+    -- Table instructions
+    | TableInit TableIndex ElemIndex
+    | TableGrow TableIndex
+    | TableSize TableIndex
+    | TableFill TableIndex
+    | TableGet TableIndex
+    | TableSet TableIndex
+    | TableCopy TableIndex TableIndex
     -- Numeric instructions
     | I32Const Integer
     | I64Const Integer
@@ -1670,6 +1698,13 @@ desugarize fields = do
         synInstrToStruct _ (PlainInstr (I64Store32 memArg)) = return $ S.I64Store32 memArg
         synInstrToStruct _ (PlainInstr CurrentMemory) = return $ S.CurrentMemory
         synInstrToStruct _ (PlainInstr GrowMemory) = return $ S.GrowMemory
+        synInstrToStruct FunCtx { ctxMod } (PlainInstr (TableInit tableIdx elemIdx)) =
+            case getTableIndex ctxMod tableIdx of
+                Just tableIdx ->
+                    case getElemIndex ctxMod elemIdx of
+                        Just elemIdx -> return $ S.TableInit tableIdx elemIdx
+                        Nothing -> Left "unknown elem"
+                Nothing -> Left "unknown table"
         synInstrToStruct _ (PlainInstr (I32Const val)) = return $ S.I32Const $ integerToWord32 val
         synInstrToStruct _ (PlainInstr (I64Const val)) = return $ S.I64Const $ integerToWord64 val
         synInstrToStruct _ (PlainInstr (F32Const val)) = return $ S.F32Const val
@@ -1957,6 +1992,15 @@ desugarize fields = do
         extractElemSegment :: [ElemSegment] -> ModuleField -> [ElemSegment]
         extractElemSegment elems (MFElem elem) = elem : elems
         extractElemSegment elems _ = elems
+
+        getElemIndex :: Module -> GlobalIndex -> Maybe Natural
+        getElemIndex mod@Module { elems } (Named id) =
+            let isIdent (_, ElemSegment { ident }) = ident == Just id in
+            let elemIndexes = map fst $ filter isIdent $ zip [0..] elems in
+            case elemIndexes of
+                [idx] -> return idx
+                _ -> Nothing
+        getElemIndex _ (Index idx) = Just idx
 
         -- data segment
         synDataToStruct :: Module -> DataSegment -> Either String S.DataSegment

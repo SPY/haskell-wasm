@@ -103,6 +103,7 @@ type LocalIndex = Natural
 type GlobalIndex = Natural
 type MemoryIndex = Natural
 type TableIndex = Natural
+type ElemIndex = Natural
 
 data ValueType =
     I32
@@ -176,6 +177,14 @@ data Instruction index =
     | I64Store32 MemArg
     | CurrentMemory
     | GrowMemory
+    -- Table instructions
+    | TableInit TableIndex ElemIndex
+    | TableGrow TableIndex
+    | TableSize TableIndex
+    | TableFill TableIndex
+    | TableGet TableIndex
+    | TableSet TableIndex
+    | TableCopy TableIndex TableIndex
     -- Numeric instructions
     | I32Const Word32
     | I64Const Word64
