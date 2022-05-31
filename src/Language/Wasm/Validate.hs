@@ -38,10 +38,12 @@ data ValidationError =
     | MemoryIndexOutOfRange Natural
     | LocalIndexOutOfRange Natural
     | GlobalIndexOutOfRange Natural
+    | ElemIndexOutOfRange Natural
     | LabelIndexOutOfRange
     | TypeIndexOutOfRange
     | ResultTypeDoesntMatch
     | TypeMismatch { actual :: Arrow, expected :: Arrow }
+    | RefTypeMismatch ElemType ElemType
     | InvalidResultArity
     | InvalidConstantExpr
     | InvalidStartFunctionType
@@ -127,6 +129,7 @@ data Ctx = Ctx {
     types :: [FuncType],
     funcs :: [FuncType],
     tables :: [TableType],
+    elems :: [ElemType],
     mems :: [Limit],
     globals :: [GlobalType],
     locals :: [ValueType],
@@ -362,8 +365,16 @@ getInstrType CurrentMemory = do
     Ctx { mems } <- ask 
     if length mems < 1 then throwError (MemoryIndexOutOfRange 0) else return $ empty ==> I32
 getInstrType GrowMemory = do
-    Ctx { mems } <- ask 
+    Ctx { mems } <- ask
     if length mems < 1 then throwError (MemoryIndexOutOfRange 0) else return $ I32 ==> I32
+getInstrType (TableInit tableIdx elemIdx) = do
+    Ctx { tables, elems } <- ask
+    when (length tables <= fromIntegral tableIdx) $ throwError (TableIndexOutOfRange tableIdx)
+    when (length elems <= fromIntegral elemIdx) $ throwError (ElemIndexOutOfRange elemIdx)
+    let TableType _ tableType = tables !! fromIntegral tableIdx
+    let elemType = elems !! fromIntegral elemIdx
+    when (elemType /= tableType) $ throwError (RefTypeMismatch tableType elemType)
+    return $ [I32, I32, I32] ==> empty
 getInstrType (I32Const _) = return $ empty ==> I32
 getInstrType (I64Const _) = return $ empty ==> I64
 getInstrType (F32Const _) = return $ empty ==> F32
@@ -476,7 +487,7 @@ getFuncTypes Module {types, functions, imports} =
         getFuncType _ = Nothing
 
 ctxFromModule :: [ValueType] -> [[ValueType]] -> [ValueType] -> Module -> Ctx
-ctxFromModule locals labels returns m@Module {types, tables, mems, globals, imports} =
+ctxFromModule locals labels returns m@Module {types, tables, mems, globals, imports, elems} =
     let tableImports = catMaybes $ map getTableType imports in
     let memsImports = catMaybes $ map getMemType imports in
     let globalImports = catMaybes $ map getGlobalType imports in
@@ -484,6 +495,7 @@ ctxFromModule locals labels returns m@Module {types, tables, mems, globals, impo
         types,
         funcs = getFuncTypes m,
         tables = tableImports ++ map (\(Table t) -> t) tables,
+        elems = map elemType elems,
         mems = memsImports ++ map (\(Memory l) -> l) mems,
         globals = globalImports ++ map (\(Global g _) -> g) globals,
         locals,
