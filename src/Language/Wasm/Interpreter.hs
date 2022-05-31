@@ -34,6 +34,8 @@ import Data.Maybe (fromMaybe, isNothing)
 
 import Data.Vector (Vector, (!), (!?), (//))
 import qualified Data.Vector as Vector
+import Data.Vector.Mutable (IOVector)
+import qualified Data.Vector.Mutable as MVector
 import qualified Data.Primitive.ByteArray as ByteArray
 import qualified Data.Primitive.Types as Primitive
 import qualified Control.Monad.Primitive as Primitive
@@ -168,9 +170,11 @@ data Label = Label ResultType deriving (Show, Eq)
 
 type Address = Int
 
+type TableStore = IOVector (Maybe Address)
+
 data TableInstance = TableInstance {
     lim :: Limit,
-    elements :: Vector (Maybe Address)
+    items :: TableStore
 }
 
 type MemoryStore = ByteArray.MutableByteArray (Primitive.PrimState IO)
@@ -298,8 +302,8 @@ makeHostModule st items = do
         makeHostTables :: (Store, ModuleInstance) -> IO (Store, ModuleInstance)
         makeHostTables (st, inst) = do
             let tableLen = Vector.length $ tableInstances st
-            let (names, tables) = unzip [(name, Table (TableType lim FuncRef)) | (name, (HostTable lim)) <- items]
-            let instances = allocTables tables
+            let (names, tables) = unzip [(name, Table (TableType lim FuncRef)) | (name, HostTable lim) <- items]
+            instances <- allocTables tables
             let exps = Vector.fromList $ zipWith (\name i -> ExportInstance name (ExternTable i)) names [tableLen..]
             let inst' = inst {
                     tableaddrs = Vector.fromList [tableLen..tableLen + length instances - 1],
@@ -465,15 +469,13 @@ allocAndInitGlobals inst store globs = Vector.fromList <$> mapM allocGlob globs
             val <- runIniter initer
             GIMut vt <$> newIORef val
 
-allocTables :: [Table] -> Vector TableInstance
-allocTables = Vector.fromList . map allocTable
+allocTables :: [Table] -> IO (Vector TableInstance)
+allocTables = fmap Vector.fromList . mapM allocTable
     where
-        allocTable :: Table -> TableInstance
+        allocTable :: Table -> IO TableInstance
         allocTable (Table (TableType lim@(Limit from to) _)) =
-            TableInstance {
-                lim,
-                elements = Vector.fromList $ replicate (fromIntegral from) Nothing
-            }
+            let elements = MVector.replicate (fromIntegral from) Nothing in
+            TableInstance lim <$> elements
 
 defaultBudget :: Natural
 defaultBudget = 300
@@ -541,15 +543,15 @@ initialize inst Module {elems, datas, start} = do
             let idx = tableaddrs inst ! fromIntegral tableIndex
             let last = from + length funcs
             let TableInstance lim elems = tableInstances st ! idx
-            let len = Vector.length elems
-            Monad.when (last > len) $ throwError "elements segment does not fit"
+            let len = MVector.length elems
+            Monad.when (last > len) $ throwError "out of bounds table access"
             return (idx, from, funcs)
 
         initElem :: (Address, Int, [Maybe Address]) -> Initialize ()
-        initElem (idx, from, funcs) = State.modify $ \st ->
-            let TableInstance lim elems = tableInstances st ! idx in
-            let table = TableInstance lim (elems // zip [from..] funcs) in
-            st { tableInstances = tableInstances st Vector.// [(idx, table)] }
+        initElem (idx, from, funcs) = do
+            Store {tableInstances} <- State.get
+            let elems = items $ tableInstances ! idx
+            Monad.forM_ (zip [from..] funcs) $ uncurry $ MVector.unsafeWrite elems
 
         checkData :: DataSegment -> Initialize (Int, MemoryStore, LBS.ByteString)
         checkData DataSegment {memIndex, offset, chunk} = do
@@ -574,7 +576,7 @@ instantiate st imps mod = flip State.runStateT st $ runExceptT $ do
     inst <- calcInstance st imps m
     let functions = funcInstances st <> allocFunctions inst (Struct.functions m)
     globals <- liftIO $ (globalInstances st <>) <$> allocAndInitGlobals inst st (Struct.globals m)
-    let tables = tableInstances st <> allocTables (Struct.tables m)
+    tables <- (tableInstances st <>) <$> liftIO (allocTables (Struct.tables m))
     mems <- liftIO $ (memInstances st <>) <$> allocMems (Struct.mems m)
     elems <- liftIO $ (elemInstances st <>) <$> allocElems inst st (Struct.elems m)
     let datas = dataInstances st <> allocDatas inst st (Struct.datas m)
@@ -750,23 +752,28 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
                 Nothing -> return Trap
         step ctx@EvalCtx{ stack = (VI32 v): rest } (CallIndirect typeIdx) = do
             let funcType = funcTypes moduleInstance ! fromIntegral typeIdx
-            let TableInstance { elements } = tableInstances store ! (tableaddrs moduleInstance ! 0)
-            let checks = do
-                    addr <- Monad.join $ elements !? fromIntegral v
-                    let funcInst = funcInstances store ! addr
-                    let targetType = Language.Wasm.Interpreter.funcType funcInst
-                    Monad.guard $ targetType == funcType
-                    let args = params targetType
-                    Monad.guard $ length args <= length rest
-                    params <- sequence $ zipWith checkValType args $ reverse $ take (length args) rest
-                    return (funcInst, params)
-            case checks of
-                Just (funcInst, params) -> do
-                    res <- eval (budget - 1) store funcInst params
-                    case res of
-                        Just res -> return $ Done ctx { stack = reverse res ++ (drop (length params) rest) }
-                        Nothing -> return Trap
-                Nothing -> return Trap
+            let TableInstance { items } = tableInstances store ! (tableaddrs moduleInstance ! 0)
+            let pos = fromIntegral v
+            if pos >= MVector.length items
+            then return Trap
+            else do
+                maybeAddr <- liftIO $ MVector.read items pos
+                let checks = do
+                        addr <- maybeAddr
+                        let funcInst = funcInstances store ! addr
+                        let targetType = Language.Wasm.Interpreter.funcType funcInst
+                        Monad.guard $ targetType == funcType
+                        let args = params targetType
+                        Monad.guard $ length args <= length rest
+                        params <- sequence $ zipWith checkValType args $ reverse $ take (length args) rest
+                        return (funcInst, params)
+                case checks of
+                    Just (funcInst, params) -> do
+                        res <- eval (budget - 1) store funcInst params
+                        case res of
+                            Just res -> return $ Done ctx { stack = reverse res ++ (drop (length params) rest) }
+                            Nothing -> return Trap
+                    Nothing -> return Trap
         step ctx@EvalCtx{ stack = st } (RefNull FuncRef) =
             return $ Done ctx { stack = RF Nothing : st }
         step ctx@EvalCtx{ stack = st } (RefNull ExternRef) =
@@ -880,6 +887,11 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
                     else return $ -1
                 )
             return $ Done ctx { stack = VI32 (asWord32 $ fromIntegral result) : rest }
+        -- step ctx@EvalCtx{ stack = (VI32 n:rest) } (TableInit tableIdx elemIdx) = do
+        --     let tableAddr = tableaddrs moduleInstance ! fromIntegral tableIdx
+        --     let TableInstance { items } = tableInstances store ! tableAddr
+
+        --     return $ Done ctx { stack = rest }
         step ctx (I32Const v) = return $ Done ctx { stack = VI32 v : stack ctx }
         step ctx (I64Const v) = return $ Done ctx { stack = VI64 v : stack ctx }
         step ctx (F32Const v) = return $ Done ctx { stack = VF32 v : stack ctx }
