@@ -220,7 +220,7 @@ data FunctionInstance =
         hostCode :: HostFunction
     }
 
-data ElemInstance = ElemInstance ElemType (Vector Value) deriving (Eq, Show)
+data ElemInstance = ElemInstance ElemType (Vector Value) (IORef Bool)
 
 data DataInstance = DataInstance
 
@@ -238,7 +238,9 @@ emptyStore = Store {
     funcInstances = Vector.empty,
     tableInstances = Vector.empty,
     memInstances = Vector.empty,
-    globalInstances = Vector.empty
+    globalInstances = Vector.empty,
+    elemInstances = Vector.empty,
+    dataInstances = Vector.empty
 }
 
 type HostFunction = [Value] -> IO [Value]
@@ -502,7 +504,9 @@ allocElems inst st = fmap Vector.fromList . mapM allocElem
     where
         allocElem :: ElemSegment -> IO ElemInstance
         allocElem (ElemSegment t _mode refs) =
-            ElemInstance t . Vector.fromList <$> mapM (evalConstExpr inst st) refs
+            ElemInstance t
+                <$> (Vector.fromList <$> mapM (evalConstExpr inst st) refs)
+                <*> newIORef False -- is dropped
 
 allocDatas :: ModuleInstance -> Store -> [DataSegment] -> Vector DataInstance
 allocDatas _inst _st = Vector.fromList . map (const DataInstance)
@@ -512,7 +516,7 @@ type Initialize = ExceptT String (State.StateT Store IO)
 initialize :: ModuleInstance -> Module -> Initialize ()
 initialize inst Module {elems, datas, start} = do
     checkedMems <- mapM checkData datas
-    checkedTables <- mapM checkElem $ filter isActiveElem elems
+    checkedTables <- mapM checkElem $ filter isActiveElem $ zip [0..] elems
     mapM_ initData checkedMems
     mapM_ initElem checkedTables
     st <- State.get
@@ -525,12 +529,12 @@ initialize inst Module {elems, datas, start} = do
                 _ -> throwError "Start function terminated with trap"
         Nothing -> return ()
     where
-        isActiveElem :: ElemSegment -> Bool
-        isActiveElem (ElemSegment FuncRef (Active _ _) _) = True
+        isActiveElem :: (Int, ElemSegment) -> Bool
+        isActiveElem (_, ElemSegment FuncRef (Active _ _) _) = True
         isActiveElem _ = False
 
-        checkElem :: ElemSegment -> Initialize (Address, Int, [Maybe Address])
-        checkElem ElemSegment {elemType, mode, elements} = do
+        checkElem :: (Int, ElemSegment) -> Initialize (Address, Address, Int, [Maybe Address])
+        checkElem (elemN, ElemSegment {elemType, mode, elements}) = do
             (tableIndex, offset) <- case mode of {
                 Active idx off -> return (idx, off);
                 _ -> throwError "only active mode element can be initialized"
@@ -545,12 +549,14 @@ initialize inst Module {elems, datas, start} = do
             let TableInstance lim elems = tableInstances st ! idx
             let len = MVector.length elems
             Monad.when (last > len) $ throwError "out of bounds table access"
-            return (idx, from, funcs)
+            return (idx, elemaddrs inst ! elemN, from, funcs)
 
-        initElem :: (Address, Int, [Maybe Address]) -> Initialize ()
-        initElem (idx, from, funcs) = do
-            Store {tableInstances} <- State.get
-            let elems = items $ tableInstances ! idx
+        initElem :: (Address, Address, Int, [Maybe Address]) -> Initialize ()
+        initElem (tableIdx, elemIdx, from, funcs) = do
+            Store {tableInstances, elemInstances} <- State.get
+            let elems = items $ tableInstances ! tableIdx
+            let ElemInstance _ _ isDropped = elemInstances ! elemIdx
+            liftIO $ writeIORef isDropped True
             Monad.forM_ (zip [from..] funcs) $ uncurry $ MVector.unsafeWrite elems
 
         checkData :: DataSegment -> Initialize (Int, MemoryStore, LBS.ByteString)
@@ -887,11 +893,21 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
                     else return $ -1
                 )
             return $ Done ctx { stack = VI32 (asWord32 $ fromIntegral result) : rest }
-        -- step ctx@EvalCtx{ stack = (VI32 n:rest) } (TableInit tableIdx elemIdx) = do
-        --     let tableAddr = tableaddrs moduleInstance ! fromIntegral tableIdx
-        --     let TableInstance { items } = tableInstances store ! tableAddr
-
-        --     return $ Done ctx { stack = rest }
+        step ctx@EvalCtx{ stack = (VI32 n:VI32 s:VI32 d:rest) } (TableInit tableIdx elemIdx) = do
+            let tableAddr = tableaddrs moduleInstance ! fromIntegral tableIdx
+            let TableInstance { items } = tableInstances store ! tableAddr
+            let elemAddr = elemaddrs moduleInstance ! fromIntegral elemIdx
+            let ElemInstance _ refs dropFlag = elemInstances store ! elemAddr
+            let src = fromIntegral s
+            let dst = fromIntegral d
+            let len = fromIntegral n
+            isDropped <- readIORef dropFlag
+            if src + len > Vector.length refs || dst + len > MVector.length items || isDropped
+            then return Trap
+            else do
+                Vector.iforM_ (Vector.slice src len refs) $ \idx (RF fn) ->
+                    MVector.unsafeWrite items (dst + idx) (fromIntegral <$> fn)
+                return $ Done ctx { stack = rest }
         step ctx (I32Const v) = return $ Done ctx { stack = VI32 v : stack ctx }
         step ctx (I64Const v) = return $ Done ctx { stack = VI64 v : stack ctx }
         step ctx (F32Const v) = return $ Done ctx { stack = VF32 v : stack ctx }
