@@ -260,7 +260,7 @@ runScript onAssertFail script = do
                     st <- fst <$> State.get
                     (res, store') <- liftIO $ Interpreter.instantiate (store st) (buildImports st) m
                     case res of
-                        Left failureString -> return ()
+                        Left err | err == TL.unpack failureString -> return ()
                         Left "Start function terminated with trap" ->
                             State.modify $ \(st, pos) -> (st { store = store' }, pos)
                         r -> printFailedAssert "Module linking should fail with trap during execution of a start function" assert
