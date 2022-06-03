@@ -216,7 +216,16 @@ data FunctionInstance =
         hostCode :: HostFunction
     }
 
-data ElemInstance = ElemInstance ElemType (Vector Value) (IORef Bool)
+data ElemInstance = ElemInstance {
+        eiMode :: ElemMode,
+        eiType :: ElemType,
+        eiItems :: Vector Value,
+        isDropped :: IORef Bool
+    }
+
+isDeclarative :: ElemMode -> Bool 
+isDeclarative Declarative = True
+isDeclarative _           = False
 
 data DataInstance = DataInstance
 
@@ -499,8 +508,8 @@ allocElems :: ModuleInstance -> Store -> [ElemSegment] -> IO (Vector ElemInstanc
 allocElems inst st = fmap Vector.fromList . mapM allocElem
     where
         allocElem :: ElemSegment -> IO ElemInstance
-        allocElem (ElemSegment t _mode refs) =
-            ElemInstance t
+        allocElem (ElemSegment t mode refs) =
+            ElemInstance mode t
                 <$> (Vector.fromList <$> mapM (evalConstExpr inst st) refs)
                 <*> newIORef False -- is dropped
 
@@ -551,7 +560,7 @@ initialize inst Module {elems, datas, start} = do
         initElem (tableIdx, elemIdx, from, funcs) = do
             Store {tableInstances, elemInstances} <- State.get
             let elems = items $ tableInstances ! tableIdx
-            let ElemInstance _ _ isDropped = elemInstances ! elemIdx
+            let ElemInstance {isDropped} = elemInstances ! elemIdx
             liftIO $ writeIORef isDropped True
             Monad.forM_ (zip [from..] funcs) $ uncurry $ MVector.unsafeWrite elems
 
@@ -893,12 +902,19 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
             let tableAddr = tableaddrs moduleInstance ! fromIntegral tableIdx
             let TableInstance { items } = tableInstances store ! tableAddr
             let elemAddr = elemaddrs moduleInstance ! fromIntegral elemIdx
-            let ElemInstance _ refs dropFlag = elemInstances store ! elemAddr
+            let ElemInstance {
+                    eiItems = refs,
+                    eiMode = mode,
+                    isDropped = dropFlag
+                } = elemInstances store ! elemAddr
             let src = fromIntegral s
             let dst = fromIntegral d
             let len = fromIntegral n
             isDropped <- readIORef dropFlag
-            if src + len > Vector.length refs || dst + len > MVector.length items || isDropped
+            if src + len > Vector.length refs
+                || dst + len > MVector.length items
+                || isDropped
+                || isDeclarative mode
             then return Trap
             else do
                 Vector.iforM_ (Vector.slice src len refs) $ \idx (RF fn) ->
