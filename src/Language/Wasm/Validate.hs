@@ -15,7 +15,7 @@ import Language.Wasm.Structure
 import qualified Data.Set as Set
 import Data.List (foldl')
 import qualified Data.Text.Lazy as TL
-import Data.Maybe (fromMaybe, maybeToList, catMaybes)
+import Data.Maybe (fromMaybe, catMaybes)
 import Numeric.Natural (Natural)
 import Prelude hiding ((<>))
 
@@ -269,7 +269,7 @@ getInstrType RefIsNull = do
 getInstrType (RefFunc funIdx) = do
     Ctx { funcs } <- ask
     if fromIntegral funIdx < length funcs
-    then return $ empty ==> Val I32
+    then return $ empty ==> Val Func
     else throwError FunctionIndexOutOfRange
 getInstrType (GetLocal local) = do
     Ctx { locals }  <- ask
@@ -583,8 +583,10 @@ elemsShouldBeValid m@Module { elems, functions, tables, imports } =
         isElemValid :: Ctx -> ElemSegment -> ValidationResult
         isElemValid ctx (ElemSegment elemType mode elements) = do
             forM_ elements $ \elem -> runChecker ctx $ do
-                getExpressionType elem
+                arr <- getExpressionType elem
                 isConstExpression elem
+                unless (isValidRef elemType arr)
+                    $ throwError $ RefTypeMismatch elemType elemType
             case mode of
                 Active tableIdx offset -> runChecker ctx $ do
                     isConstExpression offset
@@ -595,6 +597,11 @@ elemsShouldBeValid m@Module { elems, functions, tables, imports } =
                     when (tableIdx >= fromIntegral (length tableImports + length tables)) $ do
                         throwError $ TableIndexOutOfRange tableIdx
                 _ -> return ()
+        
+        isValidRef :: ElemType -> Arrow -> Bool
+        isValidRef FuncRef arr | arr == (empty ==> Func) = True
+        isValidRef ExternRef arr | arr == (empty ==> Extern) = True
+        isValidRef _ _ = False
 
 datasShouldBeValid :: Validator
 datasShouldBeValid m@Module { datas, mems, imports } =

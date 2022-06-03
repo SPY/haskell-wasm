@@ -173,6 +173,7 @@ runScript onAssertFail script = do
 
         getFailureString :: Validate.ValidationError -> [TL.Text]
         getFailureString (Validate.TypeMismatch _ _) = ["type mismatch"]
+        getFailureString (Validate.RefTypeMismatch _ _) = ["type mismatch"]
         getFailureString Validate.ResultTypeDoesntMatch = ["type mismatch"]
         getFailureString Validate.MoreThanOneMemory = ["multiple memories"]
         getFailureString Validate.MoreThanOneTable = ["multiple tables"]
