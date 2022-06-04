@@ -71,6 +71,8 @@ import Language.Wasm.FloatUtils (
         doubleToWord
     )
 
+import Debug.Trace as Debug
+
 data Value =
     VI32 Word32
     | VI64 Word64
@@ -173,7 +175,7 @@ type Address = Int
 type TableStore = IOVector (Maybe Address)
 
 data TableInstance = TableInstance {
-    lim :: Limit,
+    t :: TableType,
     items :: TableStore
 }
 
@@ -426,7 +428,7 @@ calcInstance (Store fs ts ms gs es ds) imps mod = do
             tableAddr <- case idx of
                 ExternTable tableAddr -> return tableAddr
                 _ -> throwError "incompatible import type"
-            let TableInstance { lim } = ts ! tableAddr
+            let TableInstance { t = TableType lim _ } = ts ! tableAddr
             if limitMatch lim limit
             then return idx
             else throwError "incompatible import type"
@@ -484,9 +486,9 @@ allocTables :: [Table] -> IO (Vector TableInstance)
 allocTables = fmap Vector.fromList . mapM allocTable
     where
         allocTable :: Table -> IO TableInstance
-        allocTable (Table (TableType lim@(Limit from to) _)) =
+        allocTable (Table t@(TableType lim@(Limit from to) _)) =
             let elements = MVector.replicate (fromIntegral from) Nothing in
-            TableInstance lim <$> elements
+            TableInstance t <$> elements
 
 defaultBudget :: Natural
 defaultBudget = 300
@@ -645,6 +647,8 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
         checkValType I64 (VI64 v) = Just $ VI64 v
         checkValType F32 (VF32 v) = Just $ VF32 v
         checkValType F64 (VF64 v) = Just $ VF64 v
+        checkValType Func (RF v)  = Just $ RF v
+        checkValType Extern (RE v) = Just $ RE v
         checkValType _   _        = Nothing
 
         initLocal :: ValueType -> Value
@@ -924,6 +928,29 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
                 Vector.iforM_ (Vector.slice src len refs) $ \idx (RF fn) ->
                     MVector.unsafeWrite items (dst + idx) (fromIntegral <$> fn)
                 return $ Done ctx { stack = rest }
+        step ctx@EvalCtx{ stack = (ref:VI32 offset:rest) } (TableSet tableIdx) = do
+            let tableAddr = tableaddrs moduleInstance ! fromIntegral tableIdx
+            let TableInstance { items } = tableInstances store ! tableAddr
+            let dst = fromIntegral offset
+            let val = case ref of
+                    RE extRef -> extRef
+                    RF fnRef -> fnRef
+                    v -> error "Impossible due to validation"
+            if dst > MVector.length items
+            then return Trap
+            else do
+                MVector.unsafeWrite items dst (fromIntegral <$> val)
+                return $ Done ctx { stack = rest }
+        step ctx@EvalCtx{ stack = (VI32 offset:rest) } (TableGet tableIdx) = do
+            let tableAddr = tableaddrs moduleInstance ! fromIntegral tableIdx
+            let TableInstance { t = TableType _ et, items } = tableInstances store ! tableAddr
+            let dst = fromIntegral offset
+            if dst > MVector.length items
+            then return Trap
+            else do
+                v <- MVector.unsafeRead items dst
+                let val = (case et of {FuncRef -> RF; ExternRef -> RE}) (fromIntegral <$> v)
+                return $ Done ctx { stack = val : rest }
         step ctx (I32Const v) = return $ Done ctx { stack = VI32 v : stack ctx }
         step ctx (I64Const v) = return $ Done ctx { stack = VI64 v : stack ctx }
         step ctx (F32Const v) = return $ Done ctx { stack = VF32 v : stack ctx }
