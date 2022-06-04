@@ -133,6 +133,7 @@ import Language.Wasm.Lexer (
 'ref.null'            { Lexeme _ (TKeyword "ref.null") }
 'ref.is_null'         { Lexeme _ (TKeyword "ref.is_null") }
 'ref.func'            { Lexeme _ (TKeyword "ref.func") }
+'ref.extern'          { Lexeme _ (TKeyword "ref.extern") }
 'drop'                { Lexeme _ (TKeyword "drop") }
 'select'              { Lexeme _ (TKeyword "select") }
 'get_local'           { Lexeme _ (TKeyword "local.get") }
@@ -438,6 +439,7 @@ plaininstr :: { PlainInstr }
     | 'ref.null' heaptype            { RefNull $2 }
     | 'ref.is_null'                  { RefIsNull }
     | 'ref.func' index               { RefFunc $2 }
+    | 'ref.extern' u32               { RefExtern $2 }
     -- variable instructions
     | 'get_local' index              { GetLocal $2 }
     | 'set_local' index              { SetLocal $2 }
@@ -471,11 +473,13 @@ plaininstr :: { PlainInstr }
     | 'memory.size'                  { CurrentMemory }
     | 'memory.grow'                  { GrowMemory }
     -- table instructions
-    | 'table.init' index opt(index)  {
+    | 'table.init' index opt(index) {
         case $3 of
             Nothing -> TableInit (Index 0) $2
             Just elemIdx -> TableInit $2 elemIdx
     }
+    | 'table.get' index              { TableGet $2 }
+    | 'table.set' index              { TableSet $2 }
     -- numeric instructions
     | 'i32.const' int32              { I32Const $2 }
     | 'i64.const' int64              { I64Const $2 }
@@ -1184,6 +1188,7 @@ data PlainInstr =
     | RefNull ElemType
     | RefIsNull
     | RefFunc FuncIndex
+    | RefExtern Natural
     -- Parametric instructions
     | Drop
     | Select
@@ -1460,6 +1465,7 @@ constInstructionToValue (PlainInstr (F32Const v)) = S.F32Const v
 constInstructionToValue (PlainInstr (I64Const v)) = S.I64Const $ integerToWord64 v
 constInstructionToValue (PlainInstr (F64Const v)) = S.F64Const v
 constInstructionToValue (PlainInstr (RefNull et)) = S.RefNull et
+constInstructionToValue (PlainInstr (RefExtern n)) = S.RefExtern n
 constInstructionToValue _ = error "Only const instructions supported as arguments for actions"
 
 funcIndexToExpr :: [FuncIndex] -> [[Instruction]]
@@ -1653,6 +1659,8 @@ desugarize fields = do
             case getFuncIndex ctxMod funIdx of
                 Just idx -> return $ S.RefFunc idx
                 Nothing -> Left "unknown function"
+        synInstrToStruct FunCtx { ctxMod } (PlainInstr (RefExtern idx)) =
+            return $ S.RefExtern idx
         synInstrToStruct ctx (PlainInstr (GetLocal localIdx)) =
             case getLocalIndex ctx localIdx of
                 Just idx -> return $ S.GetLocal idx
@@ -1704,6 +1712,14 @@ desugarize fields = do
                     case getElemIndex ctxMod elemIdx of
                         Just elemIdx -> return $ S.TableInit tableIdx elemIdx
                         Nothing -> Left "unknown elem"
+                Nothing -> Left "unknown table"
+        synInstrToStruct FunCtx { ctxMod } (PlainInstr (TableSet tableIdx)) =
+            case getTableIndex ctxMod tableIdx of
+                Just tableIdx -> return $ S.TableSet tableIdx
+                Nothing -> Left "unknown table"
+        synInstrToStruct FunCtx { ctxMod } (PlainInstr (TableGet tableIdx)) =
+            case getTableIndex ctxMod tableIdx of
+                Just tableIdx -> return $ S.TableGet tableIdx
                 Nothing -> Left "unknown table"
         synInstrToStruct _ (PlainInstr (I32Const val)) = return $ S.I32Const $ integerToWord32 val
         synInstrToStruct _ (PlainInstr (I64Const val)) = return $ S.I64Const $ integerToWord64 val

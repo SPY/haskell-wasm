@@ -32,7 +32,6 @@ data ValidationError =
     | MemoryLimitExceeded
     | AlignmentOverflow
     | MoreThanOneMemory
-    | MoreThanOneTable
     | FunctionIndexOutOfRange
     | TableIndexOutOfRange Natural
     | MemoryIndexOutOfRange Natural
@@ -200,6 +199,10 @@ getResultType (TypeIndex typeIdx) = do
     Ctx { types } <- ask
     maybeToEither TypeIndexOutOfRange $ results <$> types !? typeIdx
 
+elemTypeToRefType :: ElemType -> ValueType 
+elemTypeToRefType FuncRef = Func
+elemTypeToRefType ExternRef = Extern
+
 getInstrType :: Instruction Natural -> Checker Arrow
 getInstrType Unreachable = return $ Any ==> Any
 getInstrType Nop = return $ empty ==> empty
@@ -265,7 +268,8 @@ getInstrType (RefNull elType) = do
     let t = case elType of { FuncRef -> Func; ExternRef -> Extern }
     return $ empty ==> Val t
 getInstrType RefIsNull = do
-    return $ empty ==> Val I32
+    var <- freshVar
+    return $ var ==> Val I32
 getInstrType (RefFunc funIdx) = do
     Ctx { funcs } <- ask
     if fromIntegral funIdx < length funcs
@@ -375,6 +379,16 @@ getInstrType (TableInit tableIdx elemIdx) = do
     let elemType = elems !! fromIntegral elemIdx
     when (elemType /= tableType) $ throwError (RefTypeMismatch tableType elemType)
     return $ [I32, I32, I32] ==> empty
+getInstrType (TableGet tableIdx) = do
+    Ctx { tables } <- ask
+    when (length tables <= fromIntegral tableIdx) $ throwError (TableIndexOutOfRange tableIdx)
+    let TableType _ tableType = tables !! fromIntegral tableIdx
+    return $ I32 ==> (elemTypeToRefType tableType)
+getInstrType (TableSet tableIdx) = do
+    Ctx { tables } <- ask
+    when (length tables <= fromIntegral tableIdx) $ throwError (TableIndexOutOfRange tableIdx)
+    let TableType _ tableType = tables !! fromIntegral tableIdx
+    return $ [I32, elemTypeToRefType tableType] ==> empty
 getInstrType (I32Const _) = return $ empty ==> I32
 getInstrType (I64Const _) = return $ empty ==> I64
 getInstrType (F32Const _) = return $ empty ==> F32
@@ -533,10 +547,7 @@ tablesShouldBeValid :: Validator
 tablesShouldBeValid Module { imports, tables } =
     let tableImports = filter isTableImport imports in
     let res = foldMap (\Import { desc = ImportTable t } -> isValidTableType t) tableImports in
-    let res' = foldl' (\r (Table t) -> r <> isValidTableType t) res tables in
-    if length tableImports + length tables <= 1
-        then res'
-        else Left MoreThanOneTable
+    foldl' (\r (Table t) -> r <> isValidTableType t) res tables
     where
         isValidTableType :: TableType -> ValidationResult
         isValidTableType (TableType (Limit min max) _) =

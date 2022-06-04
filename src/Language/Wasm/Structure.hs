@@ -142,6 +142,7 @@ data Instruction index =
     | RefNull ElemType
     | RefIsNull
     | RefFunc index
+    | RefExtern Natural
     -- Parametric instructions
     | Drop
     | Select

@@ -124,7 +124,8 @@ runScript onAssertFail script = do
         asArg [Struct.F64Const v] = Interpreter.VF64 v
         asArg [Struct.RefNull Struct.FuncRef] = Interpreter.RF Nothing
         asArg [Struct.RefNull Struct.ExternRef] = Interpreter.RE Nothing
-        asArg _                   = error "Only const instructions supported as arguments for actions"
+        asArg [Struct.RefExtern v] = Interpreter.RE (Just v)
+        asArg expr = error $ "Only const instructions supported as arguments for actions: " ++ show expr
 
         runAction :: ScriptState -> Action -> IO (Maybe [Interpreter.Value])
         runAction st (Invoke ident name args) = do
@@ -176,7 +177,6 @@ runScript onAssertFail script = do
         getFailureString (Validate.RefTypeMismatch _ _) = ["type mismatch"]
         getFailureString Validate.ResultTypeDoesntMatch = ["type mismatch"]
         getFailureString Validate.MoreThanOneMemory = ["multiple memories"]
-        getFailureString Validate.MoreThanOneTable = ["multiple tables"]
         getFailureString (Validate.LocalIndexOutOfRange idx) = ["unknown local", "unknown local " <> TL.pack (show idx)]
         getFailureString (Validate.MemoryIndexOutOfRange idx) = ["unknown memory", "unknown memory " <> TL.pack (show idx)]
         getFailureString (Validate.TableIndexOutOfRange idx) = ["unknown table", "unknown table " <> TL.pack (show idx)]
