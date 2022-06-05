@@ -514,10 +514,14 @@ allocElems :: ModuleInstance -> Store -> [ElemSegment] -> IO (Vector ElemInstanc
 allocElems inst st = fmap Vector.fromList . mapM allocElem
     where
         allocElem :: ElemSegment -> IO ElemInstance
-        allocElem (ElemSegment t mode refs) =
-            ElemInstance mode t
-                <$> (Vector.fromList <$> mapM (evalConstExpr inst st) refs)
-                <*> newIORef False -- is dropped
+        allocElem (ElemSegment t mode refs) = do
+            indexes <- flip mapM refs $ \refExpr -> do
+                ref <- evalConstExpr inst st refExpr
+                return $ case ref of
+                    RF v -> RF $ fromIntegral . (funcaddrs inst !) . fromIntegral <$> v
+                    _ -> ref
+            ElemInstance mode t (Vector.fromList indexes)
+                <$> newIORef False -- is dropped
 
 allocDatas :: ModuleInstance -> Store -> [DataSegment] -> Vector DataInstance
 allocDatas _inst _st = Vector.fromList . map (const DataInstance)
@@ -769,14 +773,14 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
                         Just res -> return $ Done ctx { stack = reverse res ++ (drop (length args) $ stack ctx) }
                         Nothing -> return Trap
                 Nothing -> return Trap
-        step ctx@EvalCtx{ stack = (VI32 v): rest } (CallIndirect typeIdx) = do
+        step ctx@EvalCtx{ stack = (VI32 v): rest } (CallIndirect tableIdx typeIdx) = do
             let funcType = funcTypes moduleInstance ! fromIntegral typeIdx
-            let TableInstance { items } = tableInstances store ! (tableaddrs moduleInstance ! 0)
+            let TableInstance { items } = tableInstances store ! (tableaddrs moduleInstance ! fromIntegral tableIdx)
             let pos = fromIntegral v
             if pos >= MVector.length items
             then return Trap
             else do
-                maybeAddr <- liftIO $ MVector.read items pos
+                maybeAddr <- MVector.unsafeRead items pos
                 let checks = do
                         addr <- maybeAddr
                         let funcInst = funcInstances store ! addr
@@ -951,6 +955,11 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
                 v <- MVector.unsafeRead items dst
                 let val = (case et of {FuncRef -> RF; ExternRef -> RE}) (fromIntegral <$> v)
                 return $ Done ctx { stack = val : rest }
+        step ctx (ElemDrop elemIdx) = do
+            let elemAddr = elemaddrs moduleInstance ! fromIntegral elemIdx
+            let ElemInstance {isDropped} = elemInstances store ! elemAddr
+            writeIORef isDropped True
+            return $ Done ctx
         step ctx (I32Const v) = return $ Done ctx { stack = VI32 v : stack ctx }
         step ctx (I64Const v) = return $ Done ctx { stack = VI64 v : stack ctx }
         step ctx (F32Const v) = return $ Done ctx { stack = VF32 v : stack ctx }

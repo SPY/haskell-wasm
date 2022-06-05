@@ -173,6 +173,7 @@ import Language.Wasm.Lexer (
 'table.grow'          { Lexeme _ (TKeyword "table.grow") }
 'table.get'           { Lexeme _ (TKeyword "table.get") }
 'table.set'           { Lexeme _ (TKeyword "table.set") }
+'elem.drop'           { Lexeme _ (TKeyword "elem.drop") }
 'i32.const'           { Lexeme _ (TKeyword "i32.const") }
 'i64.const'           { Lexeme _ (TKeyword "i64.const") }
 'f32.const'           { Lexeme _ (TKeyword "f32.const") }
@@ -480,6 +481,8 @@ plaininstr :: { PlainInstr }
     }
     | 'table.get' index              { TableGet $2 }
     | 'table.set' index              { TableSet $2 }
+    | 'table.copy' index index       { TableCopy $2 $3 }
+    | 'elem.drop' index              { ElemDrop $2 }
     -- numeric instructions
     | 'i32.const' int32              { I32Const $2 }
     | 'i64.const' int64              { I64Const $2 }
@@ -690,9 +693,10 @@ memarg8 :: { MemArg }
 instruction_list(terminator)
     : terminator { ($1, []) }
     | plaininstr mixed_instruction_list(terminator) { ([PlainInstr $1] ++) `fmap` $2 }
-    | 'call_indirect' typeuse(terminator) {%
-        let (tu, instr, end) = $2 in
-        onlyAnonimParams tu >> (return (end, [PlainInstr $ CallIndirect tu] ++ instr))
+    | 'call_indirect' opt(index) typeuse(terminator) {%
+        let tableIdx = fromMaybe (Index 0) $2 in
+        let (tu, instr, end) = $3 in
+        onlyAnonimParams tu >> (return (end, [PlainInstr $ CallIndirect tableIdx tu] ++ instr))
     }
     | 'block' opt(ident) typeuse('end') opt(ident) mixed_instruction_list(terminator) {% do
         let (tu, instr, _) = $3 
@@ -730,9 +734,10 @@ folded_instr :: { [Instruction] }
 
 folded_instr1 :: { [Instruction] }
     : plaininstr mixed_instruction_list(')') { snd $2 ++ [PlainInstr $1] }
-    | 'call_indirect' typeuse(')') {%
-        let (tu, instr, _) = $2 in
-        onlyAnonimParams tu >> (return $ instr ++ [PlainInstr $ CallIndirect tu])
+    | 'call_indirect' opt(index) typeuse(')') {%
+        let tableIdx = fromMaybe (Index 0) $2 in
+        let (tu, instr, _) = $3 in
+        onlyAnonimParams tu >> (return $ instr ++ [PlainInstr $ CallIndirect tableIdx tu])
     }
     | 'block' opt(ident) typeuse(')') {%
         let (typeUse, instr, _) = $3 in
@@ -1183,7 +1188,7 @@ data PlainInstr =
     | BrTable [LabelIndex] LabelIndex
     | Return
     | Call FuncIndex
-    | CallIndirect TypeUse
+    | CallIndirect TableIndex TypeUse
     -- Reference instructions
     | RefNull ElemType
     | RefIsNull
@@ -1232,6 +1237,7 @@ data PlainInstr =
     | TableGet TableIndex
     | TableSet TableIndex
     | TableCopy TableIndex TableIndex
+    | ElemDrop ElemIndex
     -- Numeric instructions
     | I32Const Integer
     | I64Const Integer
@@ -1564,7 +1570,7 @@ desugarize fields = do
         extractTypeDefFromInstructions = foldl' extractTypeDefFromInstruction
 
         extractTypeDefFromInstruction :: [TypeDef] -> Instruction -> [TypeDef]
-        extractTypeDefFromInstruction defs (PlainInstr (CallIndirect typeUse)) =
+        extractTypeDefFromInstruction defs (PlainInstr (CallIndirect _ typeUse)) =
             matchTypeUse defs typeUse
         extractTypeDefFromInstruction defs (BlockInstr { body, blockType }) =
             extractTypeDefFromInstructions (matchTypeUse defs blockType) body
@@ -1647,10 +1653,13 @@ desugarize fields = do
             case getFuncIndex ctxMod funIdx of
                 Just idx -> return $ S.Call idx
                 Nothing -> Left "unknown function"
-        synInstrToStruct FunCtx { ctxMod = Module { types } } (PlainInstr (CallIndirect typeUse)) =
-            case getTypeIndex types typeUse of
-                Just idx -> return $ S.CallIndirect idx
-                Nothing -> Left "unknown type"
+        synInstrToStruct FunCtx { ctxMod } (PlainInstr (CallIndirect tableIdx typeUse)) =
+            case getTableIndex ctxMod tableIdx of
+                Just tableIdx ->
+                    case getTypeIndex (types ctxMod) typeUse of
+                        Just idx -> return $ S.CallIndirect tableIdx idx
+                        Nothing -> Left "unknown type"
+                Nothing -> Left "unknown table"
         synInstrToStruct _ (PlainInstr Drop) = return $ S.Drop
         synInstrToStruct _ (PlainInstr Select) = return $ S.Select
         synInstrToStruct _ (PlainInstr (RefNull elType)) = return $ S.RefNull elType
@@ -1713,6 +1722,13 @@ desugarize fields = do
                         Just elemIdx -> return $ S.TableInit tableIdx elemIdx
                         Nothing -> Left "unknown elem"
                 Nothing -> Left "unknown table"
+        synInstrToStruct FunCtx { ctxMod } (PlainInstr (TableCopy fromIdx toIdx)) =
+            case getTableIndex ctxMod fromIdx of
+                Just fromIdx ->
+                    case getTableIndex ctxMod toIdx of
+                        Just toIdx -> return $ S.TableCopy fromIdx toIdx
+                        Nothing -> Left "unknown table"
+                Nothing -> Left "unknown table"
         synInstrToStruct FunCtx { ctxMod } (PlainInstr (TableSet tableIdx)) =
             case getTableIndex ctxMod tableIdx of
                 Just tableIdx -> return $ S.TableSet tableIdx
@@ -1721,6 +1737,10 @@ desugarize fields = do
             case getTableIndex ctxMod tableIdx of
                 Just tableIdx -> return $ S.TableGet tableIdx
                 Nothing -> Left "unknown table"
+        synInstrToStruct FunCtx { ctxMod } (PlainInstr (ElemDrop elemIdx)) =
+            case getElemIndex ctxMod elemIdx of
+                Just elemIdx -> return $ S.ElemDrop elemIdx
+                Nothing -> Left "unknown elem"
         synInstrToStruct _ (PlainInstr (I32Const val)) = return $ S.I32Const $ integerToWord32 val
         synInstrToStruct _ (PlainInstr (I64Const val)) = return $ S.I64Const $ integerToWord64 val
         synInstrToStruct _ (PlainInstr (F32Const val)) = return $ S.F32Const val

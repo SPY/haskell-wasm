@@ -137,7 +137,7 @@ data Instruction index =
     | BrTable [index] index
     | Return
     | Call index
-    | CallIndirect index
+    | CallIndirect index index
     -- Reference instructions
     | RefNull ElemType
     | RefIsNull
@@ -186,6 +186,7 @@ data Instruction index =
     | TableGet TableIndex
     | TableSet TableIndex
     | TableCopy TableIndex TableIndex
+    | ElemDrop ElemIndex
     -- Numeric instructions
     | I32Const Word32
     | I64Const Word64

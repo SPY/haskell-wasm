@@ -365,7 +365,7 @@ instance Serialize (Instruction Natural) where
     put (BrTable labels label) = putWord8 0x0E >> putVec (map Index labels) >> putULEB128 label
     put Return = putWord8 0x0F
     put (Call funcIdx) = putWord8 0x10 >> putULEB128 funcIdx
-    put (CallIndirect typeIdx) = putWord8 0x11 >> putULEB128 typeIdx >> putWord8 0x00
+    put (CallIndirect tableIdx typeIdx) = putWord8 0x11 >> putULEB128 typeIdx >> putULEB128 tableIdx
     -- Parametric instructions
     put Drop = putWord8 0x1A
     put Select = putWord8 0x1B
@@ -565,8 +565,8 @@ instance Serialize (Instruction Natural) where
             0x10 -> Call <$> getULEB128 32
             0x11 -> do
                 typeIdx <- getULEB128 32
-                byteGuard 0x00
-                return $ CallIndirect typeIdx
+                tableIdx <- getULEB128 32
+                return $ CallIndirect tableIdx typeIdx
             -- Parametric instructions
             0x1A -> return $ Drop
             0x1B -> return $ Select

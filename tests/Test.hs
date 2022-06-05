@@ -16,8 +16,10 @@ import qualified Data.List as List
 
 main :: IO ()
 main = do
-  files <- filter (List.isSuffixOf ".wast") <$> Directory.listDirectory "tests/spec"
-  let files = ["ref_is_null.wast"]
+  files <-
+    filter (not . List.isPrefixOf "simd") . filter (List.isSuffixOf ".wast")
+      <$> Directory.listDirectory "tests/spec"
+  let files = ["table_init.wast"]
   scriptTestCases <- (`mapM` files) $ \file -> do
     test <- LBS.readFile ("tests/spec/" ++ file)
     return $ testCase file $ do
