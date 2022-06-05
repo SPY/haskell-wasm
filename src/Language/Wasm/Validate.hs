@@ -251,10 +251,10 @@ getInstrType Return = do
 getInstrType (Call fun) = do
     Ctx { funcs } <- ask
     maybeToEither FunctionIndexOutOfRange $ asArrow <$> funcs !? fun
-getInstrType (CallIndirect sign) = do
+getInstrType (CallIndirect tableIdx sign) = do
     Ctx { types, tables } <- ask
-    if length tables < 1
-    then throwError (TableIndexOutOfRange 0)
+    if length tables <= fromIntegral tableIdx
+    then throwError (TableIndexOutOfRange tableIdx)
     else do
         Arrow from to <- maybeToEither TypeIndexOutOfRange $ asArrow <$> types !? sign
         return $ (from ++ [Val I32]) ==> to
@@ -379,6 +379,15 @@ getInstrType (TableInit tableIdx elemIdx) = do
     let elemType = elems !! fromIntegral elemIdx
     when (elemType /= tableType) $ throwError (RefTypeMismatch tableType elemType)
     return $ [I32, I32, I32] ==> empty
+getInstrType (TableCopy fromIdx toIdx) = do
+    Ctx { tables } <- ask
+    let (from, to) = (fromIntegral fromIdx, fromIntegral toIdx)
+    when (length tables <= from) $ throwError (TableIndexOutOfRange fromIdx)
+    when (length tables <= to) $ throwError (TableIndexOutOfRange toIdx)
+    let TableType _ fromType = tables !! from
+    let TableType _ toType = tables !! to
+    when (fromType /= toType) $ throwError (RefTypeMismatch fromType toType)
+    return $ [I32, I32, I32] ==> empty
 getInstrType (TableGet tableIdx) = do
     Ctx { tables } <- ask
     when (length tables <= fromIntegral tableIdx) $ throwError (TableIndexOutOfRange tableIdx)
@@ -389,6 +398,10 @@ getInstrType (TableSet tableIdx) = do
     when (length tables <= fromIntegral tableIdx) $ throwError (TableIndexOutOfRange tableIdx)
     let TableType _ tableType = tables !! fromIntegral tableIdx
     return $ [I32, elemTypeToRefType tableType] ==> empty
+getInstrType (ElemDrop elemIdx) = do
+    Ctx { elems } <- ask
+    when (length elems <= fromIntegral elemIdx) $ throwError (ElemIndexOutOfRange elemIdx)
+    return $ empty ==> empty
 getInstrType (I32Const _) = return $ empty ==> I32
 getInstrType (I64Const _) = return $ empty ==> I64
 getInstrType (F32Const _) = return $ empty ==> F32

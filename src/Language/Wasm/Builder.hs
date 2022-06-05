@@ -655,7 +655,7 @@ callIndirect :: (Producer index, OutType index ~ Proxy I32, Returnable res) => T
 callIndirect (TypeDef idx) index args = do
     sequence_ args
     produce index
-    appendExpr [CallIndirect idx]
+    appendExpr [CallIndirect 0 idx]
     return returnableValue
 
 br :: Label t -> GenFun ()
