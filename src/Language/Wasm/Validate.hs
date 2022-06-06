@@ -379,7 +379,7 @@ getInstrType (TableInit tableIdx elemIdx) = do
     let elemType = elems !! fromIntegral elemIdx
     when (elemType /= tableType) $ throwError (RefTypeMismatch tableType elemType)
     return $ [I32, I32, I32] ==> empty
-getInstrType (TableCopy fromIdx toIdx) = do
+getInstrType (TableCopy toIdx fromIdx) = do
     Ctx { tables } <- ask
     let (from, to) = (fromIntegral fromIdx, fromIntegral toIdx)
     when (length tables <= from) $ throwError (TableIndexOutOfRange fromIdx)
