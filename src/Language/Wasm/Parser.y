@@ -1722,11 +1722,11 @@ desugarize fields = do
                         Just elemIdx -> return $ S.TableInit tableIdx elemIdx
                         Nothing -> Left "unknown elem"
                 Nothing -> Left "unknown table"
-        synInstrToStruct FunCtx { ctxMod } (PlainInstr (TableCopy fromIdx toIdx)) =
+        synInstrToStruct FunCtx { ctxMod } (PlainInstr (TableCopy toIdx fromIdx)) =
             case getTableIndex ctxMod fromIdx of
                 Just fromIdx ->
                     case getTableIndex ctxMod toIdx of
-                        Just toIdx -> return $ S.TableCopy fromIdx toIdx
+                        Just toIdx -> return $ S.TableCopy toIdx fromIdx
                         Nothing -> Left "unknown table"
                 Nothing -> Left "unknown table"
         synInstrToStruct FunCtx { ctxMod } (PlainInstr (TableSet tableIdx)) =

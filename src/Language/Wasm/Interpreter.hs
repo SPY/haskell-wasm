@@ -925,8 +925,24 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
                 || isDeclarative mode
             then return Trap
             else do
-                Vector.iforM_ (Vector.slice src len refs) $ \idx (RF fn) ->
+                Vector.iforM_ (Vector.slice src len refs) $ \idx (RF fn) -> do
                     MVector.unsafeWrite items (dst + idx) (fromIntegral <$> fn)
+                return $ Done ctx { stack = rest }
+        step ctx@EvalCtx{ stack = (VI32 n:VI32 s:VI32 d:rest) } (TableCopy toIdx fromIdx) = do
+            let fromAddr = tableaddrs moduleInstance ! fromIntegral fromIdx
+            let TableInstance { items = fromItems } = tableInstances store ! fromAddr
+            let toAddr = tableaddrs moduleInstance ! fromIntegral toIdx
+            let TableInstance { items = toItems } = tableInstances store ! toAddr
+            let src = fromIntegral s
+            let dst = fromIntegral d
+            let len = fromIntegral n
+            if src + len > MVector.length fromItems || dst + len > MVector.length toItems
+            then return Trap
+            else do
+                let range = if dst <= src then [0..len - 1] else reverse [0..len - 1]
+                flip mapM_ range $ \off -> do
+                    el <- MVector.unsafeRead fromItems (src + off)
+                    MVector.unsafeWrite toItems (dst + off) el
                 return $ Done ctx { stack = rest }
         step ctx@EvalCtx{ stack = (ref:VI32 offset:rest) } (TableSet tableIdx) = do
             let tableAddr = tableaddrs moduleInstance ! fromIntegral tableIdx
