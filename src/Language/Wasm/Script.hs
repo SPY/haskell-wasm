@@ -193,7 +193,8 @@ runScript onAssertFail script = do
         getFailureString Validate.GlobalIsImmutable = ["global is immutable"]
         getFailureString Validate.InvalidStartFunctionType = ["start function"]
         getFailureString Validate.InvalidTableType = ["size minimum must not be greater than maximum"]
-        getFailureString r = [TL.concat ["not implemented ", (TL.pack $ show r)]]
+        getFailureString (Validate.ElemIndexOutOfRange idx) = ["unknown elem segment " <> TL.pack (show idx)]
+        getFailureString r = [TL.concat ["not implemented ", TL.pack $ show r]]
 
         printFailedAssert :: String -> Assertion -> AssertM ()
         printFailedAssert msg assert = do
