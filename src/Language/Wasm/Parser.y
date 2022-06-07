@@ -482,6 +482,8 @@ plaininstr :: { PlainInstr }
     | 'table.get' index              { TableGet $2 }
     | 'table.set' index              { TableSet $2 }
     | 'table.copy' index index       { TableCopy $2 $3 }
+    | 'table.size' index             { TableSize $2 }
+    | 'table.grow' index             { TableGrow $2 }
     | 'elem.drop' index              { ElemDrop $2 }
     -- numeric instructions
     | 'i32.const' int32              { I32Const $2 }
@@ -1728,6 +1730,14 @@ desugarize fields = do
                     case getTableIndex ctxMod toIdx of
                         Just toIdx -> return $ S.TableCopy toIdx fromIdx
                         Nothing -> Left "unknown table"
+                Nothing -> Left "unknown table"
+        synInstrToStruct FunCtx { ctxMod } (PlainInstr (TableSize tableIdx)) =
+            case getTableIndex ctxMod tableIdx of
+                Just tableIdx -> return $ S.TableSize tableIdx
+                Nothing -> Left "unknown table"
+        synInstrToStruct FunCtx { ctxMod } (PlainInstr (TableGrow tableIdx)) =
+            case getTableIndex ctxMod tableIdx of
+                Just tableIdx -> return $ S.TableGrow tableIdx
                 Nothing -> Left "unknown table"
         synInstrToStruct FunCtx { ctxMod } (PlainInstr (TableSet tableIdx)) =
             case getTableIndex ctxMod tableIdx of
