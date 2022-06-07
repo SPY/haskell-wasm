@@ -978,14 +978,14 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
             let TableInstance { items } = tableInstances store ! tableAddr
             let dst = fromIntegral offset
             let val = case ref of
-                    RE extRef -> extRef
-                    RF fnRef -> fnRef
+                    RE extRef -> fromIntegral <$> extRef
+                    RF fnRef -> (funcaddrs moduleInstance !) . fromIntegral <$> fnRef
                     v -> error "Impossible due to validation"
             els <- readIORef items
             if dst >= MVector.length els
             then return Trap
             else do
-                MVector.unsafeWrite els dst (fromIntegral <$> val)
+                MVector.unsafeWrite els dst val
                 return $ Done ctx { stack = rest }
         step ctx@EvalCtx{ stack = (VI32 offset:rest) } (TableGet tableIdx) = do
             let tableAddr = tableaddrs moduleInstance ! fromIntegral tableIdx
