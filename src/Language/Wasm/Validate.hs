@@ -32,7 +32,7 @@ data ValidationError =
     | MemoryLimitExceeded
     | AlignmentOverflow
     | MoreThanOneMemory
-    | FunctionIndexOutOfRange
+    | FunctionIndexOutOfRange Natural
     | TableIndexOutOfRange Natural
     | MemoryIndexOutOfRange Natural
     | LocalIndexOutOfRange Natural
@@ -47,6 +47,7 @@ data ValidationError =
     | InvalidConstantExpr
     | InvalidStartFunctionType
     | GlobalIsImmutable
+    | UndeclaredFunctionRef Natural
     deriving (Show, Eq)
 
 type ValidationResult = Either ValidationError ()
@@ -134,7 +135,8 @@ data Ctx = Ctx {
     locals :: [ValueType],
     labels :: [[ValueType]],
     returns :: [ValueType],
-    importedGlobals :: Natural
+    importedGlobals :: Natural,
+    refs :: Set.Set Natural
 } deriving (Show, Eq)
 
 type Checker = ReaderT Ctx (Except ValidationError)
@@ -250,7 +252,7 @@ getInstrType Return = do
     return $ (Any : (map Val returns)) ==> Any
 getInstrType (Call fun) = do
     Ctx { funcs } <- ask
-    maybeToEither FunctionIndexOutOfRange $ asArrow <$> funcs !? fun
+    maybeToEither (FunctionIndexOutOfRange fun) $ asArrow <$> funcs !? fun
 getInstrType (CallIndirect tableIdx sign) = do
     Ctx { types, tables } <- ask
     if length tables <= fromIntegral tableIdx
@@ -271,10 +273,13 @@ getInstrType RefIsNull = do
     var <- freshVar
     return $ var ==> Val I32
 getInstrType (RefFunc funIdx) = do
-    Ctx { funcs } <- ask
+    Ctx { funcs, refs } <- ask
     if fromIntegral funIdx < length funcs
-    then return $ empty ==> Val Func
-    else throwError FunctionIndexOutOfRange
+    then do
+        unless (Set.member funIdx refs) $
+            throwError $ UndeclaredFunctionRef $ fromIntegral funIdx
+        return $ empty ==> Val Func
+    else throwError $ FunctionIndexOutOfRange $ fromIntegral funIdx
 getInstrType (GetLocal local) = do
     Ctx { locals }  <- ask
     t <- maybeToEither (LocalIndexOutOfRange local) $ locals !? local
@@ -523,7 +528,7 @@ getFuncTypes Module {types, functions, imports} =
         getFuncType _ = Nothing
 
 ctxFromModule :: [ValueType] -> [[ValueType]] -> [ValueType] -> Module -> Ctx
-ctxFromModule locals labels returns m@Module {types, tables, mems, globals, imports, elems} =
+ctxFromModule locals labels returns m@Module {types, tables, mems, globals, imports, elems, exports} =
     let tableImports = catMaybes $ map getTableType imports in
     let memsImports = catMaybes $ map getMemType imports in
     let globalImports = catMaybes $ map getGlobalType imports in
@@ -537,7 +542,10 @@ ctxFromModule locals labels returns m@Module {types, tables, mems, globals, impo
         locals,
         labels,
         returns,
-        importedGlobals = fromIntegral $ length globalImports
+        importedGlobals = fromIntegral $ length globalImports,
+        refs = Set.unions $ map getElemRefs elems
+            ++ map getGlobalRefs globals
+            ++ map getExportRefs exports
     }
     where
         getTableType (Import _ _ (ImportTable tableType)) = Just tableType
@@ -548,6 +556,19 @@ ctxFromModule locals labels returns m@Module {types, tables, mems, globals, impo
 
         getGlobalType (Import _ _ (ImportGlobal gl)) = Just gl
         getGlobalType _ = Nothing
+
+        getElemRefs ElemSegment{ elemType = FuncRef, elements} =
+            foldl extractRef Set.empty elements
+            where
+                extractRef refs [RefFunc idx] = Set.insert idx refs
+                extractRef refs _ = refs
+        getElemRefs _ = Set.empty
+
+        getGlobalRefs Global {initializer = [RefFunc idx]} = Set.singleton idx
+        getGlobalRefs _ = Set.empty
+
+        getExportRefs Export {desc = ExportFunc idx} = Set.singleton idx
+        getExportRefs _ = Set.empty
 
 isFunctionValid :: Function -> Validator
 isFunctionValid Function {funcType, localTypes = locals, body} mod@Module {types} =
@@ -664,7 +685,7 @@ startShouldBeValid m@Module { start = Just (StartFunction idx) } =
     let i = fromIntegral idx in
     if length types > i
     then if FuncType [] [] == types !! i then return () else Left InvalidStartFunctionType
-    else Left FunctionIndexOutOfRange
+    else Left $ FunctionIndexOutOfRange $ fromIntegral i
 
 exportsShouldBeValid :: Validator
 exportsShouldBeValid Module { exports, imports, functions, mems, tables, globals } =
@@ -677,7 +698,7 @@ exportsShouldBeValid Module { exports, imports, functions, mems, tables, globals
 
         isExportValid :: Export -> ValidationResult
         isExportValid (Export _ (ExportFunc funIdx)) =
-            if fromIntegral funIdx < length funcImports + length functions then return () else Left FunctionIndexOutOfRange
+            if fromIntegral funIdx < length funcImports + length functions then return () else Left (FunctionIndexOutOfRange funIdx)
         isExportValid (Export _ (ExportTable tableIdx)) =
             if fromIntegral tableIdx < length tableImports + length tables then return () else Left (TableIndexOutOfRange tableIdx)
         isExportValid (Export _ (ExportMemory memIdx)) =

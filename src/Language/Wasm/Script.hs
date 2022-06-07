@@ -180,7 +180,7 @@ runScript onAssertFail script = do
         getFailureString (Validate.LocalIndexOutOfRange idx) = ["unknown local", "unknown local " <> TL.pack (show idx)]
         getFailureString (Validate.MemoryIndexOutOfRange idx) = ["unknown memory", "unknown memory " <> TL.pack (show idx)]
         getFailureString (Validate.TableIndexOutOfRange idx) = ["unknown table", "unknown table " <> TL.pack (show idx)]
-        getFailureString Validate.FunctionIndexOutOfRange = ["unknown function", "unknown function 0"]
+        getFailureString (Validate.FunctionIndexOutOfRange idx) = ["unknown function", "unknown function " <> TL.pack (show idx)]
         getFailureString (Validate.GlobalIndexOutOfRange idx) = ["unknown global", "unknown global " <> TL.pack (show idx)]
         getFailureString Validate.LabelIndexOutOfRange = ["unknown label"]
         getFailureString Validate.TypeIndexOutOfRange = ["unknown type"]
@@ -194,6 +194,7 @@ runScript onAssertFail script = do
         getFailureString Validate.InvalidStartFunctionType = ["start function"]
         getFailureString Validate.InvalidTableType = ["size minimum must not be greater than maximum"]
         getFailureString (Validate.ElemIndexOutOfRange idx) = ["unknown elem segment " <> TL.pack (show idx)]
+        getFailureString (Validate.UndeclaredFunctionRef _) = ["undeclared function reference"]
         getFailureString r = [TL.concat ["not implemented ", TL.pack $ show r]]
 
         printFailedAssert :: String -> Assertion -> AssertM ()
