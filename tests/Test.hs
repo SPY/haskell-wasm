@@ -19,7 +19,7 @@ main = do
   files <-
     filter (not . List.isPrefixOf "simd") . filter (List.isSuffixOf ".wast")
       <$> Directory.listDirectory "tests/spec"
-  let files = ["table_get.wast"]
+  -- let files = ["table_get.wast"]
   scriptTestCases <- (`mapM` files) $ \file -> do
     test <- LBS.readFile ("tests/spec/" ++ file)
     return $ testCase file $ do
