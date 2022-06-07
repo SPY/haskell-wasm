@@ -982,7 +982,7 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
                     RF fnRef -> fnRef
                     v -> error "Impossible due to validation"
             els <- readIORef items
-            if dst > MVector.length els
+            if dst >= MVector.length els
             then return Trap
             else do
                 MVector.unsafeWrite els dst (fromIntegral <$> val)
@@ -992,7 +992,7 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
             let TableInstance { t = TableType _ et, items } = tableInstances store ! tableAddr
             let dst = fromIntegral offset
             els <- readIORef items
-            if dst > MVector.length els
+            if dst >= MVector.length els
             then return Trap
             else do
                 v <- MVector.unsafeRead els dst
