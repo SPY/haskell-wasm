@@ -479,11 +479,11 @@ plaininstr :: { PlainInstr }
             Nothing -> TableInit (Index 0) $2
             Just elemIdx -> TableInit $2 elemIdx
     }
-    | 'table.get' index              { TableGet $2 }
-    | 'table.set' index              { TableSet $2 }
-    | 'table.copy' index index       { TableCopy $2 $3 }
-    | 'table.size' index             { TableSize $2 }
-    | 'table.grow' index             { TableGrow $2 }
+    | 'table.get' opt(index)         { TableGet (fromMaybe (Index 0) $2) }
+    | 'table.set' opt(index)         { TableSet (fromMaybe (Index 0) $2) }
+    | 'table.copy' opt(index) opt(index) { TableCopy (fromMaybe (Index 0) $2) (fromMaybe (Index 0) $3) }
+    | 'table.size' opt(index)        { TableSize (fromMaybe (Index 0) $2) }
+    | 'table.grow' opt(index)        { TableGrow (fromMaybe (Index 0) $2) }
     | 'elem.drop' index              { ElemDrop $2 }
     -- numeric instructions
     | 'i32.const' int32              { I32Const $2 }
@@ -977,6 +977,7 @@ elem1_active_offset :: { ([Instruction], ElemType, [[Instruction]]) }
 elemlist :: { (ElemType, [[Instruction]]) }
     : 'func' list(index) { (FuncRef, funcIndexToExpr $2) }
     | 'funcref' list(elemexpr) { (FuncRef, $2) }
+    | 'externref' { (ExternRef, []) }
     | list(index) { (FuncRef, funcIndexToExpr $1) }
 
 elemexpr :: { [Instruction] }

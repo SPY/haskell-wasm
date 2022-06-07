@@ -615,6 +615,8 @@ elemsShouldBeValid m@Module { elems, functions, tables, imports } =
     where
         isElemValid :: Ctx -> ElemSegment -> ValidationResult
         isElemValid ctx (ElemSegment elemType mode elements) = do
+            unless (elemType == FuncRef)
+                $ throwError $ RefTypeMismatch FuncRef elemType
             forM_ elements $ \elem -> runChecker ctx $ do
                 arr <- getExpressionType elem
                 isConstExpression elem
