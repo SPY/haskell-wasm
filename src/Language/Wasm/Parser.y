@@ -482,6 +482,7 @@ plaininstr :: { PlainInstr }
     | 'table.get' opt(index)         { TableGet (fromMaybe (Index 0) $2) }
     | 'table.set' opt(index)         { TableSet (fromMaybe (Index 0) $2) }
     | 'table.copy' opt(index) opt(index) { TableCopy (fromMaybe (Index 0) $2) (fromMaybe (Index 0) $3) }
+    | 'table.fill' opt(index)        { TableFill (fromMaybe (Index 0) $2) }
     | 'table.size' opt(index)        { TableSize (fromMaybe (Index 0) $2) }
     | 'table.grow' opt(index)        { TableGrow (fromMaybe (Index 0) $2) }
     | 'elem.drop' index              { ElemDrop $2 }
@@ -1735,6 +1736,10 @@ desugarize fields = do
         synInstrToStruct FunCtx { ctxMod } (PlainInstr (TableSize tableIdx)) =
             case getTableIndex ctxMod tableIdx of
                 Just tableIdx -> return $ S.TableSize tableIdx
+                Nothing -> Left "unknown table"
+        synInstrToStruct FunCtx { ctxMod } (PlainInstr (TableFill tableIdx)) =
+            case getTableIndex ctxMod tableIdx of
+                Just tableIdx -> return $ S.TableFill tableIdx
                 Nothing -> Left "unknown table"
         synInstrToStruct FunCtx { ctxMod } (PlainInstr (TableGrow tableIdx)) =
             case getTableIndex ctxMod tableIdx of
