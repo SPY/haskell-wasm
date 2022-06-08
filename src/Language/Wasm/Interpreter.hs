@@ -948,6 +948,23 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
                     el <- MVector.unsafeRead fromEls (src + off)
                     MVector.unsafeWrite toEls (dst + off) el
                 return $ Done ctx { stack = rest }
+        step ctx@EvalCtx{ stack = (VI32 n:ref:VI32 i:rest) } (TableFill tableIdx) = do
+            let tableAddr = tableaddrs moduleInstance ! fromIntegral tableIdx
+            let TableInstance { items, t } = tableInstances store ! tableAddr
+            let TableType (Limit _ max) _ = t
+            let inc = fromIntegral n
+            let from = fromIntegral i
+            let val = case ref of
+                    RE extRef -> fromIntegral <$> extRef
+                    RF fnRef -> (funcaddrs moduleInstance !) . fromIntegral <$> fnRef
+                    v -> error "Impossible due to validation"
+            els <- readIORef items
+            if from + inc > MVector.length els
+            then return Trap
+            else do
+                Monad.forM_ [0..inc - 1] $ \off ->
+                    MVector.unsafeWrite els (from + off) val
+                return $ Done ctx { stack = rest }
         step ctx@EvalCtx{ stack } (TableSize tableIdx) = do
             let tableAddr = tableaddrs moduleInstance ! fromIntegral tableIdx
             let TableInstance { items } = tableInstances store ! tableAddr
