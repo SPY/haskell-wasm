@@ -5,6 +5,8 @@ module Language.Wasm.Lexer (
     Lexeme(..),
     Token(..),
     AlexPosn(..),
+    FloatRep(..),
+    NaN(..),
     scanner,
     asFloat,
     asDouble,
@@ -22,6 +24,8 @@ import Data.List (isPrefixOf)
 import Text.Read (readEither)
 import Data.Bits
 import Numeric (showHex)
+import Control.DeepSeq (NFData)
+import GHC.Generics (Generic)
 
 }
 

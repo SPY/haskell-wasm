@@ -93,6 +93,8 @@ import Language.Wasm.Lexer (
         ),
         Lexeme(..),
         AlexPosn(..),
+        FloatRep(..),
+        NaN(..),
         asFloat,
         asDouble,
         doubleFromInteger
@@ -407,23 +409,23 @@ int64 :: { Integer }
         else Left ("Int literal value is out of signed int64 boundaries: " ++ show $1)
     }
 
-float32 :: { Float }
+float32 :: { FloatRep }
     : int {%
         let maxInt = 340282356779733623858607532500980858880 in
         if $1 <= maxInt && $1 >= -maxInt
-        then return $ fromIntegral $1
+        then return $ BinRep $ fromIntegral $1
         else Left "constant out of range"
     }
-    | f64 {% asFloat $1 }
+    | f64 { $1 }
 
-float64 :: { Double }
+float64 :: { FloatRep }
     : int {%
         let maxInt = round (maxFinite :: Double) in
         if $1 <= maxInt && $1 >= -maxInt
-        then doubleFromInteger $1
+        then fmap BinRep $ doubleFromInteger $1
         else Left "constant out of range"
     }
-    | f64 {% asDouble $1 }
+    | f64 { $1 }
 
 plaininstr :: { PlainInstr }
     -- control instructions
@@ -1040,11 +1042,15 @@ module1 :: { ModuleDef }
     | 'module' opt(ident) list(modulefield) ')' {% RawModDef $2 `fmap` (desugarize $ concat $3) }
 
 action1 :: { Action }
-    : 'invoke' opt(ident) string list(folded_instr) ')' { Invoke $2 $3 (map (map constInstructionToValue) $4) }
+    : 'invoke' opt(ident) string list(folded_instr) ')' {%
+        fmap (Invoke $2 $3) $ (mapM (mapM constInstructionToValue) $4)
+    }
     | 'get' opt(ident) string ')' { Get $2 $3 }
 
 assertion1 :: { (Maybe AlexPosn, Assertion) }
-    : 'assert_return' '(' action1 list(folded_instr) ')' { ($1, AssertReturn $3 (map (map constInstructionToValue) $4)) }
+    : 'assert_return' '(' action1 list(folded_instr) ')' {%
+        fmap ((\a -> ($1, a)) . AssertReturn $3) $ (mapM (mapM constInstructionToValue) $4)
+    }
     | 'assert_return_canonical_nan' '(' action1 ')' { ($1, AssertReturnCanonicalNaN $3) }
     | 'assert_return_arithmetic_nan' '(' action1 ')' { ($1, AssertReturnArithmeticNaN $3) }
     | 'assert_trap' '(' assertion_trap string ')' { ($1, AssertTrap $3 $4) }
@@ -1160,7 +1166,7 @@ integerToWord64 i
     | i < 0 && i >= -(2 ^ 63) = 0xFFFFFFFFFFFFFFFF - (fromIntegral (abs i)) + 1
     | otherwise = error "I64 is out of bounds."
 
-data FuncType = FuncType { params :: [ParamType], results :: [ValueType] } deriving (Show, Eq, Generic, NFData)
+data FuncType = FuncType { params :: [ParamType], results :: [ValueType] } deriving (Show, Eq)
 
 emptyFuncType :: FuncType
 emptyFuncType = FuncType [] []
@@ -1168,11 +1174,11 @@ emptyFuncType = FuncType [] []
 data ParamType = ParamType {
         ident :: Maybe Ident,
         paramType :: ValueType
-    } deriving (Show, Eq, Generic, NFData)
+    } deriving (Show, Eq)
 
-newtype Ident = Ident TL.Text deriving (Show, Eq, Generic, NFData)
+newtype Ident = Ident TL.Text deriving (Show, Eq)
 
-data Index = Named Ident | Index Natural deriving (Show, Eq, Generic, NFData)
+data Index = Named Ident | Index Natural deriving (Show, Eq)
 
 type LabelIndex = Index
 type FuncIndex = Index
@@ -1245,8 +1251,8 @@ data PlainInstr =
     -- Numeric instructions
     | I32Const Integer
     | I64Const Integer
-    | F32Const Float
-    | F64Const Double
+    | F32Const FloatRep
+    | F64Const FloatRep
     | IUnOp BitSize IUnOp
     | IBinOp BitSize IBinOp
     | I32Eqz
@@ -1268,14 +1274,14 @@ data PlainInstr =
     | F64PromoteF32
     | IReinterpretF BitSize
     | FReinterpretI BitSize
-    deriving (Show, Eq, Generic, NFData)
+    deriving (Show, Eq)
 
-data TypeDef = TypeDef (Maybe Ident) FuncType deriving (Show, Eq, Generic, NFData)
+data TypeDef = TypeDef (Maybe Ident) FuncType deriving (Show, Eq)
 
 data TypeUse =
     IndexedTypeUse TypeIndex (Maybe FuncType)
     | AnonimousTypeUse FuncType
-    deriving (Show, Eq, Generic, NFData)
+    deriving (Show, Eq)
 
 emptyTypeUse = AnonimousTypeUse emptyFuncType
 
@@ -1297,26 +1303,26 @@ data Instruction =
         trueBranch :: [Instruction],
         falseBranch :: [Instruction]
     }
-    deriving (Show, Eq, Generic, NFData)
+    deriving (Show, Eq)
 
 data Import = Import {
         reExportAs :: [TL.Text],
         sourceModule :: TL.Text,
         name :: TL.Text,
         desc :: ImportDesc
-    } deriving (Show, Eq, Generic, NFData)
+    } deriving (Show, Eq)
 
 data ImportDesc =
     ImportFunc (Maybe Ident) TypeUse
     | ImportTable (Maybe Ident) TableType
     | ImportMemory (Maybe Ident) Limit
     | ImportGlobal (Maybe Ident) GlobalType
-    deriving (Show, Eq, Generic, NFData)
+    deriving (Show, Eq)
 
 data LocalType = LocalType {
         ident :: Maybe Ident,
         localType :: ValueType
-    } deriving (Show, Eq, Generic, NFData)
+    } deriving (Show, Eq)
 
 data Function = Function {
         exportFuncAs :: [TL.Text],
@@ -1325,7 +1331,7 @@ data Function = Function {
         locals :: [LocalType],
         body :: [Instruction]
     }
-    deriving (Show, Eq, Generic, NFData)
+    deriving (Show, Eq)
 
 emptyFunction :: Function
 emptyFunction =
@@ -1343,32 +1349,32 @@ data Global = Global {
         globalType :: GlobalType,
         initializer :: [Instruction]
     }
-    deriving (Show, Eq, Generic, NFData)
+    deriving (Show, Eq)
 
-data Memory = Memory [TL.Text] (Maybe Ident) Limit deriving (Show, Eq, Generic, NFData)
+data Memory = Memory [TL.Text] (Maybe Ident) Limit deriving (Show, Eq)
 
-data Table = Table [TL.Text] (Maybe Ident) TableType deriving (Show, Eq, Generic, NFData)
+data Table = Table [TL.Text] (Maybe Ident) TableType deriving (Show, Eq)
 
 data ExportDesc =
     ExportFunc FuncIndex
     | ExportTable TableIndex
     | ExportMemory MemoryIndex
     | ExportGlobal GlobalIndex
-    deriving (Show, Eq, Generic, NFData)
+    deriving (Show, Eq)
 
 data Export = Export {
         name :: TL.Text,
         desc :: ExportDesc
     }
-    deriving (Show, Eq, Generic, NFData)
+    deriving (Show, Eq)
 
-data StartFunction = StartFunction FuncIndex deriving (Show, Eq, Generic, NFData)
+data StartFunction = StartFunction FuncIndex deriving (Show, Eq)
 
 data ElemMode
     = Passive
     | Active TableIndex [Instruction]
     | Declarative
-    deriving (Show, Eq, Generic, NFData)
+    deriving (Show, Eq)
 
 data ElemSegment = ElemSegment {
         ident :: Maybe Ident,
@@ -1376,14 +1382,14 @@ data ElemSegment = ElemSegment {
         mode :: ElemMode,
         elements :: [[Instruction]]
     }
-    deriving (Show, Eq, Generic, NFData)
+    deriving (Show, Eq)
 
 data DataSegment = DataSegment {
         memIndex :: MemoryIndex,
         offset :: [Instruction],
         datastring :: LBS.ByteString
     }
-    deriving (Show, Eq, Generic, NFData)
+    deriving (Show, Eq)
 
 data ModuleField =
     MFType TypeDef
@@ -1396,7 +1402,7 @@ data ModuleField =
     | MFStart StartFunction
     | MFElem ElemSegment
     | MFData DataSegment
-    deriving(Show, Eq, Generic, NFData)
+    deriving(Show, Eq)
 
 happyError (Lexeme _ EOF : []) = Left $ "Error occuried during parsing phase at the end of file"
 happyError (Lexeme Nothing tok : tokens) = Left $ "Error occuried during parsing phase at the end of file"
@@ -1469,14 +1475,14 @@ data FunCtx = FunCtx {
     ctxParams :: [ParamType]
 } deriving (Eq, Show)
 
-constInstructionToValue :: Instruction -> S.Instruction Natural
-constInstructionToValue (PlainInstr (I32Const v)) = S.I32Const $ integerToWord32 v
-constInstructionToValue (PlainInstr (F32Const v)) = S.F32Const v
-constInstructionToValue (PlainInstr (I64Const v)) = S.I64Const $ integerToWord64 v
-constInstructionToValue (PlainInstr (F64Const v)) = S.F64Const v
-constInstructionToValue (PlainInstr (RefNull et)) = S.RefNull et
-constInstructionToValue (PlainInstr (RefExtern n)) = S.RefExtern n
-constInstructionToValue _ = error "Only const instructions supported as arguments for actions"
+constInstructionToValue :: Instruction -> Either String (S.Instruction Natural)
+constInstructionToValue (PlainInstr (I32Const v)) = return $ S.I32Const $ integerToWord32 v
+constInstructionToValue (PlainInstr (F32Const v)) = S.F32Const <$> asFloat v
+constInstructionToValue (PlainInstr (I64Const v)) = return $ S.I64Const $ integerToWord64 v
+constInstructionToValue (PlainInstr (F64Const v)) = S.F64Const <$> asDouble v
+constInstructionToValue (PlainInstr (RefNull et)) = return $ S.RefNull et
+constInstructionToValue (PlainInstr (RefExtern n)) = return $ S.RefExtern n
+constInstructionToValue _ = Left "Only const instructions supported as arguments for actions"
 
 funcIndexToExpr :: [FuncIndex] -> [[Instruction]]
 funcIndexToExpr = map $ (:[]) . PlainInstr . RefFunc
@@ -1759,8 +1765,16 @@ desugarize fields = do
                 Nothing -> Left "unknown elem"
         synInstrToStruct _ (PlainInstr (I32Const val)) = return $ S.I32Const $ integerToWord32 val
         synInstrToStruct _ (PlainInstr (I64Const val)) = return $ S.I64Const $ integerToWord64 val
-        synInstrToStruct _ (PlainInstr (F32Const val)) = return $ S.F32Const val
-        synInstrToStruct _ (PlainInstr (F64Const val)) = return $ S.F64Const val
+        synInstrToStruct _ (PlainInstr (F32Const (NanRep Arithmetic))) =
+            Left "arithmetic nan constant allowed only in script"
+        synInstrToStruct _ (PlainInstr (F32Const (NanRep Canonical))) =
+            Left "canonical nan constant allowed only in script"
+        synInstrToStruct _ (PlainInstr (F32Const rep)) = S.F32Const <$> asFloat rep
+        synInstrToStruct _ (PlainInstr (F64Const (NanRep Arithmetic))) =
+            Left "arithmetic nan constant allowed only in script"
+        synInstrToStruct _ (PlainInstr (F64Const (NanRep Canonical))) =
+            Left "canonical nan constant allowed only in script"
+        synInstrToStruct _ (PlainInstr (F64Const rep)) = S.F64Const <$> asDouble rep
         synInstrToStruct _ (PlainInstr (IUnOp sz op)) = return $ S.IUnOp sz op
         synInstrToStruct _ (PlainInstr (IBinOp sz op)) = return $ S.IBinOp sz op
         synInstrToStruct _ (PlainInstr I32Eqz) = return $ S.I32Eqz
