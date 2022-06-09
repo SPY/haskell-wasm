@@ -197,7 +197,7 @@ select pred a b = select' (produce pred) (produce a) (produce b)
             a
             res <- b
             pred
-            appendExpr [Select]
+            appendExpr [Select Nothing]
             return res
 
 iBinOp :: (Producer a, Producer b, OutType a ~ OutType b, IsInt (OutType a) ~ True) => IBinOp -> a -> b -> GenFun (OutType a)

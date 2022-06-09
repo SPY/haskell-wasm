@@ -145,7 +145,7 @@ data Instruction index =
     | RefExtern Natural
     -- Parametric instructions
     | Drop
-    | Select
+    | Select (Maybe [ValueType])
     -- Variable instructions
     | GetLocal index
     | SetLocal index
