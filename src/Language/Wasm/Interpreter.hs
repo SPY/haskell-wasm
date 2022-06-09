@@ -804,7 +804,7 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
         step ctx@EvalCtx{ stack = st } (RefFunc index) =
             return $ Done ctx { stack = RF (Just index) : st }
         step ctx@EvalCtx{ stack = (_:rest) } Drop = return $ Done ctx { stack = rest }
-        step ctx@EvalCtx{ stack = (VI32 test:val2:val1:rest) } Select =
+        step ctx@EvalCtx{ stack = (VI32 test:val2:val1:rest) } (Select _) =
             if test == 0
             then return $ Done ctx { stack = val2 : rest }
             else return $ Done ctx { stack = val1 : rest }

@@ -71,6 +71,7 @@ type Validator = Module -> ValidationResult
 data VType =
     Val ValueType
     | Var
+    | NonRefVar
     | Any
     deriving (Show, Eq)
 
@@ -105,6 +106,11 @@ asArrow (FuncType params results) = Arrow (map Val params) (map Val $ reverse re
 isArrowMatch :: Arrow -> Arrow -> Bool
 isArrowMatch (f `Arrow` t) ( f' `Arrow` t') = isEndMatch f f' && isEndMatch t t'
     where
+        isRef :: VType -> Bool
+        isRef (Val Func) = True
+        isRef (Val Extern) = True
+        isRef _            = False
+
         isEndMatch :: End -> End -> Bool
         isEndMatch (Any:l) (Any:r) =
             let (leftTail, rightTail) = unzip $ zip (takeWhile (/= Any) $ reverse l) (takeWhile (/= Any) $ reverse r) in
@@ -120,6 +126,12 @@ isArrowMatch (f `Arrow` t) ( f' `Arrow` t') = isEndMatch f f' && isEndMatch t t'
             isEndMatch (subst l) (subst r)
         isEndMatch (x:l) (Var:r) =
             let subst = replace Var x in
+            isEndMatch (subst l) (subst r)
+        isEndMatch (NonRefVar:l) (x:r) =
+            let subst = replace NonRefVar x in
+            isEndMatch (subst l) (subst r)
+        isEndMatch (x:l) (NonRefVar:r) =
+            let subst = replace NonRefVar x in
             isEndMatch (subst l) (subst r)
         isEndMatch (Val v:l) (Val v':r) = v == v' && isEndMatch l r
         isEndMatch [] [] = True
@@ -263,9 +275,13 @@ getInstrType (CallIndirect tableIdx sign) = do
 getInstrType Drop = do
     var <- freshVar
     return $ var ==> empty
-getInstrType Select = do
-    var <- freshVar
+getInstrType (Select Nothing) = do
+    var <- return NonRefVar
     return $ [var, var, Val I32] ==> var
+getInstrType (Select (Just vt)) =
+    case vt of
+        [t] -> return $ [t, t, I32] ==> t
+        _ -> throwError InvalidResultArity
 getInstrType (RefNull elType) = do
     let t = case elType of { FuncRef -> Func; ExternRef -> Extern }
     return $ empty ==> Val t
@@ -486,6 +502,10 @@ getExpressionTypeWithInput inp = fmap (inp `Arrow`) . foldM go inp
             (f `Arrow` t) <- getInstrType instr
             matchStack stack (reverse f) t
         
+        isRef (Func)   = True
+        isRef (Extern) = True
+        isRef _        = False
+        
         matchStack :: [VType] -> [VType] -> [VType] -> Checker [VType]
         matchStack stack@(Any:_) _arg res = return $ res ++ stack
         matchStack (Val v:stack) (Val v':args) res =
@@ -499,6 +519,16 @@ getExpressionTypeWithInput inp = fmap (inp `Arrow`) . foldM go inp
         matchStack (Var:stack) (Val v:args) res =
             let subst = replace Var (Val v) in
             matchStack stack (subst args) (subst res)
+        matchStack (Val v:stack) (NonRefVar:args) res =
+            let subst = replace NonRefVar (Val v) in
+            if isRef v
+            then throwError $ TypeMismatch (empty ==> empty) (empty ==> empty)
+            else matchStack stack (subst args) (subst res)
+        matchStack (NonRefVar:stack) (Val v:args) res =
+            let subst = replace NonRefVar (Val v) in
+            if isRef v
+            then throwError $ TypeMismatch (empty ==> empty) (empty ==> empty)
+            else matchStack stack (subst args) (subst res)
         matchStack stack [] res = return $ res ++ stack
         matchStack [] args res = throwError $ TypeMismatch ((reverse args) `Arrow` res) ([] `Arrow` [])
         matchStack _ _ _ = error "inconsistent checker state"

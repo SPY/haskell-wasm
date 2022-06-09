@@ -368,7 +368,7 @@ instance Serialize (Instruction Natural) where
     put (CallIndirect tableIdx typeIdx) = putWord8 0x11 >> putULEB128 typeIdx >> putULEB128 tableIdx
     -- Parametric instructions
     put Drop = putWord8 0x1A
-    put Select = putWord8 0x1B
+    put (Select _) = putWord8 0x1B
     -- Variable instructions
     put (GetLocal idx) = putWord8 0x20 >> putULEB128 idx
     put (SetLocal idx) = putWord8 0x21 >> putULEB128 idx
@@ -569,7 +569,7 @@ instance Serialize (Instruction Natural) where
                 return $ CallIndirect tableIdx typeIdx
             -- Parametric instructions
             0x1A -> return $ Drop
-            0x1B -> return $ Select
+            0x1B -> return $ Select Nothing
             -- Variable instructions
             0x20 -> GetLocal <$> getULEB128 32
             0x21 -> SetLocal <$> getULEB128 32

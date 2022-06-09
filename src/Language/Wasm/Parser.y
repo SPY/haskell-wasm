@@ -437,7 +437,6 @@ plaininstr :: { PlainInstr }
     | 'return'                       { Return }
     | 'call' index                   { Call $2 }
     | 'drop'                         { Drop }
-    | 'select'                       { Select }
     -- reference instructions
     | 'ref.null' heaptype            { RefNull $2 }
     | 'ref.is_null'                  { RefIsNull }
@@ -695,6 +694,20 @@ memarg4 :: { MemArg }
 memarg8 :: { MemArg }
     : opt(offset) opt(align) {% parseMemArg 8 $1 $2 }
 
+select_type_or_instructions(terminator)
+    : terminator { ($1, Nothing, []) }
+    | '(' select_type_or_instructions1(terminator) { $2 }
+
+select_type_or_instructions1(terminator) 
+    : 'result' list(valtype) ')' mixed_instruction_list(terminator) {
+        let (end, instr) = $4 in
+        (end, Just $2, instr)
+    }
+    | folded_instr_list(terminator) {
+        let (end, instr) = $1 in
+        (end, Nothing, instr)
+    }
+
 instruction_list(terminator)
     : terminator { ($1, []) }
     | plaininstr mixed_instruction_list(terminator) { ([PlainInstr $1] ++) `fmap` $2 }
@@ -702,6 +715,9 @@ instruction_list(terminator)
         let tableIdx = fromMaybe (Index 0) $2 in
         let (tu, instr, end) = $3 in
         onlyAnonimParams tu >> (return (end, [PlainInstr $ CallIndirect tableIdx tu] ++ instr))
+    }
+    | 'select' select_type_or_instructions(terminator) {
+        let (end, t, instr) = $2 in (end, [PlainInstr $ Select t] ++ instr)
     }
     | 'block' opt(ident) typeuse('end') opt(ident) mixed_instruction_list(terminator) {% do
         let (tu, instr, _) = $3 
@@ -743,6 +759,9 @@ folded_instr1 :: { [Instruction] }
         let tableIdx = fromMaybe (Index 0) $2 in
         let (tu, instr, _) = $3 in
         onlyAnonimParams tu >> (return $ instr ++ [PlainInstr $ CallIndirect tableIdx tu])
+    }
+    | 'select' select_type_or_instructions(')') {
+        let (_, t, instr) = $2 in instr ++ [PlainInstr $ Select t]
     }
     | 'block' opt(ident) typeuse(')') {%
         let (typeUse, instr, _) = $3 in
@@ -1206,7 +1225,7 @@ data PlainInstr =
     | RefExtern Natural
     -- Parametric instructions
     | Drop
-    | Select
+    | Select (Maybe [ValueType])
     -- Variable instructions
     | GetLocal LocalIndex
     | SetLocal LocalIndex
@@ -1671,7 +1690,7 @@ desugarize fields = do
                         Nothing -> Left "unknown type"
                 Nothing -> Left "unknown table"
         synInstrToStruct _ (PlainInstr Drop) = return $ S.Drop
-        synInstrToStruct _ (PlainInstr Select) = return $ S.Select
+        synInstrToStruct _ (PlainInstr (Select vt)) = return $ S.Select vt
         synInstrToStruct _ (PlainInstr (RefNull elType)) = return $ S.RefNull elType
         synInstrToStruct _ (PlainInstr RefIsNull) = return $ S.RefIsNull
         synInstrToStruct FunCtx { ctxMod } (PlainInstr (RefFunc funIdx)) =
