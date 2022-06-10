@@ -4,6 +4,7 @@
 
 module Language.Wasm.Structure (
     Module(..),
+    DataMode(..),
     DataSegment(..),
     ElemSegment(..),
     ElemMode(..),
@@ -103,6 +104,7 @@ type LocalIndex = Natural
 type GlobalIndex = Natural
 type MemoryIndex = Natural
 type TableIndex = Natural
+type DataIndex = Natural
 type ElemIndex = Natural
 
 data ValueType =
@@ -252,9 +254,13 @@ data ElemSegment = ElemSegment {
     elements :: [Expression]
 } deriving (Show, Eq, Generic, NFData)
 
+data DataMode =
+    PassiveData
+    | ActiveData MemoryIndex Expression
+    deriving (Show, Eq, Generic, NFData)
+
 data DataSegment = DataSegment {
-    memIndex :: MemoryIndex,
-    offset :: Expression,
+    dataMode :: DataMode,
     chunk :: LBS.ByteString
 } deriving (Show, Eq, Generic, NFData)
 

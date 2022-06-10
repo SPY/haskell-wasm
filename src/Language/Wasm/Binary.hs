@@ -881,7 +881,7 @@ instance Serialize Function where
         return $ Function 0 locals body
 
 instance Serialize DataSegment where
-    put (DataSegment memIdx offset init) = do
+    put (DataSegment (ActiveData memIdx offset) init) = do
         putULEB128 memIdx
         putExpression offset
         putULEB128 $ LBS.length init
@@ -891,7 +891,7 @@ instance Serialize DataSegment where
         offset <- getExpression
         len <- getULEB128 32
         init <- getLazyByteString len
-        return $ DataSegment memIdx offset init
+        return $ DataSegment (ActiveData memIdx offset) init
 
 instance Serialize Module where
     put mod = do

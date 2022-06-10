@@ -700,7 +700,7 @@ datasShouldBeValid m@Module { datas, mems, imports } =
     foldMap (isDataValid ctx) datas
     where
         isDataValid :: Ctx -> DataSegment -> ValidationResult
-        isDataValid ctx (DataSegment memIdx offset _) =
+        isDataValid ctx (DataSegment (ActiveData memIdx offset) _) =
             let check = runChecker ctx $ do
                     isConstExpression offset
                     t <- getExpressionType offset
