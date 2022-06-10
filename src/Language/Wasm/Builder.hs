@@ -975,7 +975,7 @@ table min max = do
 dataSegment :: (Producer offset, OutType offset ~ Proxy I32) => offset -> LBS.ByteString -> GenMod ()
 dataSegment offset bytes =
     modify $ \(st@GenModState { target = m }) -> st {
-        target = m { datas = datas m ++ [DataSegment 0 (genExpr 0 (produce offset)) bytes] }
+        target = m { datas = datas m ++ [DataSegment (ActiveData 0 (genExpr 0 (produce offset))) bytes] }
     }
 
 asWord32 :: Int32 -> Word32

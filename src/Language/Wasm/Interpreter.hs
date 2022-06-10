@@ -575,7 +575,7 @@ initialize inst Module {elems, datas, start} = do
             Monad.forM_ (zip [from..] funcs) $ uncurry $ MVector.unsafeWrite elems
 
         checkData :: DataSegment -> Initialize (Int, MemoryStore, LBS.ByteString)
-        checkData DataSegment {memIndex, offset, chunk} = do
+        checkData DataSegment {dataMode = ActiveData memIndex offset, chunk} = do
             st <- State.get
             VI32 val <- liftIO $ evalConstExpr inst st offset
             let from = fromIntegral val
@@ -586,6 +586,8 @@ initialize inst Module {elems, datas, start} = do
             len <- ByteArray.getSizeofMutableByteArray mem
             Monad.when (last > len) $ throwError "data segment does not fit"
             return (from, mem, chunk)
+        checkData DataSegment {dataMode = ActiveData memIndex offset, chunk} =
+            error "passive data segments are not implemented yet"
         
         initData :: (Int, MemoryStore, LBS.ByteString) -> Initialize ()
         initData (from, mem, chunk) =

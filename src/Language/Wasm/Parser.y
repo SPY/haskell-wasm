@@ -898,9 +898,11 @@ memory_limits_export_import1 :: { Maybe Ident -> [ModuleField] }
     | 'data' datastring ')' ')' {
         \ident ->
             let m = fromIntegral $ LBS.length $2 in
+            -- TODO: unhardcode memory index
+            let memIdx = fromMaybe (Index 0) $ Named `fmap` ident in
             [
                 MFMem $ Memory [] ident $ Limit m $ Just m,
-                MFData $ DataSegment (fromMaybe (Index 0) $ Named `fmap` ident) [PlainInstr $ I32Const 0] $2
+                MFData $ DataSegment Nothing (ActiveData memIdx [PlainInstr $ I32Const 0]) $2
             ]
     }
 
@@ -933,6 +935,7 @@ limits_elemtype_elem :: { Maybe Ident -> [ModuleField] }
         \ident ->
             let funcsLen = fromIntegral $ length $4 in [
                 MFTable $ Table [] ident $ TableType (Limit funcsLen (Just funcsLen)) $1,
+                -- TODO: unhardcode table index
                 let tableIndex = (fromMaybe (Index 0) $ Named `fmap` ident) in
                 let offset = [PlainInstr $ I32Const 0] in
                 let elements = $4 in
@@ -972,10 +975,6 @@ export :: { Export }
 start :: { StartFunction }
     : 'start' index ')' { StartFunction $2 }
 
-offsetexpr :: { [Instruction] }
-    : 'offset' mixed_instruction_list(')') { snd $2 }
-    | folded_instr1 { $1 }
-
 elem :: { ElemSegment }
     : 'elem' opt(ident) elem1 { $3{ ident = $2 } }
 
@@ -1007,8 +1006,20 @@ elemexpr :: { [Instruction] }
     | '(' 'item' mixed_instruction_list(')') { snd $3 }
     | '(' folded_instr1 { $2 }
 
+offsetexpr1 :: { [Instruction] }
+    : 'offset' mixed_instruction_list(')') { snd $2 }
+    | folded_instr1 { $1 }
+
+memory_offsetexpr1 :: { (MemoryIndex, [Instruction]) }
+    : offsetexpr1 { (Index 0, $1)}
+    | 'memory' index ')' '(' offsetexpr1 { ($2, $5) }
+
+memory_mode :: { DataMode }
+    : '(' memory_offsetexpr1 { uncurry ActiveData $2 }
+    | {- empty -} { PassiveData }
+
 datasegment :: { DataSegment }
-    : 'data' opt(index) '(' offsetexpr datastring ')' { DataSegment (fromMaybe (Index 0) $2) $4 $5 }
+    : 'data' opt(ident) memory_mode datastring ')' { DataSegment $2 $3 $4 }
 
 modulefield1_single :: { ModuleField }
     : typedef { MFType $1 }
@@ -1207,6 +1218,7 @@ type GlobalIndex = Index
 type TableIndex = Index
 type MemoryIndex = Index
 type ElemIndex = Index
+type DataIndex = Index
 
 data PlainInstr =
     -- Control instructions
@@ -1403,9 +1415,14 @@ data ElemSegment = ElemSegment {
     }
     deriving (Show, Eq)
 
+data DataMode =
+    PassiveData
+    | ActiveData MemoryIndex [Instruction]
+    deriving (Show, Eq)
+
 data DataSegment = DataSegment {
-        memIndex :: MemoryIndex,
-        offset :: [Instruction],
+        ident :: Maybe Ident,
+        dataMode :: DataMode,
         datastring :: LBS.ByteString
     }
     deriving (Show, Eq)
@@ -1591,8 +1608,6 @@ desugarize fields = do
             extractTypeDefFromInstructions (matchTypeUse defs funcType) body
         extractTypeDef defs (MFGlobal Global { initializer }) =
             extractTypeDefFromInstructions defs initializer
-        extractTypeDef defs (MFData DataSegment { offset }) =
-            extractTypeDefFromInstructions defs offset
         extractTypeDef defs _ = defs
 
         extractTypeDefFromInstructions :: [TypeDef] -> [Instruction] -> [TypeDef]
@@ -2089,11 +2104,17 @@ desugarize fields = do
 
         -- data segment
         synDataToStruct :: Module -> DataSegment -> Either String S.DataSegment
-        synDataToStruct mod DataSegment { memIndex, offset, datastring } =
-            let ctx = FunCtx mod [] [] [] in
-            let offsetInstrs = mapM (synInstrToStruct ctx) offset in
-            let idx = fromJust $ getMemIndex mod memIndex in
-            S.DataSegment idx <$> offsetInstrs <*> return datastring
+        synDataToStruct mod DataSegment { dataMode, datastring } = do
+            m <- case dataMode of
+                PassiveData -> return S.PassiveData
+                ActiveData memIndex offset -> do
+                    let ctx = FunCtx mod [] [] []
+                    offsetInstrs <- mapM (synInstrToStruct ctx) offset
+                    idx <- case getMemIndex mod memIndex of
+                        Just idx -> return idx
+                        Nothing -> throwError "unknown memory"
+                    return $ S.ActiveData idx offsetInstrs
+            return $ S.DataSegment m datastring
 
         extractDataSegment :: [DataSegment] -> ModuleField -> [DataSegment]
         extractDataSegment datas (MFData dataSegment) = dataSegment : datas
