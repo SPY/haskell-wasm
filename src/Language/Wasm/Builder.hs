@@ -643,10 +643,10 @@ store32 addr val offset align = do
     appendExpr [I64Store32 $ MemArg (fromIntegral offset) (fromIntegral align)]
 
 memorySize :: GenFun (Proxy I32)
-memorySize = appendExpr [CurrentMemory] >> return Proxy
+memorySize = appendExpr [MemorySize] >> return Proxy
 
 growMemory :: (Producer size, OutType size ~ Proxy I32) => size -> GenFun ()
-growMemory size = produce size >> appendExpr [GrowMemory]
+growMemory size = produce size >> appendExpr [MemoryGrow]
 
 call :: (Returnable res) => Fn res -> [GenFun a] -> GenFun res
 call (Fn idx) args = sequence_ args >> appendExpr [Call idx] >> return returnableValue
