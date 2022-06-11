@@ -178,8 +178,12 @@ data Instruction index =
     | I64Store8 MemArg
     | I64Store16 MemArg
     | I64Store32 MemArg
-    | CurrentMemory
-    | GrowMemory
+    | MemorySize
+    | MemoryGrow
+    | MemoryFill
+    | MemoryCopy
+    | MemoryInit DataIndex
+    | DataDrop DataIndex
     -- Table instructions
     | TableInit TableIndex ElemIndex
     | TableGrow TableIndex

@@ -168,6 +168,10 @@ import Language.Wasm.Lexer (
 'i64.store32'         { Lexeme _ (TKeyword "i64.store32") }
 'memory.size'         { Lexeme _ (TKeyword "memory.size") }
 'memory.grow'         { Lexeme _ (TKeyword "memory.grow") }
+'memory.fill'         { Lexeme _ (TKeyword "memory.fill") }
+'memory.copy'         { Lexeme _ (TKeyword "memory.copy") }
+'memory.init'         { Lexeme _ (TKeyword "memory.init") }
+'data.drop'           { Lexeme _ (TKeyword "data.drop") }
 'table.init'          { Lexeme _ (TKeyword "table.init") }
 'table.copy'          { Lexeme _ (TKeyword "table.copy") }
 'table.fill'          { Lexeme _ (TKeyword "table.fill") }
@@ -472,8 +476,12 @@ plaininstr :: { PlainInstr }
     | 'i64.store8' memarg1           { I64Store8 $2 }
     | 'i64.store16' memarg2          { I64Store16 $2 }
     | 'i64.store32' memarg4          { I64Store32 $2 }
-    | 'memory.size'                  { CurrentMemory }
-    | 'memory.grow'                  { GrowMemory }
+    | 'memory.size'                  { MemorySize }
+    | 'memory.grow'                  { MemoryGrow }
+    | 'memory.fill'                  { MemoryFill }
+    | 'memory.copy'                  { MemoryCopy }
+    | 'memory.init' index            { MemoryInit $2 }
+    | 'data.drop' index              { DataDrop $2 }
     -- table instructions
     | 'table.init' index opt(index) {
         case $3 of
@@ -1268,8 +1276,12 @@ data PlainInstr =
     | I64Store8 MemArg
     | I64Store16 MemArg
     | I64Store32 MemArg
-    | CurrentMemory
-    | GrowMemory
+    | MemorySize
+    | MemoryGrow
+    | MemoryFill
+    | MemoryCopy
+    | MemoryInit DataIndex
+    | DataDrop DataIndex
     -- Table instructions
     | TableInit TableIndex ElemIndex
     | TableGrow TableIndex
@@ -1757,8 +1769,18 @@ desugarize fields = do
         synInstrToStruct _ (PlainInstr (I64Store8 memArg)) = return $ S.I64Store8 memArg
         synInstrToStruct _ (PlainInstr (I64Store16 memArg)) = return $ S.I64Store16 memArg
         synInstrToStruct _ (PlainInstr (I64Store32 memArg)) = return $ S.I64Store32 memArg
-        synInstrToStruct _ (PlainInstr CurrentMemory) = return $ S.CurrentMemory
-        synInstrToStruct _ (PlainInstr GrowMemory) = return $ S.GrowMemory
+        synInstrToStruct _ (PlainInstr MemorySize) = return $ S.MemorySize
+        synInstrToStruct _ (PlainInstr MemoryGrow) = return $ S.MemoryGrow
+        synInstrToStruct _ (PlainInstr MemoryFill) = return $ S.MemoryFill
+        synInstrToStruct _ (PlainInstr MemoryCopy) = return $ S.MemoryCopy
+        synInstrToStruct FunCtx { ctxMod } (PlainInstr (MemoryInit dataIdx)) =
+            case getDataIndex ctxMod dataIdx of
+                Just dataIdx -> return $ S.MemoryInit dataIdx
+                Nothing -> Left "unknown data"
+        synInstrToStruct FunCtx { ctxMod } (PlainInstr (DataDrop dataIdx)) =
+            case getDataIndex ctxMod dataIdx of
+                Just dataIdx -> return $ S.DataDrop dataIdx
+                Nothing -> Left "unknown data"
         synInstrToStruct FunCtx { ctxMod } (PlainInstr (TableInit tableIdx elemIdx)) =
             case getTableIndex ctxMod tableIdx of
                 Just tableIdx ->
@@ -2119,6 +2141,15 @@ desugarize fields = do
         extractDataSegment :: [DataSegment] -> ModuleField -> [DataSegment]
         extractDataSegment datas (MFData dataSegment) = dataSegment : datas
         extractDataSegment datas _ = datas
+
+        getDataIndex :: Module -> GlobalIndex -> Maybe Natural
+        getDataIndex mod@Module { datas } (Named id) =
+            let isIdent (_, DataSegment { ident }) = ident == Just id in
+            let dataIndexes = map fst $ filter isIdent $ zip [0..] datas in
+            case dataIndexes of
+                [idx] -> return idx
+                _ -> Nothing
+        getDataIndex _ (Index idx) = Just idx
 
         -- start
         synStartToStruct :: Module -> StartFunction -> S.StartFunction

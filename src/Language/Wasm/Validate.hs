@@ -386,10 +386,10 @@ getInstrType (I64Store16 memarg) = do
 getInstrType (I64Store32 memarg) = do
     checkMemoryInstr 4 memarg
     return $ [I32, I64] ==> empty
-getInstrType CurrentMemory = do
+getInstrType MemorySize = do
     Ctx { mems } <- ask 
     if length mems < 1 then throwError (MemoryIndexOutOfRange 0) else return $ empty ==> I32
-getInstrType GrowMemory = do
+getInstrType MemoryGrow = do
     Ctx { mems } <- ask
     if length mems < 1 then throwError (MemoryIndexOutOfRange 0) else return $ I32 ==> I32
 getInstrType (TableInit tableIdx elemIdx) = do
@@ -712,6 +712,7 @@ datasShouldBeValid m@Module { datas, mems, imports } =
             if memIdx < (fromIntegral $ length memImports + length mems)
             then check
             else Left (MemoryIndexOutOfRange memIdx)
+        isDataValid ctx (DataSegment PassiveData _) = return ()
 
 startShouldBeValid :: Validator
 startShouldBeValid Module { start = Nothing } = return ()

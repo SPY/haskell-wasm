@@ -399,8 +399,8 @@ instance Serialize (Instruction Natural) where
     put (I64Store8 memArg) = putWord8 0x3C >> put memArg
     put (I64Store16 memArg) = putWord8 0x3D >> put memArg
     put (I64Store32 memArg) = putWord8 0x3E >> put memArg
-    put CurrentMemory = putWord8 0x3F >> putWord8 0x00
-    put GrowMemory = putWord8 0x40 >> putWord8 0x00
+    put MemorySize = putWord8 0x3F >> putWord8 0x00
+    put MemoryGrow = putWord8 0x40 >> putWord8 0x00
     -- Numeric instructions
     put (I32Const val) = putWord8 0x41 >> putSLEB128 (asInt32 val)
     put (I64Const val) = putWord8 0x42 >> putSLEB128 (asInt64 val)
@@ -600,8 +600,8 @@ instance Serialize (Instruction Natural) where
             0x3C -> I64Store8 <$> get
             0x3D -> I64Store16 <$> get
             0x3E -> I64Store32 <$> get
-            0x3F -> byteGuard 0x00 >> (return $ CurrentMemory)
-            0x40 -> byteGuard 0x00 >> (return $ GrowMemory)
+            0x3F -> byteGuard 0x00 >> (return $ MemorySize)
+            0x40 -> byteGuard 0x00 >> (return $ MemoryGrow)
             -- Numeric instructions
             0x41 -> I32Const <$> getSLEB128 32
             0x42 -> I64Const <$> getSLEB128 64

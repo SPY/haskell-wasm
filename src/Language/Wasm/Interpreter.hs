@@ -229,7 +229,11 @@ isDeclarative :: ElemMode -> Bool
 isDeclarative Declarative = True
 isDeclarative _           = False
 
-data DataInstance = DataInstance
+data DataInstance = DataInstance {
+        dMode :: DataMode,
+        isDropped :: IORef Bool,
+        bytes :: LBS.ByteString
+    }
 
 data Store = Store {
     funcInstances :: Vector FunctionInstance,
@@ -519,8 +523,10 @@ allocElems inst st = fmap Vector.fromList . mapM allocElem
             ElemInstance mode t (Vector.fromList indexes)
                 <$> newIORef False -- is dropped
 
-allocDatas :: ModuleInstance -> Store -> [DataSegment] -> Vector DataInstance
-allocDatas _inst _st = Vector.fromList . map (const DataInstance)
+allocDatas :: [DataSegment] -> IO (Vector DataInstance)
+allocDatas datas = Vector.fromList <$> Monad.forM datas (\DataSegment {dataMode, chunk} -> do
+    isDropped <- newIORef False
+    return $ DataInstance dataMode isDropped chunk)
 
 type Initialize = ExceptT String (State.StateT Store IO)
 
@@ -570,7 +576,7 @@ initialize inst Module {elems, datas, start} = do
             liftIO $ writeIORef isDropped True
             Monad.forM_ (zip [from..] funcs) $ uncurry $ MVector.unsafeWrite elems
 
-        checkData :: DataSegment -> Initialize (Int, MemoryStore, LBS.ByteString)
+        checkData :: DataSegment -> Initialize (Maybe (Int, MemoryStore, LBS.ByteString))
         checkData DataSegment {dataMode = ActiveData memIndex offset, chunk} = do
             st <- State.get
             VI32 val <- liftIO $ evalConstExpr inst st offset
@@ -580,13 +586,14 @@ initialize inst Module {elems, datas, start} = do
             let MemoryInstance _ memory = memInstances st ! idx
             mem <- liftIO $ readIORef memory
             len <- ByteArray.getSizeofMutableByteArray mem
-            Monad.when (last > len) $ throwError "data segment does not fit"
-            return (from, mem, chunk)
-        checkData DataSegment {dataMode = ActiveData memIndex offset, chunk} =
-            error "passive data segments are not implemented yet"
+            Monad.when (last > len) $ throwError "out of bounds memory access"
+            return $ Just (from, mem, chunk)
+        checkData DataSegment {dataMode = PassiveData, chunk} =
+            return Nothing
         
-        initData :: (Int, MemoryStore, LBS.ByteString) -> Initialize ()
-        initData (from, mem, chunk) =
+        initData :: Maybe (Int, MemoryStore, LBS.ByteString) -> Initialize ()
+        initData Nothing = return ()
+        initData (Just (from, mem, chunk)) =
             mapM_ (\(i,b) -> ByteArray.writeByteArray mem i b) $ zip [from..] $ LBS.unpack chunk
 
 instantiate :: Store -> Imports -> Valid.ValidModule -> IO (Either String ModuleInstance, Store)
@@ -598,7 +605,7 @@ instantiate st imps mod = flip State.runStateT st $ runExceptT $ do
     tables <- (tableInstances st <>) <$> liftIO (allocTables (Struct.tables m))
     mems <- liftIO $ (memInstances st <>) <$> allocMems (Struct.mems m)
     elems <- liftIO $ (elemInstances st <>) <$> allocElems inst st (Struct.elems m)
-    let datas = dataInstances st <> allocDatas inst st (Struct.datas m)
+    datas <- liftIO $ (dataInstances st <>) <$> allocDatas (Struct.datas m)
     State.put $ st {
         funcInstances = functions,
         tableInstances = tables,
@@ -886,12 +893,12 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
             makeStoreInstr @Word16 ctx { stack = rest } offset 2 $ fromIntegral v
         step ctx@EvalCtx{ stack = (VI64 v:rest) } (I64Store32 MemArg { offset }) =
             makeStoreInstr @Word32 ctx { stack = rest } offset 4 $ fromIntegral v
-        step ctx@EvalCtx{ stack = st } CurrentMemory = do
+        step ctx@EvalCtx{ stack = st } MemorySize = do
             let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
             memory <- readIORef memoryRef
             size <- ((`quot` pageSize) . fromIntegral) <$> ByteArray.getSizeofMutableByteArray memory
             return $ Done ctx { stack = VI32 (fromIntegral size) : st }
-        step ctx@EvalCtx{ stack = (VI32 n:rest) } GrowMemory = do
+        step ctx@EvalCtx{ stack = (VI32 n:rest) } MemoryGrow = do
             let MemoryInstance { lim = limit@(Limit _ maxLen), memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
             memory <- readIORef memoryRef
             size <- (`quot` pageSize) <$> ByteArray.getSizeofMutableByteArray memory
