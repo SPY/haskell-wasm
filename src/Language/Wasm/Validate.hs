@@ -38,6 +38,7 @@ data ValidationError =
     | LocalIndexOutOfRange Natural
     | GlobalIndexOutOfRange Natural
     | ElemIndexOutOfRange Natural
+    | DataIndexOutOfRange Natural
     | LabelIndexOutOfRange
     | TypeIndexOutOfRange
     | ResultTypeDoesntMatch
@@ -142,6 +143,7 @@ data Ctx = Ctx {
     funcs :: [FuncType],
     tables :: [TableType],
     elems :: [ElemType],
+    datas :: [DataMode],
     mems :: [Limit],
     globals :: [GlobalType],
     locals :: [ValueType],
@@ -388,10 +390,29 @@ getInstrType (I64Store32 memarg) = do
     return $ [I32, I64] ==> empty
 getInstrType MemorySize = do
     Ctx { mems } <- ask 
-    if length mems < 1 then throwError (MemoryIndexOutOfRange 0) else return $ empty ==> I32
+    when (length mems < 1) $ throwError (MemoryIndexOutOfRange 0)
+    return $ empty ==> I32
 getInstrType MemoryGrow = do
     Ctx { mems } <- ask
-    if length mems < 1 then throwError (MemoryIndexOutOfRange 0) else return $ I32 ==> I32
+    when (length mems < 1) $ throwError (MemoryIndexOutOfRange 0)
+    return $ I32 ==> I32
+getInstrType MemoryFill = do
+    Ctx { mems } <- ask
+    when (length mems < 1) $ throwError (MemoryIndexOutOfRange 0)
+    return $ [I32, I32, I32] ==> empty
+getInstrType MemoryCopy = do
+    Ctx { mems } <- ask
+    when (length mems < 1) $ throwError (MemoryIndexOutOfRange 0)
+    return $ [I32, I32, I32] ==> empty
+getInstrType (MemoryInit dataIdx) = do
+    Ctx { mems, datas } <- ask
+    when (length mems < 1) $ throwError (MemoryIndexOutOfRange 0)
+    when (length datas <= fromIntegral dataIdx) $ throwError (DataIndexOutOfRange dataIdx)
+    return $ [I32, I32, I32] ==> empty
+getInstrType (DataDrop dataIdx) = do
+    Ctx { datas } <- ask
+    when (length datas <= fromIntegral dataIdx) $ throwError (DataIndexOutOfRange dataIdx)
+    return $ empty ==> empty
 getInstrType (TableInit tableIdx elemIdx) = do
     Ctx { tables, elems } <- ask
     when (length tables <= fromIntegral tableIdx) $ throwError (TableIndexOutOfRange tableIdx)
@@ -563,7 +584,8 @@ getFuncTypes Module {types, functions, imports} =
         getFuncType _ = Nothing
 
 ctxFromModule :: [ValueType] -> [[ValueType]] -> [ValueType] -> Module -> Ctx
-ctxFromModule locals labels returns m@Module {types, tables, mems, globals, imports, elems, exports} =
+ctxFromModule locals labels returns m =
+    let Module {types, tables, mems, globals, imports, elems, exports, datas} = m in
     let tableImports = catMaybes $ map getTableType imports in
     let memsImports = catMaybes $ map getMemType imports in
     let globalImports = catMaybes $ map getGlobalType imports in
@@ -572,6 +594,7 @@ ctxFromModule locals labels returns m@Module {types, tables, mems, globals, impo
         funcs = getFuncTypes m,
         tables = tableImports ++ map (\(Table t) -> t) tables,
         elems = map elemType elems,
+        datas = map dataMode datas,
         mems = memsImports ++ map (\(Memory l) -> l) mems,
         globals = globalImports ++ map (\(Global g _) -> g) globals,
         locals,

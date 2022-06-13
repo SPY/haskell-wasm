@@ -916,6 +916,48 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
                     else return $ -1
                 )
             return $ Done ctx { stack = VI32 (asWord32 $ fromIntegral result) : rest }
+        step ctx@EvalCtx{ stack = (VI32 n:VI32 v:VI32 d:rest) } MemoryFill = do
+            let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
+            memory <- readIORef memoryRef
+            size <- ByteArray.getSizeofMutableByteArray memory
+            let dest = fromIntegral d
+            let len = fromIntegral n
+            if dest + len > size
+            then return Trap
+            else do
+                ByteArray.setByteArray @Word8 memory dest len $ fromIntegral v
+                return $ Done ctx { stack = rest }
+        step ctx@EvalCtx{ stack = (VI32 n:VI32 s:VI32 d:rest) } MemoryCopy = do
+            let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
+            memory <- readIORef memoryRef
+            size <- ByteArray.getSizeofMutableByteArray memory
+            let src = fromIntegral s
+            let dest = fromIntegral d
+            let len = fromIntegral n
+            if dest + len > size || src + len > size
+            then return Trap
+            else do
+                ByteArray.copyMutableByteArray memory dest memory src len
+                return $ Done ctx { stack = rest }
+        step ctx@EvalCtx{ stack = (VI32 n:VI32 s:VI32 d:rest) } (MemoryInit dataIdx) = do
+            let DataInstance {bytes, isDropped} = dataInstances store ! (dataaddrs moduleInstance ! fromIntegral dataIdx)
+            let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
+            memory <- readIORef memoryRef
+            size <- fromIntegral <$> ByteArray.getSizeofMutableByteArray memory
+            let src = fromIntegral s
+            let dest = fromIntegral d
+            let len = fromIntegral n
+            dropped <- readIORef isDropped
+            if dropped || src + len > LBS.length bytes || dest + len > size
+            then return Trap
+            else do
+                mapM_ (uncurry $ ByteArray.writeByteArray memory) $ zip [fromIntegral d..] $
+                    LBS.unpack $ LBS.take len $ LBS.drop src bytes
+                return $ Done ctx { stack = rest }
+        step ctx (DataDrop dataIdx) = do
+            let DataInstance {isDropped} = dataInstances store ! (dataaddrs moduleInstance ! fromIntegral dataIdx)
+            writeIORef isDropped True
+            return $ Done ctx
         step ctx@EvalCtx{ stack = (VI32 n:VI32 s:VI32 d:rest) } (TableInit tableIdx elemIdx) = do
             let tableAddr = tableaddrs moduleInstance ! fromIntegral tableIdx
             let TableInstance { items } = tableInstances store ! tableAddr
