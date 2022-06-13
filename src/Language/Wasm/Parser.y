@@ -906,10 +906,11 @@ memory_limits_export_import1 :: { Maybe Ident -> [ModuleField] }
     | 'data' datastring ')' ')' {
         \ident ->
             let m = fromIntegral $ LBS.length $2 in
+            let lim = if m `mod` 0x10000 == 0 then m `div` 0x10000 else m `div` 0x10000 + 1 in
             -- TODO: unhardcode memory index
             let memIdx = fromMaybe (Index 0) $ Named `fmap` ident in
             [
-                MFMem $ Memory [] ident $ Limit m $ Just m,
+                MFMem $ Memory [] ident $ Limit lim $ Just lim,
                 MFData $ DataSegment Nothing (ActiveData memIdx [PlainInstr $ I32Const 0]) $2
             ]
     }
