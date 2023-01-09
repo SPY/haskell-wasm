@@ -10,8 +10,11 @@ module Language.Wasm.Interpreter (
     ExternalValue(..),
     ExportInstance(..),
     GlobalInstance(..),
+    MemoryInstance(..),
+    MemoryStore,
     Imports,
-    HostItem(..),
+    HostItem(..), 
+    Address,
     instantiate,
     invoke,
     invokeExport,
@@ -20,7 +23,8 @@ module Language.Wasm.Interpreter (
     emptyImports,
     makeHostModule,
     makeMutGlobal,
-    makeConstGlobal
+    makeConstGlobal, 
+    getMemory
 ) where
 
 import qualified Data.Map as Map
@@ -1207,3 +1211,8 @@ getGlobalValueByName store ModuleInstance { exports } name =
                 GIConst _ v -> return v
                 GIMut _ ref -> readIORef ref
         _ -> error $ "Function with name " ++ show name ++ " was not found in module's exports"
+
+-- | Retrieve mutable memory from the 'Store'
+getMemory :: Store -> Address -> Maybe MemoryInstance
+getMemory Store{memInstances} address = memInstances !? address
+
