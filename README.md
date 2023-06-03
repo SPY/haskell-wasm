@@ -20,9 +20,10 @@
   * [ ] Text Representation pretty-printer
   * [ ] Command line tool for calling interpreter/compiler/validator
   * [ ] Codegen interface for type enforced generating valid WASM code
+  * [ ] Support for building if, loop, block
 
 ## Development
-Clond sources to directory and use `stack` for running tests:
+Clone sources to directory and use `stack` for running tests:
 ```
 stack build && stack test
 ```

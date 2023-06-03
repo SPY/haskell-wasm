@@ -16,9 +16,9 @@ license:        MIT
 license-file:   LICENSE
 build-type:     Simple
 category:       Language
-homepage:       https:github.com/SPY/haskell-wasm
-bug-reports:    https:github.com/SPY/haskell-wasm/issues
-tested-with:    GHC==8.6.5, GHC==8.8.4, GHC==8.10.4
+homepage:       https://github.com/SPY/haskell-wasm
+bug-reports:    https://github.com/SPY/haskell-wasm/issues
+tested-with:    GHC==8.6.5, GHC==8.8.4, GHC==8.10.4, GHC==9.2.7
 extra-source-files:
     README.md
     src/Language/Wasm/Parser.y
