@@ -41,7 +41,8 @@ module Language.Wasm.Builder (
     memorySize, growMemory,
     nop, Language.Wasm.Builder.drop, select,
     call, callIndirect, finish, br, brIf, brTable,
-    {-if', loop, block, when, for, while,-}
+    if',
+    {-, loop, block, when, for, while,-}
     trap, unreachable,
     appendExpr, after,
     Producer, OutType, produce, Consumer, (.=)
@@ -51,7 +52,7 @@ import Prelude hiding (and, or)
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
 import Control.Monad.State (State, execState, get, gets, put, modify)
-import Control.Monad.Reader (ReaderT, ask, runReaderT)
+import Control.Monad.Reader (ReaderT, ask, asks, runReaderT)
 import Numeric.Natural
 import Data.Word (Word32, Word64)
 import Data.Int (Int32, Int64)
@@ -709,17 +710,17 @@ while pred body = do
 label :: GenFun (Label t)
 label = Label <$> ask
 
--- if' :: (Producer pred, OutType pred ~ Proxy I32, Returnable res)
---     => res
---     -> pred
---     -> GenFun res
---     -> GenFun res
---     -> GenFun res
--- if' res pred true false = do
---     produce pred
---     deep <- (+1) <$> ask
---     appendExpr [If (asResultValue res) (genExpr deep $ true) (genExpr deep $ false)]
---     return returnableValue
+if' :: (Producer pred, OutType pred ~ Proxy I32, Returnable res)
+     => BlockType
+     -> pred
+     -> GenFun res
+     -> GenFun res
+     -> GenFun res
+if' blockType pred true false = do
+     produce pred
+     deep <- asks (+1)
+     appendExpr [If blockType (genExpr deep true) (genExpr deep false)]
+     return returnableValue
 
 -- loop :: (Returnable res) => res -> GenFun res -> GenFun res
 -- loop res body = do
