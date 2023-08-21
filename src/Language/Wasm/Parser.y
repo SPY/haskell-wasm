@@ -2167,14 +2167,22 @@ desugarize fields = do
         -- exports
         extractExports :: Module -> [ModuleField] -> [ModuleField]
         extractExports mod mf =
-            let initial = (funcImportLength, globImportLength, memImportLength, tableImportLength, []) in
-            let (_, _, _, _, result) = foldl' extractExport initial mf in
+            let fromImports = foldl' reexport (0, 0, 0, 0, []) $ imports mod in
+            let (_, _, _, _, result) = foldl' extractExport fromImports mf in
             reverse result
             where
-                funcImportLength = fromIntegral $ length $ filter isFuncImport $ imports mod
-                globImportLength = fromIntegral $ length $ filter isGlobalImport $ imports mod
-                memImportLength = fromIntegral $ length $ filter isMemImport $ imports mod
-                tableImportLength = fromIntegral $ length $ filter isTableImport $ imports mod
+                reexport (fidx, gidx, midx, tidx, mf) (Import {reExportAs, desc = ImportFunc _ _}) =
+                    let exports = map (\name -> MFExport $ Export name $ ExportFunc $ Index fidx) reExportAs in
+                    (fidx + 1, gidx, midx, tidx, exports ++ mf)
+                reexport (fidx, gidx, midx, tidx, mf) (Import {reExportAs, desc = ImportGlobal _ _}) =
+                    let exports = map (\name -> MFExport $ Export name $ ExportGlobal $ Index gidx) reExportAs in
+                    (fidx, gidx + 1, midx, tidx, exports ++ mf)
+                reexport (fidx, gidx, midx, tidx, mf) (Import {reExportAs, desc = ImportMemory _ _}) =
+                    let exports = map (\name -> MFExport $ Export name $ ExportMemory $ Index midx) reExportAs in
+                    (fidx, gidx, midx + 1, tidx, exports ++ mf)
+                reexport (fidx, gidx, midx, tidx, mf) (Import {reExportAs, desc = ImportTable _ _}) =
+                    let exports = map (\name -> MFExport $ Export name $ ExportTable $ Index tidx) reExportAs in
+                    (fidx, gidx, midx, tidx + 1, exports ++ mf)
 
                 extractExport (fidx, gidx, midx, tidx, mf) (MFFunc fun@Function{ exportFuncAs }) =
                     let exports = map (\name -> MFExport $ Export name $ ExportFunc $ Index fidx) exportFuncAs in

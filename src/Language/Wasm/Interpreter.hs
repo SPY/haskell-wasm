@@ -423,8 +423,9 @@ calcInstance (Store fs ts ms gs es ds) imps mod = do
             memAddr <- case idx of
                 ExternMemory memAddr -> return memAddr
                 _ -> throwError "incompatible import type"
-            let MemoryInstance { lim } = ms ! memAddr
-            if limitMatch lim limit
+            let MemoryInstance { lim = Limit _ limMax, memory = mem } = ms ! memAddr
+            size <- liftIO $ (`quot` pageSize) <$> (readIORef mem >>= ByteArray.getSizeofMutableByteArray)
+            if limitMatch (Limit (fromIntegral size) limMax) limit
             then return idx
             else throwError "incompatible import type"
         checkImportType imp@(Import _ _ (ImportTable (TableType limit et))) = do
