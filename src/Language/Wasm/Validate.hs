@@ -65,7 +65,7 @@ instance Monoid ValidationResult where
 
 isValid :: ValidationResult -> Bool
 isValid (Right ()) = True
-isValid (Left reason) = Debug.trace ("Module mismatched with reason " ++ show reason) $ False
+isValid (Left reason) = False
 
 type Validator = Module -> ValidationResult
 
