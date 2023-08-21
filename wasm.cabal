@@ -67,7 +67,7 @@ library
     , text >=1.1 && < 1.3
     , transformers >=0.4 && < 0.6
     , utf8-string >=1.0 && < 1.1
-    , vector >=0.12 && < 0.13
+    , vector >=0.12.2 && < 0.13
   default-language: Haskell2010
 
 test-suite test

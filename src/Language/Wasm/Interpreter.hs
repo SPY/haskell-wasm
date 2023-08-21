@@ -423,13 +423,13 @@ calcInstance (Store fs ts ms gs es ds) imps mod = do
             if limitMatch lim limit
             then return idx
             else throwError "incompatible import type"
-        checkImportType imp@(Import _ _ (ImportTable (TableType limit _))) = do
+        checkImportType imp@(Import _ _ (ImportTable (TableType limit et))) = do
             idx <- getImpIdx imp
             tableAddr <- case idx of
                 ExternTable tableAddr -> return tableAddr
                 _ -> throwError "incompatible import type"
-            let TableInstance { t = TableType lim _ } = ts ! tableAddr
-            if limitMatch lim limit
+            let TableInstance { t = TableType lim et' } = ts ! tableAddr
+            if limitMatch lim limit && et == et'
             then return idx
             else throwError "incompatible import type"
     
@@ -562,19 +562,18 @@ initialize inst Module {elems, datas, start} = do
             refs <- liftIO $ mapM (evalConstExpr inst st) elements
             let funcs = map (\(RF ref) -> (funcaddrs inst !) . fromIntegral <$> ref) refs
             let idx = tableaddrs inst ! fromIntegral tableIndex
-            let last = from + length funcs
-            let TableInstance lim elems = tableInstances st ! idx
-            len <- MVector.length <$> (liftIO $ readIORef elems)
-            Monad.when (last > len) $ throwError "out of bounds table access"
             return (idx, elemaddrs inst ! elemN, from, funcs)
 
         initElem :: (Address, Address, Int, [Maybe Address]) -> Initialize ()
         initElem (tableIdx, elemIdx, from, funcs) = do
             Store {tableInstances, elemInstances} <- State.get
             elems <- liftIO $ readIORef $ items $ tableInstances ! tableIdx
-            let ElemInstance {isDropped} = elemInstances ! elemIdx
-            liftIO $ writeIORef isDropped True
-            Monad.forM_ (zip [from..] funcs) $ uncurry $ MVector.unsafeWrite elems
+            if from + length funcs > MVector.length elems
+            then throwError "out of bounds table access"
+            else do
+                let ElemInstance {isDropped} = elemInstances ! elemIdx
+                liftIO $ writeIORef isDropped True
+                Monad.forM_ (zip [from..] funcs) $ uncurry $ MVector.unsafeWrite elems
 
         checkData :: DataSegment -> Initialize (Maybe (Int, MemoryStore, LBS.ByteString))
         checkData DataSegment {dataMode = ActiveData memIndex offset, chunk} = do
@@ -582,18 +581,18 @@ initialize inst Module {elems, datas, start} = do
             VI32 val <- liftIO $ evalConstExpr inst st offset
             let from = fromIntegral val
             let idx = memaddrs inst ! fromIntegral memIndex
-            let last = from + (fromIntegral $ LBS.length chunk)
             let MemoryInstance _ memory = memInstances st ! idx
             mem <- liftIO $ readIORef memory
-            len <- ByteArray.getSizeofMutableByteArray mem
-            Monad.when (last > len) $ throwError "out of bounds memory access"
             return $ Just (from, mem, chunk)
         checkData DataSegment {dataMode = PassiveData, chunk} =
             return Nothing
         
         initData :: Maybe (Int, MemoryStore, LBS.ByteString) -> Initialize ()
         initData Nothing = return ()
-        initData (Just (from, mem, chunk)) =
+        initData (Just (from, mem, chunk)) = do
+            let last = from + (fromIntegral $ LBS.length chunk)
+            len <- ByteArray.getSizeofMutableByteArray mem
+            Monad.when (last > len) $ throwError "out of bounds memory access"
             mapM_ (\(i,b) -> ByteArray.writeByteArray mem i b) $ zip [from..] $ LBS.unpack chunk
 
 instantiate :: Store -> Imports -> Valid.ValidModule -> IO (Either String ModuleInstance, Store)

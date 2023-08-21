@@ -13,6 +13,7 @@ import Control.Monad.IO.Class (liftIO)
 import Numeric.IEEE (identicalIEEE)
 import qualified Control.DeepSeq as DeepSeq
 import Data.Maybe (fromJust, isNothing)
+import Debug.Trace (trace)
 
 import Language.Wasm.Parser (
         Ident(..),
@@ -166,7 +167,7 @@ runScript onAssertFail script = do
             let Right m = Lexer.scanner (TLEncoding.encodeUtf8 textRep) >>= Parser.parseModule in
             (ident, m)
         buildModule (BinaryModDef ident binaryRep) =
-            let Right m = Binary.decodeModuleLazy binaryRep in
+            let Right m = Binary.decodeModuleLazy binaryRep  in
             (ident, m)
 
         checkModuleInvalid :: Struct.Module -> IO ()
@@ -261,8 +262,9 @@ runScript onAssertFail script = do
             let (_, m) = buildModule moduleDef in
             case Validate.validate m of
                 Right m -> do
-                    st <- fst <$> State.get
+                    (st, pos) <- State.get
                     (res, store') <- liftIO $ Interpreter.instantiate (store st) (buildImports st) m
+                    State.put (st { store = store' }, pos)
                     case res of
                         Left err | err == TL.unpack failureString -> return ()
                         Left "Start function terminated with trap" ->
