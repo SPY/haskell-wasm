@@ -366,15 +366,49 @@ instance Serialize (Instruction Natural) where
     put Return = putWord8 0x0F
     put (Call funcIdx) = putWord8 0x10 >> putULEB128 funcIdx
     put (CallIndirect tableIdx typeIdx) = putWord8 0x11 >> putULEB128 typeIdx >> putULEB128 tableIdx
+    -- Reference instructions
+    put (RefNull refType) = putWord8 0xD0 >> put refType
+    put RefIsNull = putWord8 0xD1
+    put (RefFunc index) = putWord8 0xD2 >> putULEB128 index
     -- Parametric instructions
     put Drop = putWord8 0x1A
-    put (Select _) = putWord8 0x1B
+    put (Select Nothing) = putWord8 0x1B
+    put (Select (Just types)) = putWord8 0x1C >> putVec types
     -- Variable instructions
     put (GetLocal idx) = putWord8 0x20 >> putULEB128 idx
     put (SetLocal idx) = putWord8 0x21 >> putULEB128 idx
     put (TeeLocal idx) = putWord8 0x22 >> putULEB128 idx
     put (GetGlobal idx) = putWord8 0x23 >> putULEB128 idx
     put (SetGlobal idx) = putWord8 0x24 >> putULEB128 idx
+    -- Table instructions
+    put (TableGet idx) = putWord8 0x25 >> putULEB128 idx
+    put (TableSet idx) = putWord8 0x26 >> putULEB128 idx
+    put (TableInit tableIdx elemIdx) = do
+        putWord8 0xFC
+        putULEB128 (0x0C :: Word32)
+        putULEB128 tableIdx
+        putULEB128 elemIdx
+    put (ElemDrop elemIdx) = do
+        putWord8 0xFC
+        putULEB128 (0x0D :: Word32)
+        putULEB128 elemIdx
+    put (TableCopy fromIdx toIdx) = do
+        putWord8 0xFC
+        putULEB128 (0x0E :: Word32)
+        putULEB128 fromIdx
+        putULEB128 toIdx
+    put (TableGrow tableIdx) = do
+        putWord8 0xFC
+        putULEB128 (0x0F :: Word32)
+        putULEB128 tableIdx
+    put (TableSize tableIdx) = do
+        putWord8 0xFC
+        putULEB128 (0x10 :: Word32)
+        putULEB128 tableIdx
+    put (TableFill tableIdx) = do
+        putWord8 0xFC
+        putULEB128 (0x11 :: Word32)
+        putULEB128 tableIdx
     -- Memory instructions
     put (I32Load memArg) = putWord8 0x28 >> put memArg
     put (I64Load memArg) = putWord8 0x29 >> put memArg
@@ -401,6 +435,24 @@ instance Serialize (Instruction Natural) where
     put (I64Store32 memArg) = putWord8 0x3E >> put memArg
     put MemorySize = putWord8 0x3F >> putWord8 0x00
     put MemoryGrow = putWord8 0x40 >> putWord8 0x00
+    put (MemoryInit dataIdx) = do
+        putWord8 0xFC
+        putULEB128 (0x08 :: Word32)
+        putULEB128 dataIdx
+        putWord8 0
+    put (DataDrop dataIdx) = do
+        putWord8 0xFC
+        putULEB128 (0x09 :: Word32)
+        putULEB128 dataIdx
+    put MemoryCopy = do
+        putWord8 0xFC
+        putULEB128 (0x0A :: Word32)
+        putWord8 0
+        putWord8 0
+    put MemoryFill = do
+        putWord8 0xFC
+        putULEB128 (0x0B :: Word32)
+        putWord8 0
     -- Numeric instructions
     put (I32Const val) = putWord8 0x41 >> putSLEB128 (asInt32 val)
     put (I64Const val) = putWord8 0x42 >> putSLEB128 (asInt64 val)
@@ -567,6 +619,10 @@ instance Serialize (Instruction Natural) where
                 typeIdx <- getULEB128 32
                 tableIdx <- getULEB128 32
                 return $ CallIndirect tableIdx typeIdx
+            -- Reference instructions
+            0xD0 -> RefNull <$> get
+            0xD1 -> return RefIsNull
+            0xD2 -> RefFunc <$> getULEB128 32
             -- Parametric instructions
             0x1A -> return $ Drop
             0x1B -> return $ Select Nothing
@@ -747,7 +803,7 @@ instance Serialize (Instruction Natural) where
                     0x06 -> return $ ITruncSatFS BS64 BS64
                     0x07 -> return $ ITruncSatFU BS64 BS64
                     _ -> fail "Unknown byte value after misc instruction byte"
-            _ -> fail "Unknown byte value in place of instruction opcode"
+            byte -> fail $ "Unknown byte value in place of instruction opcode: " ++ (show byte)
 
 putExpression :: Expression -> Put
 putExpression expr = do
@@ -844,7 +900,7 @@ instance Serialize ElemSegment where
                 ElemSegment FuncRef (Active 0 offset) <$> funcIndexes
             0x05 -> do
                 elemType <- get
-                ElemSegment elemType Passive <$> getVec
+                ElemSegment elemType Passive . map unExpr <$> getVec
             0x06 -> do
                 tableIndex <- getULEB128 32
                 offset <- getExpression
@@ -882,16 +938,34 @@ instance Serialize Function where
 
 instance Serialize DataSegment where
     put (DataSegment (ActiveData memIdx offset) init) = do
+        putWord8 0x02
         putULEB128 memIdx
         putExpression offset
         putULEB128 $ LBS.length init
         putLazyByteString init
+    put (DataSegment PassiveData init) = do
+        putWord8 0x01
+        putULEB128 $ LBS.length init
+        putLazyByteString init
     get = do
-        memIdx <- getULEB128 32
-        offset <- getExpression
-        len <- getULEB128 32
-        init <- getLazyByteString len
-        return $ DataSegment (ActiveData memIdx offset) init
+        op <- getULEB128 32
+        case (op :: Word8) of
+            0x00 -> do
+                offset <- getExpression
+                len <- getULEB128 32
+                init <- getLazyByteString len
+                return $ DataSegment (ActiveData 0 offset) init
+            0x01 -> do
+                len <- getULEB128 32
+                init <- getLazyByteString len
+                return $ DataSegment PassiveData init 
+            0x02 -> do
+                memIdx <- getULEB128 32
+                offset <- getExpression
+                len <- getULEB128 32
+                init <- getLazyByteString len
+                return $ DataSegment (ActiveData memIdx offset) init
+            byte -> fail $ "unknown data segment type: " ++ show byte 
 
 instance Serialize Module where
     put mod = do
