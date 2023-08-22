@@ -219,24 +219,24 @@ elemTypeToRefType :: ElemType -> ValueType
 elemTypeToRefType FuncRef = Func
 elemTypeToRefType ExternRef = Extern
 
-getInstrType :: Instruction Natural -> Checker Arrow
-getInstrType Unreachable = return $ Any ==> Any
-getInstrType Nop = return $ empty ==> empty
-getInstrType Block { blockType, body } = do
+getInstrType :: [VType] -> Instruction Natural -> Checker Arrow
+getInstrType _ Unreachable = return $ Any ==> Any
+getInstrType _ Nop = return $ empty ==> empty
+getInstrType _ Block { blockType, body } = do
     bt@(Arrow from _) <- getBlockType blockType
     resultType <- getResultType blockType
     t <- withLabel resultType $ getExpressionTypeWithInput from body
     if isArrowMatch t bt
     then return bt
     else throwError $ TypeMismatch t bt
-getInstrType Loop { blockType, body } = do
+getInstrType _ Loop { blockType, body } = do
     bt@(Arrow from _) <- getBlockType blockType
     resultType <- getResultType blockType
     t <- withLabel (map (\(Val v) -> v) from) $ getExpressionTypeWithInput from body
     if isArrowMatch t bt
     then return bt
     else throwError $ TypeMismatch t bt
-getInstrType If { blockType, true, false } = do
+getInstrType _ If { blockType, true, false } = do
     bt@(Arrow from _) <- getBlockType blockType
     resultType <- getResultType blockType
     l <- withLabel resultType $ getExpressionTypeWithInput from true
@@ -249,48 +249,53 @@ getInstrType If { blockType, true, false } = do
             else (throwError $ TypeMismatch r bt)
         )
     else throwError $ TypeMismatch l bt
-getInstrType (Br lbl) = do
+getInstrType _ (Br lbl) = do
     r <- map Val <$> getLabel lbl
     return $ (Any : r) ==> Any
-getInstrType (BrIf lbl) = do
+getInstrType _ (BrIf lbl) = do
     r <- map Val <$> getLabel lbl
     return $ (r ++ [Val I32]) ==> r
-getInstrType (BrTable lbls lbl) = do
+getInstrType stack (BrTable lbls lbl) = do
     r <- getLabel lbl
-    rs <- mapM getLabel lbls
-    if all (== r) rs
+    let returns lbl = do
+            args <- map Val <$> getLabel lbl
+            res <- matchStack stack (Val I32 : reverse args) []
+            return (args, res)
+    alternatives <- mapM returns lbls
+    (_, def) <- returns lbl
+    if all (\(args, res) -> res == def && length args == length r) alternatives
     then return $ ([Any] ++ (map Val r) ++ [Val I32]) ==> Any
     else throwError ResultTypeDoesntMatch
-getInstrType Return = do
+getInstrType _ Return = do
     Ctx { returns } <- ask
     return $ (Any : (map Val returns)) ==> Any
-getInstrType (Call fun) = do
+getInstrType _ (Call fun) = do
     Ctx { funcs } <- ask
     maybeToEither (FunctionIndexOutOfRange fun) $ asArrow <$> funcs !? fun
-getInstrType (CallIndirect tableIdx sign) = do
+getInstrType _ (CallIndirect tableIdx sign) = do
     Ctx { types, tables } <- ask
     if length tables <= fromIntegral tableIdx
     then throwError (TableIndexOutOfRange tableIdx)
     else do
         Arrow from to <- maybeToEither TypeIndexOutOfRange $ asArrow <$> types !? sign
         return $ (from ++ [Val I32]) ==> to
-getInstrType Drop = do
+getInstrType _ Drop = do
     var <- freshVar
     return $ var ==> empty
-getInstrType (Select Nothing) = do
+getInstrType _ (Select Nothing) = do
     var <- return NonRefVar
     return $ [var, var, Val I32] ==> var
-getInstrType (Select (Just vt)) =
+getInstrType _ (Select (Just vt)) =
     case vt of
         [t] -> return $ [t, t, I32] ==> t
         _ -> throwError InvalidResultArity
-getInstrType (RefNull elType) = do
+getInstrType _ (RefNull elType) = do
     let t = case elType of { FuncRef -> Func; ExternRef -> Extern }
     return $ empty ==> Val t
-getInstrType RefIsNull = do
+getInstrType _ RefIsNull = do
     var <- freshVar
     return $ var ==> Val I32
-getInstrType (RefFunc funIdx) = do
+getInstrType _ (RefFunc funIdx) = do
     Ctx { funcs, refs } <- ask
     if fromIntegral funIdx < length funcs
     then do
@@ -298,122 +303,122 @@ getInstrType (RefFunc funIdx) = do
             throwError $ UndeclaredFunctionRef $ fromIntegral funIdx
         return $ empty ==> Val Func
     else throwError $ FunctionIndexOutOfRange $ fromIntegral funIdx
-getInstrType (GetLocal local) = do
+getInstrType _ (GetLocal local) = do
     Ctx { locals }  <- ask
     t <- maybeToEither (LocalIndexOutOfRange local) $ locals !? local
     return $ empty ==> Val t
-getInstrType (SetLocal local) = do
+getInstrType _ (SetLocal local) = do
     Ctx { locals } <- ask
     t <- maybeToEither (LocalIndexOutOfRange local) $ locals !? local
     return $ Val t ==> empty
-getInstrType (TeeLocal local) = do
+getInstrType _ (TeeLocal local) = do
     Ctx { locals } <- ask
     t <- maybeToEither (LocalIndexOutOfRange local) $ locals !? local
     return $ Val t ==> Val t
-getInstrType (GetGlobal global) = do
+getInstrType _ (GetGlobal global) = do
     Ctx { globals } <- ask
     t <- maybeToEither (GlobalIndexOutOfRange global) $ asType <$> globals !? global
     return $ empty ==> t
-getInstrType (SetGlobal global) = do
+getInstrType _ (SetGlobal global) = do
     Ctx { globals } <- ask
     t <- maybeToEither (GlobalIndexOutOfRange global) $ asType <$> globals !? global
     shouldBeMut $ globals !! fromIntegral global
     return $ t ==> empty
-getInstrType (I32Load memarg) = do
+getInstrType _ (I32Load memarg) = do
     checkMemoryInstr 4 memarg
     return $ I32 ==> I32
-getInstrType (I64Load memarg) = do
+getInstrType _ (I64Load memarg) = do
     checkMemoryInstr 8 memarg
     return $ I32 ==> I64
-getInstrType (F32Load memarg) = do
+getInstrType _ (F32Load memarg) = do
     checkMemoryInstr 4 memarg
     return $ I32 ==> F32
-getInstrType (F64Load memarg) = do
+getInstrType _ (F64Load memarg) = do
     checkMemoryInstr 8 memarg
     return $ I32 ==> F64
-getInstrType (I32Load8S memarg) = do
+getInstrType _ (I32Load8S memarg) = do
     checkMemoryInstr 1 memarg
     return $ I32 ==> I32
-getInstrType (I32Load8U memarg) = do
+getInstrType _ (I32Load8U memarg) = do
     checkMemoryInstr 1 memarg
     return $ I32 ==> I32
-getInstrType (I32Load16S memarg) = do
+getInstrType _ (I32Load16S memarg) = do
     checkMemoryInstr 2 memarg
     return $ I32 ==> I32
-getInstrType (I32Load16U memarg) = do
+getInstrType _ (I32Load16U memarg) = do
     checkMemoryInstr 2 memarg
     return $ I32 ==> I32
-getInstrType (I64Load8S memarg) = do
+getInstrType _ (I64Load8S memarg) = do
     checkMemoryInstr 1 memarg
     return $ I32 ==> I64
-getInstrType (I64Load8U memarg) = do
+getInstrType _ (I64Load8U memarg) = do
     checkMemoryInstr 1 memarg
     return $ I32 ==> I64
-getInstrType (I64Load16S memarg) = do
+getInstrType _ (I64Load16S memarg) = do
     checkMemoryInstr 2 memarg
     return $ I32 ==> I64
-getInstrType (I64Load16U memarg) = do
+getInstrType _ (I64Load16U memarg) = do
     checkMemoryInstr 2 memarg
     return $ I32 ==> I64
-getInstrType (I64Load32S memarg) = do
+getInstrType _ (I64Load32S memarg) = do
     checkMemoryInstr 4 memarg
     return $ I32 ==> I64
-getInstrType (I64Load32U memarg) = do
+getInstrType _ (I64Load32U memarg) = do
     checkMemoryInstr 4 memarg
     return $ I32 ==> I64
-getInstrType (I32Store memarg) = do
+getInstrType _ (I32Store memarg) = do
     checkMemoryInstr 4 memarg
     return $ [I32, I32] ==> empty
-getInstrType (I64Store memarg) = do
+getInstrType _ (I64Store memarg) = do
     checkMemoryInstr 8 memarg
     return $ [I32, I64] ==> empty
-getInstrType (F32Store memarg) = do
+getInstrType _ (F32Store memarg) = do
     checkMemoryInstr 4 memarg
     return $ [I32, F32] ==> empty
-getInstrType (F64Store memarg) = do
+getInstrType _ (F64Store memarg) = do
     checkMemoryInstr 8 memarg
     return $ [I32, F64] ==> empty
-getInstrType (I32Store8 memarg) = do
+getInstrType _ (I32Store8 memarg) = do
     checkMemoryInstr 1 memarg
     return $ [I32, I32] ==> empty
-getInstrType (I32Store16 memarg) = do
+getInstrType _ (I32Store16 memarg) = do
     checkMemoryInstr 2 memarg
     return $ [I32, I32] ==> empty
-getInstrType (I64Store8 memarg) = do
+getInstrType _ (I64Store8 memarg) = do
     checkMemoryInstr 1 memarg
     return $ [I32, I64] ==> empty
-getInstrType (I64Store16 memarg) = do
+getInstrType _ (I64Store16 memarg) = do
     checkMemoryInstr 2 memarg
     return $ [I32, I64] ==> empty
-getInstrType (I64Store32 memarg) = do
+getInstrType _ (I64Store32 memarg) = do
     checkMemoryInstr 4 memarg
     return $ [I32, I64] ==> empty
-getInstrType MemorySize = do
+getInstrType _ MemorySize = do
     Ctx { mems } <- ask 
     when (length mems < 1) $ throwError (MemoryIndexOutOfRange 0)
     return $ empty ==> I32
-getInstrType MemoryGrow = do
+getInstrType _ MemoryGrow = do
     Ctx { mems } <- ask
     when (length mems < 1) $ throwError (MemoryIndexOutOfRange 0)
     return $ I32 ==> I32
-getInstrType MemoryFill = do
+getInstrType _ MemoryFill = do
     Ctx { mems } <- ask
     when (length mems < 1) $ throwError (MemoryIndexOutOfRange 0)
     return $ [I32, I32, I32] ==> empty
-getInstrType MemoryCopy = do
+getInstrType _ MemoryCopy = do
     Ctx { mems } <- ask
     when (length mems < 1) $ throwError (MemoryIndexOutOfRange 0)
     return $ [I32, I32, I32] ==> empty
-getInstrType (MemoryInit dataIdx) = do
+getInstrType _ (MemoryInit dataIdx) = do
     Ctx { mems, datas } <- ask
     when (length mems < 1) $ throwError (MemoryIndexOutOfRange 0)
     when (length datas <= fromIntegral dataIdx) $ throwError (DataIndexOutOfRange dataIdx)
     return $ [I32, I32, I32] ==> empty
-getInstrType (DataDrop dataIdx) = do
+getInstrType _ (DataDrop dataIdx) = do
     Ctx { datas } <- ask
     when (length datas <= fromIntegral dataIdx) $ throwError (DataIndexOutOfRange dataIdx)
     return $ empty ==> empty
-getInstrType (TableInit tableIdx elemIdx) = do
+getInstrType _ (TableInit tableIdx elemIdx) = do
     Ctx { tables, elems } <- ask
     when (length tables <= fromIntegral tableIdx) $ throwError (TableIndexOutOfRange tableIdx)
     when (length elems <= fromIntegral elemIdx) $ throwError (ElemIndexOutOfRange elemIdx)
@@ -421,7 +426,7 @@ getInstrType (TableInit tableIdx elemIdx) = do
     let elemType = elems !! fromIntegral elemIdx
     when (elemType /= tableType) $ throwError (RefTypeMismatch tableType elemType)
     return $ [I32, I32, I32] ==> empty
-getInstrType (TableCopy toIdx fromIdx) = do
+getInstrType _ (TableCopy toIdx fromIdx) = do
     Ctx { tables } <- ask
     let (from, to) = (fromIntegral fromIdx, fromIntegral toIdx)
     when (length tables <= from) $ throwError (TableIndexOutOfRange fromIdx)
@@ -430,85 +435,85 @@ getInstrType (TableCopy toIdx fromIdx) = do
     let TableType _ toType = tables !! to
     when (fromType /= toType) $ throwError (RefTypeMismatch fromType toType)
     return $ [I32, I32, I32] ==> empty
-getInstrType (TableFill tableIdx) = do
+getInstrType _ (TableFill tableIdx) = do
     Ctx { tables } <- ask
     when (length tables <= fromIntegral tableIdx) $ throwError (TableIndexOutOfRange tableIdx)
     let TableType _ tableType = tables !! fromIntegral tableIdx
     return $ [I32, elemTypeToRefType tableType, I32] ==> empty
-getInstrType (TableSize tableIdx) = do
+getInstrType _ (TableSize tableIdx) = do
     Ctx { tables } <- ask
     when (length tables <= fromIntegral tableIdx) $ throwError (TableIndexOutOfRange tableIdx)
     return $ empty ==> I32
-getInstrType (TableGrow tableIdx) = do
+getInstrType _ (TableGrow tableIdx) = do
     Ctx { tables } <- ask
     when (length tables <= fromIntegral tableIdx) $ throwError (TableIndexOutOfRange tableIdx)
     let TableType _ tableType = tables !! fromIntegral tableIdx
     return $ [elemTypeToRefType tableType, I32] ==> I32
-getInstrType (TableGet tableIdx) = do
+getInstrType _ (TableGet tableIdx) = do
     Ctx { tables } <- ask
     when (length tables <= fromIntegral tableIdx) $ throwError (TableIndexOutOfRange tableIdx)
     let TableType _ tableType = tables !! fromIntegral tableIdx
     return $ I32 ==> (elemTypeToRefType tableType)
-getInstrType (TableSet tableIdx) = do
+getInstrType _ (TableSet tableIdx) = do
     Ctx { tables } <- ask
     when (length tables <= fromIntegral tableIdx) $ throwError (TableIndexOutOfRange tableIdx)
     let TableType _ tableType = tables !! fromIntegral tableIdx
     return $ [I32, elemTypeToRefType tableType] ==> empty
-getInstrType (ElemDrop elemIdx) = do
+getInstrType _ (ElemDrop elemIdx) = do
     Ctx { elems } <- ask
     when (length elems <= fromIntegral elemIdx) $ throwError (ElemIndexOutOfRange elemIdx)
     return $ empty ==> empty
-getInstrType (I32Const _) = return $ empty ==> I32
-getInstrType (I64Const _) = return $ empty ==> I64
-getInstrType (F32Const _) = return $ empty ==> F32
-getInstrType (F64Const _) = return $ empty ==> F64
-getInstrType (IUnOp BS32 _) = return $ I32 ==> I32
-getInstrType (IUnOp BS64 _) = return $ I64 ==> I64
-getInstrType (IBinOp BS32 _) = return $ [I32, I32] ==> I32
-getInstrType (IBinOp BS64 _) = return $ [I64, I64] ==> I64
-getInstrType I32Eqz = return $ I32 ==> I32
-getInstrType I64Eqz = return $ I64 ==> I32
-getInstrType (IRelOp BS32 _) = return $ [I32, I32] ==> I32
-getInstrType (IRelOp BS64 _) = return $ [I64, I64] ==> I32
-getInstrType (FUnOp BS32 _) = return $ F32 ==> F32
-getInstrType (FUnOp BS64 _) = return $ F64 ==> F64
-getInstrType (FBinOp BS32 _) = return $ [F32, F32] ==> F32
-getInstrType (FBinOp BS64 _) = return $ [F64, F64] ==> F64
-getInstrType (FRelOp BS32 _) = return $ [F32, F32] ==> I32
-getInstrType (FRelOp BS64 _) = return $ [F64, F64] ==> I32
-getInstrType I32WrapI64 = return $ I64 ==> I32
-getInstrType (ITruncFU BS32 BS32) = return $ F32 ==> I32
-getInstrType (ITruncFU BS32 BS64) = return $ F64 ==> I32
-getInstrType (ITruncFU BS64 BS32) = return $ F32 ==> I64
-getInstrType (ITruncFU BS64 BS64) = return $ F64 ==> I64
-getInstrType (ITruncFS BS32 BS32) = return $ F32 ==> I32
-getInstrType (ITruncFS BS32 BS64) = return $ F64 ==> I32
-getInstrType (ITruncFS BS64 BS32) = return $ F32 ==> I64
-getInstrType (ITruncFS BS64 BS64) = return $ F64 ==> I64
-getInstrType (ITruncSatFU BS32 BS32) = return $ F32 ==> I32
-getInstrType (ITruncSatFU BS32 BS64) = return $ F64 ==> I32
-getInstrType (ITruncSatFU BS64 BS32) = return $ F32 ==> I64
-getInstrType (ITruncSatFU BS64 BS64) = return $ F64 ==> I64
-getInstrType (ITruncSatFS BS32 BS32) = return $ F32 ==> I32
-getInstrType (ITruncSatFS BS32 BS64) = return $ F64 ==> I32
-getInstrType (ITruncSatFS BS64 BS32) = return $ F32 ==> I64
-getInstrType (ITruncSatFS BS64 BS64) = return $ F64 ==> I64
-getInstrType I64ExtendSI32 = return $ I32 ==> I64
-getInstrType I64ExtendUI32 = return $ I32 ==> I64
-getInstrType (FConvertIU BS32 BS32) = return $ I32 ==> F32
-getInstrType (FConvertIU BS32 BS64) = return $ I64 ==> F32
-getInstrType (FConvertIU BS64 BS32) = return $ I32 ==> F64
-getInstrType (FConvertIU BS64 BS64) = return $ I64 ==> F64
-getInstrType (FConvertIS BS32 BS32) = return $ I32 ==> F32
-getInstrType (FConvertIS BS32 BS64) = return $ I64 ==> F32
-getInstrType (FConvertIS BS64 BS32) = return $ I32 ==> F64
-getInstrType (FConvertIS BS64 BS64) = return $ I64 ==> F64
-getInstrType F32DemoteF64 = return $ F64 ==> F32
-getInstrType F64PromoteF32 = return $ F32 ==> F64
-getInstrType (IReinterpretF BS32) = return $ F32 ==> I32
-getInstrType (IReinterpretF BS64) = return $ F64 ==> I64
-getInstrType (FReinterpretI BS32) = return $ I32 ==> F32
-getInstrType (FReinterpretI BS64) = return $ I64 ==> F64
+getInstrType _ (I32Const _) = return $ empty ==> I32
+getInstrType _ (I64Const _) = return $ empty ==> I64
+getInstrType _ (F32Const _) = return $ empty ==> F32
+getInstrType _ (F64Const _) = return $ empty ==> F64
+getInstrType _ (IUnOp BS32 _) = return $ I32 ==> I32
+getInstrType _ (IUnOp BS64 _) = return $ I64 ==> I64
+getInstrType _ (IBinOp BS32 _) = return $ [I32, I32] ==> I32
+getInstrType _ (IBinOp BS64 _) = return $ [I64, I64] ==> I64
+getInstrType _ I32Eqz = return $ I32 ==> I32
+getInstrType _ I64Eqz = return $ I64 ==> I32
+getInstrType _ (IRelOp BS32 _) = return $ [I32, I32] ==> I32
+getInstrType _ (IRelOp BS64 _) = return $ [I64, I64] ==> I32
+getInstrType _ (FUnOp BS32 _) = return $ F32 ==> F32
+getInstrType _ (FUnOp BS64 _) = return $ F64 ==> F64
+getInstrType _ (FBinOp BS32 _) = return $ [F32, F32] ==> F32
+getInstrType _ (FBinOp BS64 _) = return $ [F64, F64] ==> F64
+getInstrType _ (FRelOp BS32 _) = return $ [F32, F32] ==> I32
+getInstrType _ (FRelOp BS64 _) = return $ [F64, F64] ==> I32
+getInstrType _ I32WrapI64 = return $ I64 ==> I32
+getInstrType _ (ITruncFU BS32 BS32) = return $ F32 ==> I32
+getInstrType _ (ITruncFU BS32 BS64) = return $ F64 ==> I32
+getInstrType _ (ITruncFU BS64 BS32) = return $ F32 ==> I64
+getInstrType _ (ITruncFU BS64 BS64) = return $ F64 ==> I64
+getInstrType _ (ITruncFS BS32 BS32) = return $ F32 ==> I32
+getInstrType _ (ITruncFS BS32 BS64) = return $ F64 ==> I32
+getInstrType _ (ITruncFS BS64 BS32) = return $ F32 ==> I64
+getInstrType _ (ITruncFS BS64 BS64) = return $ F64 ==> I64
+getInstrType _ (ITruncSatFU BS32 BS32) = return $ F32 ==> I32
+getInstrType _ (ITruncSatFU BS32 BS64) = return $ F64 ==> I32
+getInstrType _ (ITruncSatFU BS64 BS32) = return $ F32 ==> I64
+getInstrType _ (ITruncSatFU BS64 BS64) = return $ F64 ==> I64
+getInstrType _ (ITruncSatFS BS32 BS32) = return $ F32 ==> I32
+getInstrType _ (ITruncSatFS BS32 BS64) = return $ F64 ==> I32
+getInstrType _ (ITruncSatFS BS64 BS32) = return $ F32 ==> I64
+getInstrType _ (ITruncSatFS BS64 BS64) = return $ F64 ==> I64
+getInstrType _ I64ExtendSI32 = return $ I32 ==> I64
+getInstrType _ I64ExtendUI32 = return $ I32 ==> I64
+getInstrType _ (FConvertIU BS32 BS32) = return $ I32 ==> F32
+getInstrType _ (FConvertIU BS32 BS64) = return $ I64 ==> F32
+getInstrType _ (FConvertIU BS64 BS32) = return $ I32 ==> F64
+getInstrType _ (FConvertIU BS64 BS64) = return $ I64 ==> F64
+getInstrType _ (FConvertIS BS32 BS32) = return $ I32 ==> F32
+getInstrType _ (FConvertIS BS32 BS64) = return $ I64 ==> F32
+getInstrType _ (FConvertIS BS64 BS32) = return $ I32 ==> F64
+getInstrType _ (FConvertIS BS64 BS64) = return $ I64 ==> F64
+getInstrType _ F32DemoteF64 = return $ F64 ==> F32
+getInstrType _ F64PromoteF32 = return $ F32 ==> F64
+getInstrType _ (IReinterpretF BS32) = return $ F32 ==> I32
+getInstrType _ (IReinterpretF BS64) = return $ F64 ==> I64
+getInstrType _ (FReinterpretI BS32) = return $ I32 ==> F32
+getInstrType _ (FReinterpretI BS64) = return $ I64 ==> F64
 
 
 replace :: (Eq a) => a -> a -> [a] -> [a]
@@ -520,45 +525,46 @@ getExpressionTypeWithInput inp = fmap (inp `Arrow`) . foldM go inp
     where
         go :: [VType] -> Instruction Natural -> Checker [VType]
         go stack instr = do
-            (f `Arrow` t) <- getInstrType instr
+            (f `Arrow` t) <- getInstrType stack instr
             matchStack stack (reverse f) t
-        
-        isRef (Func)   = True
-        isRef (Extern) = True
-        isRef _        = False
-        
-        matchStack :: [VType] -> [VType] -> [VType] -> Checker [VType]
-        matchStack stack@(Any:_) _arg res = return $ res ++ stack
-        matchStack (Val v:stack) (Val v':args) res =
-            if v == v'
-            then matchStack stack args res
-            else throwError $ TypeMismatch ((reverse $ Val v':args) `Arrow` res) ([] `Arrow` (Val v:stack))
-        matchStack _ (Any:_) res = return $ res
-        matchStack (Val v:stack) (Var:args) res =
-            let subst = replace Var (Val v) in
-            matchStack stack (subst args) (subst res)
-        matchStack (Var:stack) (Val v:args) res =
-            let subst = replace Var (Val v) in
-            matchStack stack (subst args) (subst res)
-        matchStack (Val v:stack) (NonRefVar:args) res =
-            let subst = replace NonRefVar (Val v) in
-            if isRef v
-            then throwError $ TypeMismatch (empty ==> empty) (empty ==> empty)
-            else matchStack stack (subst args) (subst res)
-        matchStack (NonRefVar:stack) (Val v:args) res =
-            let subst = replace NonRefVar (Val v) in
-            if isRef v
-            then throwError $ TypeMismatch (empty ==> empty) (empty ==> empty)
-            else matchStack stack (subst args) (subst res)
-        matchStack (Var:stack) (NonRefVar:args) res =
-            let subst = replace NonRefVar NonRefVar in
-            matchStack stack (subst args) (subst res)
-        matchStack (NonRefVar:stack) (Var:args) res =
-            let subst = replace Var NonRefVar in
-            matchStack stack (subst args) (subst res)
-        matchStack stack [] res = return $ res ++ stack
-        matchStack [] args res = throwError $ TypeMismatch ((reverse args) `Arrow` res) ([] `Arrow` [])
-        matchStack st args res = error $ "inconsistent checker state: " ++ show (st, args, res)
+
+isRef :: ValueType -> Bool
+isRef (Func)   = True
+isRef (Extern) = True
+isRef _        = False
+
+matchStack :: [VType] -> [VType] -> [VType] -> Checker [VType]
+matchStack stack@(Any:_) _arg res = return $ res ++ stack
+matchStack (Val v:stack) (Val v':args) res =
+    if v == v'
+    then matchStack stack args res
+    else throwError $ TypeMismatch ((reverse $ Val v':args) `Arrow` res) ([] `Arrow` (Val v:stack))
+matchStack _ (Any:_) res = return $ res
+matchStack (Val v:stack) (Var:args) res =
+    let subst = replace Var (Val v) in
+    matchStack stack (subst args) (subst res)
+matchStack (Var:stack) (Val v:args) res =
+    let subst = replace Var (Val v) in
+    matchStack stack (subst args) (subst res)
+matchStack (Val v:stack) (NonRefVar:args) res =
+    let subst = replace NonRefVar (Val v) in
+    if isRef v
+    then throwError $ TypeMismatch (empty ==> empty) (empty ==> empty)
+    else matchStack stack (subst args) (subst res)
+matchStack (NonRefVar:stack) (Val v:args) res =
+    let subst = replace NonRefVar (Val v) in
+    if isRef v
+    then throwError $ TypeMismatch (empty ==> empty) (empty ==> empty)
+    else matchStack stack (subst args) (subst res)
+matchStack (Var:stack) (NonRefVar:args) res =
+    let subst = replace NonRefVar NonRefVar in
+    matchStack stack (subst args) (subst res)
+matchStack (NonRefVar:stack) (Var:args) res =
+    let subst = replace Var NonRefVar in
+    matchStack stack (subst args) (subst res)
+matchStack stack [] res = return $ res ++ stack
+matchStack [] args res = throwError $ TypeMismatch ((reverse args) `Arrow` res) ([] `Arrow` [])
+matchStack st args res = error $ "inconsistent checker state: " ++ show (st, args, res)
 
 getExpressionType :: Expression -> Checker Arrow
 getExpressionType = getExpressionTypeWithInput []
