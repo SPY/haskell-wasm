@@ -952,7 +952,7 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
             let dest = fromIntegral d
             let len = fromIntegral n
             dropped <- readIORef isDropped
-            if dropped || src + len > LBS.length bytes || dest + len > size
+            if (dropped && len > 0) || src + len > LBS.length bytes || dest + len > size
             then return Trap
             else do
                 mapM_ (uncurry $ ByteArray.writeByteArray memory) $ zip [fromIntegral d..] $
@@ -978,7 +978,7 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
             isDropped <- readIORef dropFlag
             if src + len > Vector.length refs
                 || dst + len > MVector.length els
-                || isDropped
+                || (isDropped && len > 0)
                 || isDeclarative mode
             then return Trap
             else do
