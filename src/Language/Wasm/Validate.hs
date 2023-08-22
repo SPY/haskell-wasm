@@ -550,9 +550,15 @@ getExpressionTypeWithInput inp = fmap (inp `Arrow`) . foldM go inp
             if isRef v
             then throwError $ TypeMismatch (empty ==> empty) (empty ==> empty)
             else matchStack stack (subst args) (subst res)
+        matchStack (Var:stack) (NonRefVar:args) res =
+            let subst = replace NonRefVar NonRefVar in
+            matchStack stack (subst args) (subst res)
+        matchStack (NonRefVar:stack) (Var:args) res =
+            let subst = replace Var NonRefVar in
+            matchStack stack (subst args) (subst res)
         matchStack stack [] res = return $ res ++ stack
         matchStack [] args res = throwError $ TypeMismatch ((reverse args) `Arrow` res) ([] `Arrow` [])
-        matchStack _ _ _ = error "inconsistent checker state"
+        matchStack st args res = error $ "inconsistent checker state: " ++ show (st, args, res)
 
 getExpressionType :: Expression -> Checker Arrow
 getExpressionType = getExpressionTypeWithInput []
