@@ -56,6 +56,7 @@ runScript onAssertFail script = do
     (st, inst) <- Interpreter.makeHostModule Interpreter.emptyStore [
             ("print", hostPrint []),
             ("print_i32", hostPrint [Struct.I32]),
+            ("print_i64", hostPrint [Struct.I64]),
             ("print_i32_f32", hostPrint [Struct.I32, Struct.F32]),
             ("print_f64_f64", hostPrint [Struct.F64, Struct.F64]),
             ("print_f32", hostPrint [Struct.F32]),

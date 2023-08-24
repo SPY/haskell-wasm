@@ -299,7 +299,9 @@ endBlockComment _inp _len = do
     alexMonadScan
 
 startStringLiteral :: AlexAction Lexeme
-startStringLiteral _inp _len = do
+startStringLiteral (_, prev, _, _) _len = do
+    when (prev `notElem` "() \x09\x0A\x0D")
+        $ alexError "string literal should start after space or parent character"
     alexSetStartCode stringLiteral
     setLexerStringFlag True
     alexMonadScan
