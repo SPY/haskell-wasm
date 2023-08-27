@@ -877,10 +877,10 @@ instance Serialize ElemSegment where
         putVec $ map Expr elements
 
     get = do
-        op <- getWord8
         let funcIndexes = map ((:[]) . RefFunc . unIndex) <$> getVec
         let elemKind = byteGuard 0x00 >> return FuncRef
-        case op of
+        op <- getULEB128 32
+        case (op :: Word8) of
             0x00 -> do
                 offset <- getExpression
                 ElemSegment FuncRef (Active 0 offset) <$> funcIndexes
