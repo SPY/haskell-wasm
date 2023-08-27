@@ -469,7 +469,7 @@ evalConstExpr _ _ [F32Const v] = return $ VF32 v
 evalConstExpr _ _ [F64Const v] = return $ VF64 v
 evalConstExpr _ _ [RefNull FuncRef] = return $ RF Nothing
 evalConstExpr _ _ [RefNull ExternRef] = return $ RE Nothing
-evalConstExpr _ _ [RefFunc idx] = return $ RF $ Just idx
+evalConstExpr inst _ [RefFunc idx] = return $ RF $ Just $ fromIntegral $ funcaddrs inst ! fromIntegral idx
 evalConstExpr inst store [GetGlobal i] = getGlobalValue inst store i
 evalConstExpr _ _ instrs = error $ "Global initializer contains unsupported instructions: " ++ show instrs
 
@@ -521,10 +521,7 @@ allocElems inst st = fmap Vector.fromList . mapM allocElem
         allocElem :: ElemSegment -> IO ElemInstance
         allocElem (ElemSegment t mode refs) = do
             indexes <- flip mapM refs $ \refExpr -> do
-                ref <- evalConstExpr inst st refExpr
-                return $ case ref of
-                    RF v -> RF $ fromIntegral . (funcaddrs inst !) . fromIntegral <$> v
-                    _ -> ref
+                evalConstExpr inst st refExpr
             ElemInstance mode t (Vector.fromList indexes)
                 <$> newIORef False -- is dropped
 
@@ -545,14 +542,14 @@ initialize inst Module {elems, datas, start} = do
     case start of
         Just (StartFunction idx) -> do
             let funInst = funcInstances st ! (funcaddrs inst ! fromIntegral idx)
-            mainRes <- liftIO $ eval defaultBudget st funInst []
+            mainRes <- liftIO $ eval defaultBudget st inst funInst []
             case mainRes of
                 Just [] -> return ()
                 _ -> throwError "Start function terminated with trap"
         Nothing -> return ()
     where
         isActiveElem :: (Int, ElemSegment) -> Bool
-        isActiveElem (_, ElemSegment FuncRef (Active _ _) _) = True
+        isActiveElem (_, ElemSegment _ (Active _ _) _) = True
         isActiveElem _ = False
 
         checkElem :: (Int, ElemSegment) -> Initialize (Address, Address, Int, [Maybe Address])
@@ -565,7 +562,10 @@ initialize inst Module {elems, datas, start} = do
             VI32 val <- liftIO $ evalConstExpr inst st offset
             let from = fromIntegral val
             refs <- liftIO $ mapM (evalConstExpr inst st) elements
-            let funcs = map (\(RF ref) -> (funcaddrs inst !) . fromIntegral <$> ref) refs
+            let toStoreIndex ref = case ref of
+                    RF idx -> fromIntegral <$> idx
+                    RE idx -> fromIntegral <$> idx
+            let funcs = map toStoreIndex refs
             let idx = tableaddrs inst ! fromIntegral tableIndex
             return (idx, elemaddrs inst ! elemN, from, funcs)
 
@@ -636,9 +636,9 @@ data EvalResult =
     | ReturnFn [Value]
     deriving (Show, Eq)
 
-eval :: Natural -> Store -> FunctionInstance -> [Value] -> IO (Maybe [Value])
-eval 0 _ _ _ = return Nothing
-eval budget store FunctionInstance { funcType, moduleInstance, code = Function { localTypes, body} } args = do
+eval :: Natural -> Store -> ModuleInstance -> FunctionInstance -> [Value] -> IO (Maybe [Value])
+eval 0 _ _ _ _ = return Nothing
+eval budget store inst FunctionInstance { funcType, moduleInstance, code = Function { localTypes, body} } args = do
     case sequence $ zipWith checkValType (params funcType) args of
         Just checkedArgs -> do
             let initialContext = EvalCtx {
@@ -777,7 +777,7 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
             let args = params ft
             case sequence $ zipWith checkValType args $ reverse $ take (length args) $ stack ctx of
                 Just params -> do
-                    res <- eval (budget - 1) store funInst params
+                    res <- eval (budget - 1) store inst funInst params
                     case res of
                         Just res -> return $ Done ctx { stack = reverse res ++ (drop (length args) $ stack ctx) }
                         Nothing -> return Trap
@@ -802,7 +802,7 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
                         return (funcInst, params)
                 case checks of
                     Just (funcInst, params) -> do
-                        res <- eval (budget - 1) store funcInst params
+                        res <- eval (budget - 1) store inst funcInst params
                         case res of
                             Just res -> return $ Done ctx { stack = reverse res ++ (drop (length params) rest) }
                             Nothing -> return Trap
@@ -815,7 +815,7 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
             let r = case v of { RE Nothing -> 1; RF Nothing -> 1; _ -> 0 } in
             return $ Done ctx { stack = VI32 r : rest }
         step ctx@EvalCtx{ stack = st } (RefFunc index) =
-            return $ Done ctx { stack = RF (Just index) : st }
+            return $ Done ctx { stack =  (RF $ Just $ fromIntegral $ funcaddrs inst ! fromIntegral index) : st }
         step ctx@EvalCtx{ stack = (_:rest) } Drop = return $ Done ctx { stack = rest }
         step ctx@EvalCtx{ stack = (VI32 test:val2:val1:rest) } (Select _) =
             if test == 0
@@ -1011,7 +1011,7 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
             let from = fromIntegral i
             let val = case ref of
                     RE extRef -> fromIntegral <$> extRef
-                    RF fnRef -> (funcaddrs moduleInstance !) . fromIntegral <$> fnRef
+                    RF fnRef -> fromIntegral <$> fnRef
                     v -> error "Impossible due to validation"
             els <- readIORef items
             if from + inc > MVector.length els
@@ -1051,7 +1051,7 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
             let dst = fromIntegral offset
             let val = case ref of
                     RE extRef -> fromIntegral <$> extRef
-                    RF fnRef -> (funcaddrs moduleInstance !) . fromIntegral <$> fnRef
+                    RF fnRef -> fromIntegral <$> fnRef
                     v -> error "Impossible due to validation"
             els <- readIORef items
             if dst >= MVector.length els
@@ -1440,15 +1440,15 @@ eval budget store FunctionInstance { funcType, moduleInstance, code = Function {
         step ctx@EvalCtx{ stack = (VI64 v:rest) } (FReinterpretI BS64) =
             return $ Done ctx { stack = VF64 (wordToDouble v) : rest }
         step EvalCtx{ stack } instr = error $ "Error during evaluation of instruction: " ++ show instr ++ ". Stack " ++ show stack
-eval _ _ HostInstance { funcType, hostCode } args = Just <$> hostCode args
+eval _ _ _ HostInstance { funcType, hostCode } args = Just <$> hostCode args
 
-invoke :: Store -> Address -> [Value] -> IO (Maybe [Value])
-invoke st funcIdx = eval defaultBudget st $ funcInstances st ! funcIdx
+invoke :: Store -> ModuleInstance -> Address -> [Value] -> IO (Maybe [Value])
+invoke st inst funcIdx = eval defaultBudget st inst $ funcInstances st ! funcIdx
 
 invokeExport :: Store -> ModuleInstance -> TL.Text -> [Value] -> IO (Maybe [Value])
-invokeExport st ModuleInstance { exports } name args =
+invokeExport st inst@ModuleInstance { exports } name args =
     case Vector.find (\(ExportInstance n _) -> n == name) exports of
-        Just (ExportInstance _ (ExternFunction addr)) -> invoke st addr args
+        Just (ExportInstance _ (ExternFunction addr)) -> invoke st inst addr args
         _ -> error $ "Function with name " ++ show name ++ " was not found in module's exports"
 
 getGlobalValueByName :: Store -> ModuleInstance -> TL.Text -> IO Value

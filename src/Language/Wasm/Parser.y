@@ -703,13 +703,16 @@ memarg8 :: { MemArg }
     : opt(offset) opt(align) {% parseMemArg 8 $1 $2 }
 
 select_type_or_instructions(terminator)
-    : terminator { ($1, Nothing, []) }
-    | '(' select_type_or_instructions1(terminator) { $2 }
+    : '(' select_type_or_instructions1(terminator) { $2 }
+    | instruction_list(terminator) {
+        let (end, instr) = $1 in
+        (end, Nothing, instr)
+    }
 
 select_type_or_instructions1(terminator) 
-    : 'result' list(valtype) ')' mixed_instruction_list(terminator) {
-        let (end, instr) = $4 in
-        (end, Just $2, instr)
+    : 'result' list(valtype) ')' select_type_or_instructions(terminator) {
+        let (end, res, instr) = $4 in
+        (end, Just ($2 ++ fromMaybe [] res), instr)
     }
     | folded_instr_list(terminator) {
         let (end, instr) = $1 in
@@ -1007,7 +1010,7 @@ elem1_active_offset :: { ([Instruction], ElemType, [[Instruction]]) }
 elemlist :: { (ElemType, [[Instruction]]) }
     : 'func' list(index) { (FuncRef, funcIndexToExpr $2) }
     | 'funcref' list(elemexpr) { (FuncRef, $2) }
-    | 'externref' { (ExternRef, []) }
+    | 'externref' list(elemexpr) { (ExternRef, $2) }
     | list(index) { (FuncRef, funcIndexToExpr $1) }
 
 elemexpr :: { [Instruction] }

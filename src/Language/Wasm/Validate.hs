@@ -141,7 +141,7 @@ isArrowMatch (f `Arrow` t) ( f' `Arrow` t') = isEndMatch f f' && isEndMatch t t'
 data Ctx = Ctx {
     types :: [FuncType],
     funcs :: [FuncType],
-    tables :: [TableType],
+    tableTypes :: [TableType],
     elems :: [ElemType],
     datas :: [DataMode],
     mems :: [Limit],
@@ -273,7 +273,7 @@ getInstrType _ (Call fun) = do
     Ctx { funcs } <- ask
     maybeToEither (FunctionIndexOutOfRange fun) $ asArrow <$> funcs !? fun
 getInstrType _ (CallIndirect tableIdx sign) = do
-    Ctx { types, tables } <- ask
+    Ctx { types, tableTypes = tables } <- ask
     if length tables <= fromIntegral tableIdx
     then throwError (TableIndexOutOfRange tableIdx)
     else do
@@ -419,7 +419,7 @@ getInstrType _ (DataDrop dataIdx) = do
     when (length datas <= fromIntegral dataIdx) $ throwError (DataIndexOutOfRange dataIdx)
     return $ empty ==> empty
 getInstrType _ (TableInit tableIdx elemIdx) = do
-    Ctx { tables, elems } <- ask
+    Ctx { tableTypes = tables, elems } <- ask
     when (length tables <= fromIntegral tableIdx) $ throwError (TableIndexOutOfRange tableIdx)
     when (length elems <= fromIntegral elemIdx) $ throwError (ElemIndexOutOfRange elemIdx)
     let TableType _ tableType = tables !! fromIntegral tableIdx
@@ -427,7 +427,7 @@ getInstrType _ (TableInit tableIdx elemIdx) = do
     when (elemType /= tableType) $ throwError (RefTypeMismatch tableType elemType)
     return $ [I32, I32, I32] ==> empty
 getInstrType _ (TableCopy toIdx fromIdx) = do
-    Ctx { tables } <- ask
+    Ctx { tableTypes = tables } <- ask
     let (from, to) = (fromIntegral fromIdx, fromIntegral toIdx)
     when (length tables <= from) $ throwError (TableIndexOutOfRange fromIdx)
     when (length tables <= to) $ throwError (TableIndexOutOfRange toIdx)
@@ -436,26 +436,26 @@ getInstrType _ (TableCopy toIdx fromIdx) = do
     when (fromType /= toType) $ throwError (RefTypeMismatch fromType toType)
     return $ [I32, I32, I32] ==> empty
 getInstrType _ (TableFill tableIdx) = do
-    Ctx { tables } <- ask
+    Ctx { tableTypes = tables } <- ask
     when (length tables <= fromIntegral tableIdx) $ throwError (TableIndexOutOfRange tableIdx)
     let TableType _ tableType = tables !! fromIntegral tableIdx
     return $ [I32, elemTypeToRefType tableType, I32] ==> empty
 getInstrType _ (TableSize tableIdx) = do
-    Ctx { tables } <- ask
+    Ctx { tableTypes = tables } <- ask
     when (length tables <= fromIntegral tableIdx) $ throwError (TableIndexOutOfRange tableIdx)
     return $ empty ==> I32
 getInstrType _ (TableGrow tableIdx) = do
-    Ctx { tables } <- ask
+    Ctx { tableTypes = tables } <- ask
     when (length tables <= fromIntegral tableIdx) $ throwError (TableIndexOutOfRange tableIdx)
     let TableType _ tableType = tables !! fromIntegral tableIdx
     return $ [elemTypeToRefType tableType, I32] ==> I32
 getInstrType _ (TableGet tableIdx) = do
-    Ctx { tables } <- ask
+    Ctx { tableTypes = tables } <- ask
     when (length tables <= fromIntegral tableIdx) $ throwError (TableIndexOutOfRange tableIdx)
     let TableType _ tableType = tables !! fromIntegral tableIdx
     return $ I32 ==> (elemTypeToRefType tableType)
 getInstrType _ (TableSet tableIdx) = do
-    Ctx { tables } <- ask
+    Ctx { tableTypes = tables } <- ask
     when (length tables <= fromIntegral tableIdx) $ throwError (TableIndexOutOfRange tableIdx)
     let TableType _ tableType = tables !! fromIntegral tableIdx
     return $ [I32, elemTypeToRefType tableType] ==> empty
@@ -604,7 +604,7 @@ ctxFromModule locals labels returns m =
     Ctx {
         types,
         funcs = getFuncTypes m,
-        tables = tableImports ++ map (\(Table t) -> t) tables,
+        tableTypes = tableImports ++ map (\(Table t) -> t) tables,
         elems = map elemType elems,
         datas = map dataMode datas,
         mems = memsImports ++ map (\(Memory l) -> l) mems,
@@ -706,8 +706,6 @@ elemsShouldBeValid m@Module { elems, functions, tables, imports } =
     where
         isElemValid :: Ctx -> ElemSegment -> ValidationResult
         isElemValid ctx (ElemSegment elemType mode elements) = do
-            unless (elemType == FuncRef)
-                $ throwError $ RefTypeMismatch FuncRef elemType
             forM_ elements $ \elem -> runChecker ctx $ do
                 arr <- getExpressionType elem
                 isConstExpression elem
@@ -722,6 +720,9 @@ elemsShouldBeValid m@Module { elems, functions, tables, imports } =
                     let tableImports = filter isTableImport imports
                     when (tableIdx >= fromIntegral (length tableImports + length tables)) $ do
                         throwError $ TableIndexOutOfRange tableIdx
+                    let TableType _ tableType = tableTypes ctx !! (fromIntegral tableIdx)
+                    when (tableType /= elemType) $ do
+                        throwError $ RefTypeMismatch elemType tableType
                 _ -> return ()
         
         isValidRef :: ElemType -> Arrow -> Bool
