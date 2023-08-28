@@ -64,6 +64,7 @@ import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TLEncoding
 import qualified Data.Text.Lazy.Read as TLRead
 
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Lazy.Char8 as LBSChar8
 import Data.Maybe (fromMaybe, fromJust, isNothing, catMaybes)
@@ -72,10 +73,10 @@ import Control.Monad (guard, foldM)
 import Control.Monad.Except (throwError)
 
 import Numeric.Natural (Natural)
-import Data.Word (Word32, Word64)
+import Data.Word (Word32, Word64, Word8)
 import Data.Bits ((.|.))
 import Numeric.IEEE (infinity, nan, maxFinite)
-import Language.Wasm.FloatUtils (doubleToFloat)
+import Language.Wasm.FloatUtils (doubleToFloat, floatToWord, doubleToWord)
 import Control.DeepSeq (NFData)
 import GHC.Generics (Generic)
 
@@ -119,6 +120,7 @@ import Language.Wasm.Lexer (
 'i64'                 { Lexeme _ (TKeyword "i64") }
 'f32'                 { Lexeme _ (TKeyword "f32") }
 'f64'                 { Lexeme _ (TKeyword "f64") }
+'v128'                { Lexeme _ (TKeyword "v128") }
 'mut'                 { Lexeme _ (TKeyword "mut") }
 'funcref'             { Lexeme _ (TKeyword "funcref") }
 'externref'           { Lexeme _ (TKeyword "externref") }
@@ -184,6 +186,7 @@ import Language.Wasm.Lexer (
 'i64.const'           { Lexeme _ (TKeyword "i64.const") }
 'f32.const'           { Lexeme _ (TKeyword "f32.const") }
 'f64.const'           { Lexeme _ (TKeyword "f64.const") }
+'v128.const'          { Lexeme _ (TKeyword "v128.const") }
 'i32.clz'             { Lexeme _ (TKeyword "i32.clz") }
 'i32.ctz'             { Lexeme _ (TKeyword "i32.ctz") }
 'i32.popcnt'          { Lexeme _ (TKeyword "i32.popcnt") }
@@ -320,6 +323,12 @@ import Language.Wasm.Lexer (
 'i64.reinterpret_f64' { Lexeme _ (TKeyword "i64.reinterpret_f64") }
 'f32.reinterpret_i32' { Lexeme _ (TKeyword "f32.reinterpret_i32") }
 'f64.reinterpret_i64' { Lexeme _ (TKeyword "f64.reinterpret_i64") }
+'i8x16'               { Lexeme _ (TKeyword "i8x16") }
+'i16x8'               { Lexeme _ (TKeyword "i16x8") }
+'i32x4'               { Lexeme _ (TKeyword "i32x4") }
+'i64x2'               { Lexeme _ (TKeyword "i64x2") }
+'f32x4'               { Lexeme _ (TKeyword "f32x4") }
+'f64x2'               { Lexeme _ (TKeyword "f64x2") }
 'block'               { Lexeme _ (TKeyword "block") }
 'loop'                { Lexeme _ (TKeyword "loop") }
 'if'                  { Lexeme _ (TKeyword "if") }
@@ -385,12 +394,27 @@ valtype :: { ValueType }
     | 'i64' { I64 }
     | 'f32' { F32 }
     | 'f64' { F64 }
+    | 'v128' { V128 }
     | 'funcref' { Func }
     | 'externref' { Extern }
 
 index :: { Index }
     : u32 { Index $1 }
     | ident { Named $1 }
+
+i8 :: { Integer }
+    : int {%
+        if $1 >= -(2^7) && $1 <= 2^8
+        then Right $ fromIntegral $ if $1 >= 0 then $1 else 2^8 + $1
+        else Left ("I8 literal value is out of signed i8 boundaries: " ++ show $1)
+    }
+
+i16 :: { Integer }
+    : int {%
+        if $1 >= -(2^15) && $1 <= 2^16
+        then Right $ fromIntegral $ if $1 >= 0 then $1 else 2^16 + $1
+        else Left ("I16 literal value is out of signed i16 boundaries: " ++ show $1)
+    }
 
 int32 :: { Integer }
     : int {%
@@ -430,6 +454,34 @@ float64 :: { FloatRep }
         else Left "constant out of range"
     }
     | f64 { $1 }
+
+simd_shape :: { SimdShape }
+    : 'i8x16' { I8x16 }
+    | 'i16x8' { I16x8 }
+    | 'i32x4' { I32x4 }
+    | 'i64x2' { I64x2 }
+    | 'f32x4' { F32x4 }
+    | 'f64x2' { F64x2 }
+
+v128_const :: { V128Rep }
+    : 'i8x16' i8 i8 i8 i8 i8 i8 i8 i8 i8 i8 i8 i8 i8 i8 i8 i8 {
+        I8x16Const [$2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17]
+    }
+    | 'i16x8' i16 i16 i16 i16 i16 i16 i16 i16 {
+        I16x8Const [$2, $3, $4, $5, $6, $7, $8, $9]
+    }
+    | 'i32x4' int32 int32 int32 int32 {
+        I32x4Const [$2, $3, $4, $5]
+    }
+    | 'i64x2' int64 int64 {
+        I64x2Const [$2, $3]
+    }
+    | 'f32x4' float32 float32 float32 float32 {
+        F32x4Const [$2, $3, $4, $5]
+    }
+    | 'f64x2' float64 float64 {
+        F64x2Const [$2, $3]
+    }
 
 plaininstr :: { PlainInstr }
     -- control instructions
@@ -500,6 +552,7 @@ plaininstr :: { PlainInstr }
     | 'i64.const' int64              { I64Const $2 }
     | 'f32.const' float32            { F32Const $2 }
     | 'f64.const' float64            { F64Const $2 }
+    | 'v128.const' v128_const        { V128Const $2 }
     | 'i32.clz'                      { IUnOp BS32 IClz }
     | 'i32.ctz'                      { IUnOp BS32 ICtz }
     | 'i32.popcnt'                   { IUnOp BS32 IPopcnt }
@@ -1232,6 +1285,17 @@ type MemoryIndex = Index
 type ElemIndex = Index
 type DataIndex = Index
 
+data SimdShape = I8x16 | I16x8 | I32x4 | I64x2 | F32x4 | F64x2 deriving (Show, Eq)
+
+data V128Rep =
+    I8x16Const [Integer]
+    | I16x8Const [Integer]
+    | I32x4Const [Integer]
+    | I64x2Const [Integer]
+    | F32x4Const [FloatRep]
+    | F64x2Const [FloatRep]
+    deriving (Show, Eq)
+
 data PlainInstr =
     -- Control instructions
     Unreachable
@@ -1300,6 +1364,7 @@ data PlainInstr =
     | I64Const Integer
     | F32Const FloatRep
     | F64Const FloatRep
+    | V128Const V128Rep
     | IUnOp BitSize IUnOp
     | IBinOp BitSize IBinOp
     | I32Eqz
@@ -1527,11 +1592,44 @@ data FunCtx = FunCtx {
     ctxParams :: [ParamType]
 } deriving (Eq, Show)
 
+unpackWord32 :: Word32 -> [Word8]
+unpackWord32 w = [
+    fromIntegral $ w `rem` 0x100,
+    fromIntegral $ w `rem` 0x10000 `div` 0x100,
+    fromIntegral $ w `rem` 0x1000000 `div` 0x10000,
+    fromIntegral $ w `rem` 0x100000000 `div` 0x1000000]
+
+unpackWord64 :: Word64 -> [Word8]
+unpackWord64 w = [
+    fromIntegral $ w `rem` 0x100,
+    fromIntegral $ w `rem` 0x10000 `div` 0x100,
+    fromIntegral $ w `rem` 0x1000000 `div` 0x10000,
+    fromIntegral $ w `rem` 0x100000000 `div` 0x1000000,
+    fromIntegral $ w `rem` 0x10000000000 `div` 0x100000000,
+    fromIntegral $ w `rem` 0x1000000000000 `div` 0x10000000000,
+    fromIntegral $ w `rem` 0x100000000000000 `div` 0x1000000000000,
+    fromIntegral $ w `rem` 0x10000000000000000 `div` 0x100000000000000]
+
+v128RepToBytes :: V128Rep -> Either String BS.ByteString
+v128RepToBytes (I8x16Const bytes) = return $ BS.pack $ fromIntegral <$> bytes
+v128RepToBytes (I16x8Const words) =
+    let asWord8 w = [fromIntegral $ w `rem` 0x100, fromIntegral $ w `rem` 0x10000 `div` 0x100] in
+    return $ BS.pack $ concat $ asWord8 <$> words
+v128RepToBytes (I32x4Const dwords) =
+    return $ BS.pack $ concat $ unpackWord32 . integerToWord32 <$> dwords
+v128RepToBytes (I64x2Const qwords) =
+    return $ BS.pack $ concat $ unpackWord64 . integerToWord64 <$> qwords
+v128RepToBytes (F32x4Const floats) =
+    BS.pack . concat <$> mapM (fmap (unpackWord32 . floatToWord) . asFloat) floats
+v128RepToBytes (F64x2Const doubles) =
+    BS.pack . concat <$> mapM (fmap (unpackWord64 . doubleToWord) . asDouble) doubles
+
 constInstructionToValue :: Instruction -> Either String (S.Instruction Natural)
 constInstructionToValue (PlainInstr (I32Const v)) = return $ S.I32Const $ integerToWord32 v
 constInstructionToValue (PlainInstr (F32Const v)) = S.F32Const <$> asFloat v
 constInstructionToValue (PlainInstr (I64Const v)) = return $ S.I64Const $ integerToWord64 v
 constInstructionToValue (PlainInstr (F64Const v)) = S.F64Const <$> asDouble v
+constInstructionToValue (PlainInstr (V128Const v)) = S.V128Const <$> v128RepToBytes v
 constInstructionToValue (PlainInstr (RefNull et)) = return $ S.RefNull et
 constInstructionToValue (PlainInstr (RefExtern n)) = return $ S.RefExtern n
 constInstructionToValue _ = Left "Only const instructions supported as arguments for actions"
@@ -1835,6 +1933,7 @@ desugarize fields = do
         synInstrToStruct _ (PlainInstr (F64Const (NanRep Canonical))) =
             Left "canonical nan constant allowed only in script"
         synInstrToStruct _ (PlainInstr (F64Const rep)) = S.F64Const <$> asDouble rep
+        synInstrToStruct _ (PlainInstr (V128Const rep)) = S.V128Const <$> v128RepToBytes rep
         synInstrToStruct _ (PlainInstr (IUnOp sz op)) = return $ S.IUnOp sz op
         synInstrToStruct _ (PlainInstr (IBinOp sz op)) = return $ S.IBinOp sz op
         synInstrToStruct _ (PlainInstr I32Eqz) = return $ S.I32Eqz

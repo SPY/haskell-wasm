@@ -53,12 +53,13 @@ module Language.Wasm.Structure (
 
 import Numeric.Natural (Natural)
 import Data.Word (Word32, Word64)
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Text.Lazy as TL
 import Control.DeepSeq (NFData)
 import GHC.Generics (Generic)
 
-data BitSize = BS32 | BS64 deriving (Show, Eq, Generic, NFData)
+data BitSize = BS32 | BS64 | BS128 deriving (Show, Eq, Generic, NFData)
 
 data IUnOp =
     IClz
@@ -112,6 +113,7 @@ data ValueType =
     | I64
     | F32
     | F64
+    | V128
     | Func
     | Extern
     deriving (Show, Eq, Generic, NFData)
@@ -198,6 +200,7 @@ data Instruction index =
     | I64Const Word64
     | F32Const Float
     | F64Const Double
+    | V128Const BS.ByteString
     | IUnOp BitSize IUnOp
     | IBinOp BitSize IBinOp
     | I32Eqz
