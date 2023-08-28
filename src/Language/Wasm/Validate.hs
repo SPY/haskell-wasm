@@ -467,10 +467,12 @@ getInstrType _ (I32Const _) = return $ empty ==> I32
 getInstrType _ (I64Const _) = return $ empty ==> I64
 getInstrType _ (F32Const _) = return $ empty ==> F32
 getInstrType _ (F64Const _) = return $ empty ==> F64
+getInstrType _ (V128Const _) = return $ empty ==> V128
 getInstrType _ (IUnOp BS32 _) = return $ I32 ==> I32
 getInstrType _ (IUnOp BS64 _) = return $ I64 ==> I64
 getInstrType _ (IBinOp BS32 _) = return $ [I32, I32] ==> I32
 getInstrType _ (IBinOp BS64 _) = return $ [I64, I64] ==> I64
+getInstrType _ (IBinOp (BS128 _) _) = return $ [V128, V128] ==> V128
 getInstrType _ I32Eqz = return $ I32 ==> I32
 getInstrType _ I64Eqz = return $ I64 ==> I32
 getInstrType _ (IRelOp BS32 _) = return $ [I32, I32] ==> I32
@@ -575,6 +577,7 @@ isConstExpression ((I32Const _):rest) = isConstExpression rest
 isConstExpression ((I64Const _):rest) = isConstExpression rest
 isConstExpression ((F32Const _):rest) = isConstExpression rest
 isConstExpression ((F64Const _):rest) = isConstExpression rest
+isConstExpression ((V128Const _):rest) = isConstExpression rest
 isConstExpression ((RefNull _):rest) = isConstExpression rest
 isConstExpression ((RefFunc _):rest) = isConstExpression rest
 isConstExpression ((GetGlobal idx):rest) = do

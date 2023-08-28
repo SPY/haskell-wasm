@@ -11,6 +11,7 @@ import qualified Data.Text.Lazy.Encoding as TLEncoding
 import qualified Control.Monad.State as State
 import Control.Monad.IO.Class (liftIO)
 import Numeric.IEEE (identicalIEEE)
+import qualified Data.Primitive.ByteArray as ByteArray
 import qualified Control.DeepSeq as DeepSeq
 import Data.Maybe (fromJust, isNothing)
 import Debug.Trace (trace)
@@ -124,6 +125,7 @@ runScript onAssertFail script = do
         asArg [Struct.F32Const v] = Interpreter.VF32 v
         asArg [Struct.I64Const v] = Interpreter.VI64 v
         asArg [Struct.F64Const v] = Interpreter.VF64 v
+        asArg [Struct.V128Const v] = Interpreter.VV128 v
         asArg [Struct.RefNull Struct.FuncRef] = Interpreter.RF Nothing
         asArg [Struct.RefNull Struct.ExternRef] = Interpreter.RE Nothing
         asArg [Struct.RefExtern v] = Interpreter.RE (Just v)
@@ -144,6 +146,7 @@ runScript onAssertFail script = do
         isValueEqual (Interpreter.VI64 v1) (Interpreter.VI64 v2) = v1 == v2
         isValueEqual (Interpreter.VF32 v1) (Interpreter.VF32 v2) = (isNaN v1 && isNaN v2) || identicalIEEE v1 v2
         isValueEqual (Interpreter.VF64 v1) (Interpreter.VF64 v2) = (isNaN v1 && isNaN v2) || identicalIEEE v1 v2
+        isValueEqual (Interpreter.VV128 a) (Interpreter.VV128 b) = ByteArray.compareByteArrays a 0 b 0 16 == EQ
         isValueEqual (Interpreter.RF f1) (Interpreter.RF f2) = f1 == f2
         isValueEqual (Interpreter.RE e1) (Interpreter.RE e2) = e1 == e2
         isValueEqual _ _ = False

@@ -33,6 +33,7 @@ module Language.Wasm.Structure (
     FuncType(..),
     ValueType(..),
     BlockType(..),
+    SimdShape(..),
     ParamsType,
     ResultType,
     LocalsType,
@@ -53,13 +54,15 @@ module Language.Wasm.Structure (
 
 import Numeric.Natural (Natural)
 import Data.Word (Word32, Word64)
-import qualified Data.ByteString as BS
+import qualified Data.Primitive.ByteArray as ByteArray
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Text.Lazy as TL
 import Control.DeepSeq (NFData)
 import GHC.Generics (Generic)
 
-data BitSize = BS32 | BS64 | BS128 deriving (Show, Eq, Generic, NFData)
+data SimdShape = I8x16 | I16x8 | I32x4 | I64x2 | F32x4 | F64x2 | I128x1 deriving (Show, Eq, Generic, NFData)
+
+data BitSize = BS32 | BS64 | BS128 SimdShape deriving (Show, Eq, Generic, NFData)
 
 data IUnOp =
     IClz
@@ -200,7 +203,7 @@ data Instruction index =
     | I64Const Word64
     | F32Const Float
     | F64Const Double
-    | V128Const BS.ByteString
+    | V128Const ByteArray.ByteArray
     | IUnOp BitSize IUnOp
     | IBinOp BitSize IBinOp
     | I32Eqz

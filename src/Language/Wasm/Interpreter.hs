@@ -78,9 +78,11 @@ data Value =
     | VI64 Word64
     | VF32 Float
     | VF64 Double
+    | VV128 ByteArray.ByteArray
     | RF (Maybe Natural)
     | RE (Maybe Natural)
     deriving (Eq, Show)
+
 
 asInt32 :: Word32 -> Int32
 asInt32 w =
@@ -467,6 +469,7 @@ evalConstExpr _ _ [I32Const v] = return $ VI32 v
 evalConstExpr _ _ [I64Const v] = return $ VI64 v
 evalConstExpr _ _ [F32Const v] = return $ VF32 v
 evalConstExpr _ _ [F64Const v] = return $ VF64 v
+evalConstExpr _ _ [V128Const v] = return $ VV128 v
 evalConstExpr _ _ [RefNull FuncRef] = return $ RF Nothing
 evalConstExpr _ _ [RefNull ExternRef] = return $ RE Nothing
 evalConstExpr inst _ [RefFunc idx] = return $ RF $ Just $ fromIntegral $ funcaddrs inst ! fromIntegral idx
@@ -636,6 +639,21 @@ data EvalResult =
     | ReturnFn [Value]
     deriving (Show, Eq)
 
+lanewise :: (Primitive.Prim i) => SimdShape -> ByteArray.ByteArray -> ByteArray.ByteArray
+    -> (i -> i -> i) -> ByteArray.ByteArray
+lanewise shape a b op =
+    let count = case shape of
+            I8x16 -> 16
+            I16x8 -> 8
+            I32x4 -> 4
+            I64x2 -> 2
+            F32x4 -> 4
+            F64x2 -> 2
+    in
+    let proto = [0..count-1] in
+    ByteArray.byteArrayFromListN count
+        $ zipWith op (ByteArray.indexByteArray a <$> proto) (ByteArray.indexByteArray b <$> proto)
+
 eval :: Natural -> Store -> ModuleInstance -> FunctionInstance -> [Value] -> IO (Maybe [Value])
 eval 0 _ _ _ _ = return Nothing
 eval budget store inst FunctionInstance { funcType, moduleInstance, code = Function { localTypes, body} } args = do
@@ -660,6 +678,7 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
         checkValType I64 (VI64 v) = Just $ VI64 v
         checkValType F32 (VF32 v) = Just $ VF32 v
         checkValType F64 (VF64 v) = Just $ VF64 v
+        checkValType V128 (VV128 v) = Just $ VV128 v
         checkValType Func (RF v)  = Just $ RF v
         checkValType Extern (RE v) = Just $ RE v
         checkValType _   _        = Nothing
@@ -1079,6 +1098,7 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
         step ctx (I64Const v) = return $ Done ctx { stack = VI64 v : stack ctx }
         step ctx (F32Const v) = return $ Done ctx { stack = VF32 v : stack ctx }
         step ctx (F64Const v) = return $ Done ctx { stack = VF64 v : stack ctx }
+        step ctx (V128Const v) = return $ Done ctx { stack = VV128 v : stack ctx }
         step ctx@EvalCtx{ stack = (VI32 v2:VI32 v1:rest) } (IBinOp BS32 IAdd) =
             return $ Done ctx { stack = VI32 (v1 + v2) : rest }
         step ctx@EvalCtx{ stack = (VI32 v2:VI32 v1:rest) } (IBinOp BS32 ISub) =
@@ -1233,6 +1253,15 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
             let half = v .&. 0xFFFFFFFF in
             let r = if half >= 0x80000000 then asWord64 (fromIntegral half - 0x100000000) else half in
             return $ Done ctx { stack = VI64 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IBinOp (BS128 shape) IAdd) =
+            let r = case shape of
+                    I8x16 -> lanewise @Word8 shape v1 v2 (+)
+                    I16x8 -> lanewise @Word16 shape v1 v2 (+)
+                    I32x4 -> lanewise @Word32 shape v1 v2 (+)
+                    I64x2 -> lanewise @Word64 shape v1 v2 (+)
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (FUnOp BS32 FAbs) =
             return $ Done ctx { stack = VF32 (abs v) : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (FUnOp BS32 FNeg) =
