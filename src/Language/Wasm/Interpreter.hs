@@ -1489,6 +1489,12 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
             return $ Done ctx { stack = VF32 (wordToFloat v) : rest }
         step ctx@EvalCtx{ stack = (VI64 v:rest) } (FReinterpretI BS64) =
             return $ Done ctx { stack = VF64 (wordToDouble v) : rest }
+        -- SIMD
+        step ctx@EvalCtx{ stack = (VV128 s:VV128 a:rest) } I8x16Swizzle =
+            let get i = if i > 15 then 0 else ByteArray.indexByteArray @Word8 a $ fromIntegral i in
+            let lanes = get . ByteArray.indexByteArray @Word8 s <$> [0..15] in
+            let val = ByteArray.byteArrayFromListN @Word8 16 lanes in
+            return $ Done ctx { stack = VV128 val : rest }
         step ctx@EvalCtx{ stack } (V128Splat shape) = do
             let (val, rest) = case shape of
                     I8x16 ->
@@ -1510,6 +1516,29 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
                         let (VF64 d:rest) = stack in
                         (ByteArray.byteArrayFromListN @Word64 2 [doubleToWord d, doubleToWord d], rest)
             return $ Done ctx { stack = VV128 val : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (V128ExtractLane shape idx signed) = do
+            let val = case shape of
+                    I8x16 ->
+                        let s = if signed
+                                then \i -> if i >= 0x80 then -1 * fromIntegral (0xFF - i + 1) else fromIntegral i
+                                else fromIntegral
+                        in
+                        VI32 $ asWord32 $ s $ ByteArray.indexByteArray @Word8 v (fromIntegral idx)
+                    I16x8 ->
+                        let s = if signed
+                                then \i -> if i >= 0x8000 then -1 * fromIntegral (0xFFFF - i + 1) else fromIntegral i
+                                else fromIntegral
+                        in
+                        VI32 $ asWord32 $ s $ ByteArray.indexByteArray @Word16 v (fromIntegral idx)
+                    I32x4 ->
+                        VI32 $ ByteArray.indexByteArray @Word32 v (fromIntegral idx)
+                    I64x2 ->
+                        VI64 $ ByteArray.indexByteArray @Word64 v (fromIntegral idx)
+                    F32x4 ->
+                        VF32 $ wordToFloat $ ByteArray.indexByteArray @Word32 v (fromIntegral idx)
+                    F64x2 ->
+                        VF64 $ wordToDouble $ ByteArray.indexByteArray @Word64 v (fromIntegral idx)
+            return $ Done ctx { stack = val : rest }
         step EvalCtx{ stack } instr = error $ "Error during evaluation of instruction: " ++ show instr ++ ". Stack " ++ show stack
 eval _ _ _ HostInstance { funcType, hostCode } args = Just <$> hostCode args
 

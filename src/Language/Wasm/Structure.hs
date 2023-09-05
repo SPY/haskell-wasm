@@ -229,6 +229,8 @@ data Instruction index =
     | FReinterpretI BitSize
     -- Vector instructions
     | V128Splat SimdShape
+    | V128ExtractLane SimdShape index {- signed -} Bool
+    | I8x16Swizzle
     deriving (Show, Eq, Generic, NFData)
 
 type Expression = [Instruction Natural]

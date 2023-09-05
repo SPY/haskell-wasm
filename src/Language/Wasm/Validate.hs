@@ -522,16 +522,20 @@ getInstrType _ (IReinterpretF BS32) = return $ F32 ==> I32
 getInstrType _ (IReinterpretF BS64) = return $ F64 ==> I64
 getInstrType _ (FReinterpretI BS32) = return $ I32 ==> F32
 getInstrType _ (FReinterpretI BS64) = return $ I64 ==> F64
-getInstrType _ (V128Splat shape) = do
-    let vt = case shape of
-            I8x16 -> I32
-            I16x8 -> I32
-            I32x4 -> I32
-            I64x2 -> I64
-            F32x4 -> F32
-            F64x2 -> F64
-    return $ vt ==> V128
+getInstrType _ I8x16Swizzle =
+    return $ [V128, V128] ==> V128
+getInstrType _ (V128Splat shape) =
+    return $ getShapeElemType shape ==> V128
+getInstrType _ (V128ExtractLane shape _ _) =
+    return $ V128 ==> getShapeElemType shape
 
+getShapeElemType :: SimdShape -> ValueType
+getShapeElemType I8x16 = I32
+getShapeElemType I16x8 = I32
+getShapeElemType I32x4 = I32
+getShapeElemType I64x2 = I64
+getShapeElemType F32x4 = F32
+getShapeElemType F64x2 = F64
 
 replace :: (Eq a) => a -> a -> [a] -> [a]
 replace _ _ [] = []

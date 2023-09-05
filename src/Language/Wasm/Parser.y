@@ -352,12 +352,21 @@ import Language.Wasm.Lexer (
 'start'               { Lexeme _ (TKeyword "start") }
 'module'              { Lexeme _ (TKeyword "module") }
 -- simd
+'i8x16.swizzle'       { Lexeme _ (TKeyword "i8x16.swizzle") }
 'i8x16.splat'         { Lexeme _ (TKeyword "i8x16.splat") }
 'i16x8.splat'         { Lexeme _ (TKeyword "i16x8.splat") }
 'i32x4.splat'         { Lexeme _ (TKeyword "i32x4.splat") }
 'i64x2.splat'         { Lexeme _ (TKeyword "i64x2.splat") }
 'f32x4.splat'         { Lexeme _ (TKeyword "f32x4.splat") }
 'f64x2.splat'         { Lexeme _ (TKeyword "f64x2.splat") }
+'i8x16.extract_lane_u'{ Lexeme _ (TKeyword "i8x16.extract_lane_u") }
+'i16x8.extract_lane_u'{ Lexeme _ (TKeyword "i16x8.extract_lane_u") }
+'i8x16.extract_lane_s'{ Lexeme _ (TKeyword "i8x16.extract_lane_s") }
+'i16x8.extract_lane_s'{ Lexeme _ (TKeyword "i16x8.extract_lane_s") }
+'i32x4.extract_lane'  { Lexeme _ (TKeyword "i32x4.extract_lane") }
+'i64x2.extract_lane'  { Lexeme _ (TKeyword "i64x2.extract_lane") }
+'f32x4.extract_lane'  { Lexeme _ (TKeyword "f32x4.extract_lane") }
+'f64x2.extract_lane'  { Lexeme _ (TKeyword "f64x2.extract_lane") }
 'i32x4.add'           { Lexeme _ (TKeyword "i32x4.add") }
 'i64x2.add'           { Lexeme _ (TKeyword "i64x2.add") }
 -- script extension
@@ -704,12 +713,21 @@ plaininstr :: { PlainInstr }
     | 'f32.reinterpret_i32'          { FReinterpretI BS32 }
     | 'f64.reinterpret_i64'          { FReinterpretI BS64 }
     -- simd
+    | 'i8x16.swizzle'                { I8x16Swizzle }
     | 'i8x16.splat'                  { V128Splat I8x16 }
     | 'i16x8.splat'                  { V128Splat I16x8 }
     | 'i32x4.splat'                  { V128Splat I32x4 }
     | 'i64x2.splat'                  { V128Splat I64x2 }
     | 'f32x4.splat'                  { V128Splat F32x4 }
     | 'f64x2.splat'                  { V128Splat F64x2 }
+    | 'i8x16.extract_lane_s' u32     { V128ExtractLane I8x16 $2 True }
+    | 'i16x8.extract_lane_s' u32     { V128ExtractLane I16x8 $2 True }
+    | 'i8x16.extract_lane_u' u32     { V128ExtractLane I8x16 $2 False }
+    | 'i16x8.extract_lane_u' u32     { V128ExtractLane I16x8 $2 False }
+    | 'i32x4.extract_lane' u32       { V128ExtractLane I32x4 $2 False }
+    | 'i64x2.extract_lane' u32       { V128ExtractLane I64x2 $2 False }
+    | 'f32x4.extract_lane' u32       { V128ExtractLane F32x4 $2 False }
+    | 'f64x2.extract_lane' u32       { V128ExtractLane F64x2 $2 False }
     | 'i32x4.add'                    { IBinOp (BS128 I32x4) IAdd }
     | 'i64x2.add'                    { IBinOp (BS128 I64x2) IAdd }
 
@@ -1414,6 +1432,8 @@ data PlainInstr =
     | FReinterpretI BitSize
     -- Vector instructions
     | V128Splat SimdShape
+    | V128ExtractLane SimdShape Natural Bool
+    | I8x16Swizzle
     deriving (Show, Eq)
 
 data TypeDef = TypeDef (Maybe Ident) FuncType deriving (Show, Eq)
@@ -1968,6 +1988,8 @@ desugarize fields = do
         synInstrToStruct _ (PlainInstr (IReinterpretF sz)) = return $ S.IReinterpretF sz
         synInstrToStruct _ (PlainInstr (FReinterpretI sz)) = return $ S.FReinterpretI sz
         synInstrToStruct _ (PlainInstr (V128Splat shape)) = return $ S.V128Splat shape
+        synInstrToStruct _ (PlainInstr (V128ExtractLane shape idx sign)) = return $ S.V128ExtractLane shape idx sign
+        synInstrToStruct _ (PlainInstr I8x16Swizzle) = return $ S.I8x16Swizzle
         synInstrToStruct ctx@FunCtx { ctxMod = Module { types } } BlockInstr {label, blockType, body} = do
             let ctx' = ctx { ctxLabels = label : ctxLabels ctx }
             bt <- case blockType of
