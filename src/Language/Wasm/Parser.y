@@ -352,6 +352,12 @@ import Language.Wasm.Lexer (
 'start'               { Lexeme _ (TKeyword "start") }
 'module'              { Lexeme _ (TKeyword "module") }
 -- simd
+'i8x16.splat'         { Lexeme _ (TKeyword "i8x16.splat") }
+'i16x8.splat'         { Lexeme _ (TKeyword "i16x8.splat") }
+'i32x4.splat'         { Lexeme _ (TKeyword "i32x4.splat") }
+'i64x2.splat'         { Lexeme _ (TKeyword "i64x2.splat") }
+'f32x4.splat'         { Lexeme _ (TKeyword "f32x4.splat") }
+'f64x2.splat'         { Lexeme _ (TKeyword "f64x2.splat") }
 'i32x4.add'           { Lexeme _ (TKeyword "i32x4.add") }
 'i64x2.add'           { Lexeme _ (TKeyword "i64x2.add") }
 -- script extension
@@ -698,6 +704,12 @@ plaininstr :: { PlainInstr }
     | 'f32.reinterpret_i32'          { FReinterpretI BS32 }
     | 'f64.reinterpret_i64'          { FReinterpretI BS64 }
     -- simd
+    | 'i8x16.splat'                  { V128Splat I8x16 }
+    | 'i16x8.splat'                  { V128Splat I16x8 }
+    | 'i32x4.splat'                  { V128Splat I32x4 }
+    | 'i64x2.splat'                  { V128Splat I64x2 }
+    | 'f32x4.splat'                  { V128Splat F32x4 }
+    | 'f64x2.splat'                  { V128Splat F64x2 }
     | 'i32x4.add'                    { IBinOp (BS128 I32x4) IAdd }
     | 'i64x2.add'                    { IBinOp (BS128 I64x2) IAdd }
 
@@ -1400,6 +1412,8 @@ data PlainInstr =
     | F64PromoteF32
     | IReinterpretF BitSize
     | FReinterpretI BitSize
+    -- Vector instructions
+    | V128Splat SimdShape
     deriving (Show, Eq)
 
 data TypeDef = TypeDef (Maybe Ident) FuncType deriving (Show, Eq)
@@ -1953,6 +1967,7 @@ desugarize fields = do
         synInstrToStruct _ (PlainInstr F64PromoteF32) = return $ S.F64PromoteF32
         synInstrToStruct _ (PlainInstr (IReinterpretF sz)) = return $ S.IReinterpretF sz
         synInstrToStruct _ (PlainInstr (FReinterpretI sz)) = return $ S.FReinterpretI sz
+        synInstrToStruct _ (PlainInstr (V128Splat shape)) = return $ S.V128Splat shape
         synInstrToStruct ctx@FunCtx { ctxMod = Module { types } } BlockInstr {label, blockType, body} = do
             let ctx' = ctx { ctxLabels = label : ctxLabels ctx }
             bt <- case blockType of

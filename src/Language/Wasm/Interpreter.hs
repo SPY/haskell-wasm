@@ -688,6 +688,7 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
         initLocal I64 = VI64 0
         initLocal F32 = VF32 0
         initLocal F64 = VF64 0
+        initLocal V128 = VV128 $ ByteArray.byteArrayFromListN @Word64 2 [0, 0]
 
         go :: EvalCtx -> Expression -> IO EvalResult
         go ctx [] = return $ Done ctx
@@ -720,7 +721,7 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
         makeStoreInstr ctx@EvalCtx{ stack = (VI32 va:rest) } offset byteWidth v = do
             let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
             memory <- readIORef memoryRef
-            let addr = fromIntegral $ va + fromIntegral offset
+            let addr = fromIntegral va + fromIntegral offset
             let writeByte idx = do
                     let byte = fromIntegral $ v `shiftR` (idx * 8) .&. 0xFF
                     ByteArray.writeByteArray @Word8 memory (addr + idx) byte
@@ -919,7 +920,7 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
         step ctx@EvalCtx{ stack = (VV128 v:VI32 va:rest) } (V128Store MemArg { offset }) = do
             let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
             memory <- readIORef memoryRef
-            let addr = fromIntegral $ va + fromIntegral offset
+            let addr = fromIntegral va + fromIntegral offset
             len <- ByteArray.getSizeofMutableByteArray memory
             if addr + 16 > len
             then return Trap
@@ -1488,6 +1489,27 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
             return $ Done ctx { stack = VF32 (wordToFloat v) : rest }
         step ctx@EvalCtx{ stack = (VI64 v:rest) } (FReinterpretI BS64) =
             return $ Done ctx { stack = VF64 (wordToDouble v) : rest }
+        step ctx@EvalCtx{ stack } (V128Splat shape) = do
+            let (val, rest) = case shape of
+                    I8x16 ->
+                        let (VI32 v:rest) = stack in
+                        (ByteArray.byteArrayFromListN @Word8 16 $ take 16 $ repeat $ fromIntegral $ asInt32 v, rest)
+                    I16x8 ->
+                        let (VI32 v:rest) = stack in
+                        (ByteArray.byteArrayFromListN @Word16 8 $ take 8 $ repeat $ fromIntegral $ asInt32 v, rest)
+                    I32x4 ->
+                        let (VI32 v:rest) = stack in
+                        (ByteArray.byteArrayFromListN @Word32 4 $ take 4 $ repeat v, rest)
+                    I64x2 ->
+                        let (VI64 v:rest) = stack in
+                        (ByteArray.byteArrayFromListN @Word64 2 [v, v], rest)
+                    F32x4 ->
+                        let (VF32 f:rest) = stack in
+                        (ByteArray.byteArrayFromListN @Word32 4 $ take 4 $ repeat $ floatToWord f, rest)
+                    F64x2 ->
+                        let (VF64 d:rest) = stack in
+                        (ByteArray.byteArrayFromListN @Word64 2 [doubleToWord d, doubleToWord d], rest)
+            return $ Done ctx { stack = VV128 val : rest }
         step EvalCtx{ stack } instr = error $ "Error during evaluation of instruction: " ++ show instr ++ ". Stack " ++ show stack
 eval _ _ _ HostInstance { funcType, hostCode } args = Just <$> hostCode args
 

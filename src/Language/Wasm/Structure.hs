@@ -227,6 +227,8 @@ data Instruction index =
     | F64PromoteF32
     | IReinterpretF BitSize
     | FReinterpretI BitSize
+    -- Vector instructions
+    | V128Splat SimdShape
     deriving (Show, Eq, Generic, NFData)
 
 type Expression = [Instruction Natural]
