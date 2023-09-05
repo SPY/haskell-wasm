@@ -1,6 +1,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Language.Wasm.Binary (
     dumpModule,
@@ -16,6 +17,7 @@ import Data.Bits
 import Data.Word (Word8, Word32, Word64)
 import Data.Int (Int8, Int32, Int64)
 import Data.Serialize
+import Data.Primitive.ByteArray as BA
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Text.Lazy as TL
@@ -221,6 +223,7 @@ instance Serialize ValueType where
     put I64 = putWord8 0x7E
     put F32 = putWord8 0x7D
     put F64 = putWord8 0x7C
+    put V128 = putWord8 0x7B
 
     get = do
         op <- getWord8
@@ -229,6 +232,7 @@ instance Serialize ValueType where
             0x7E -> return I64
             0x7D -> return F32
             0x7C -> return F64
+            0x7B -> return V128
             _ -> fail "unexpected byte in value type position"
 
 instance Serialize FuncType where
@@ -458,6 +462,10 @@ instance Serialize (Instruction Natural) where
     put (I64Const val) = putWord8 0x42 >> putSLEB128 (asInt64 val)
     put (F32Const val) = putWord8 0x43 >> putFloat32le val
     put (F64Const val) = putWord8 0x44 >> putFloat64le val
+    put (V128Const val) = do
+        putWord8 0xFD
+        putWord8 12
+        put $ BA.foldrByteArray @Word8 (:) [] val
     put I32Eqz = putWord8 0x45
     put (IRelOp BS32 IEq) = putWord8 0x46
     put (IRelOp BS32 INe) = putWord8 0x47
@@ -803,6 +811,13 @@ instance Serialize (Instruction Natural) where
                     0x06 -> return $ ITruncSatFS BS64 BS64
                     0x07 -> return $ ITruncSatFU BS64 BS64
                     _ -> fail "Unknown byte value after misc instruction byte"
+            0xFD -> do -- simd
+                ext <- getULEB128 32
+                case (ext :: Word32) of
+                    0x0C -> do
+                        bytes <- getByteString 16
+                        return $ V128Const $ BA.byteArrayFromListN 16 $ BS.unpack bytes
+                    _ -> fail "Unknown byte value after simd instruction byte"
             byte -> fail $ "Unknown byte value in place of instruction opcode: " ++ (show byte)
 
 putExpression :: Expression -> Put
