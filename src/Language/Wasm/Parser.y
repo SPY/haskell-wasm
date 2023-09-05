@@ -150,6 +150,7 @@ import Language.Wasm.Lexer (
 'i64.load'            { Lexeme _ (TKeyword "i64.load") }
 'f32.load'            { Lexeme _ (TKeyword "f32.load") }
 'f64.load'            { Lexeme _ (TKeyword "f64.load") }
+'v128.load'           { Lexeme _ (TKeyword "v128.load") }
 'i32.load8_s'         { Lexeme _ (TKeyword "i32.load8_s") }
 'i32.load8_u'         { Lexeme _ (TKeyword "i32.load8_u") }
 'i32.load16_s'        { Lexeme _ (TKeyword "i32.load16_s") }
@@ -164,6 +165,7 @@ import Language.Wasm.Lexer (
 'i64.store'           { Lexeme _ (TKeyword "i64.store") }
 'f32.store'           { Lexeme _ (TKeyword "f32.store") }
 'f64.store'           { Lexeme _ (TKeyword "f64.store") }
+'v128.store'          { Lexeme _ (TKeyword "v128.store") }
 'i32.store8'          { Lexeme _ (TKeyword "i32.store8") }
 'i32.store16'         { Lexeme _ (TKeyword "i32.store16") }
 'i64.store8'          { Lexeme _ (TKeyword "i64.store8") }
@@ -513,6 +515,7 @@ plaininstr :: { PlainInstr }
     | 'i64.load' memarg8             { I64Load $2 }
     | 'f32.load' memarg4             { F32Load $2 }
     | 'f64.load' memarg8             { F64Load $2 }
+    | 'v128.load' memarg16           { V128Load $2 }
     | 'i32.load8_s' memarg1          { I32Load8S $2 }
     | 'i32.load8_u' memarg1          { I32Load8U $2 }
     | 'i32.load16_s' memarg2         { I32Load16S $2 }
@@ -527,6 +530,7 @@ plaininstr :: { PlainInstr }
     | 'i64.store' memarg8            { I64Store $2 }
     | 'f32.store' memarg4            { F32Store $2 }
     | 'f64.store' memarg8            { F64Store $2 }
+    | 'v128.store' memarg16          { V128Store $2 }
     | 'i32.store8' memarg1           { I32Store8 $2 }
     | 'i32.store16' memarg2          { I32Store16 $2 }
     | 'i64.store8' memarg1           { I64Store8 $2 }
@@ -761,6 +765,9 @@ memarg4 :: { MemArg }
 
 memarg8 :: { MemArg }
     : opt(offset) opt(align) {% parseMemArg 8 $1 $2 }
+
+memarg16 :: { MemArg }
+    : opt(offset) opt(align) {% parseMemArg 16 $1 $2 }
 
 select_type_or_instructions(terminator)
     : '(' select_type_or_instructions1(terminator) { $2 }
@@ -1330,6 +1337,7 @@ data PlainInstr =
     | I64Load MemArg
     | F32Load MemArg
     | F64Load MemArg
+    | V128Load MemArg
     | I32Load8S MemArg
     | I32Load8U MemArg
     | I32Load16S MemArg
@@ -1344,6 +1352,7 @@ data PlainInstr =
     | I64Store MemArg
     | F32Store MemArg
     | F64Store MemArg
+    | V128Store MemArg
     | I32Store8 MemArg
     | I32Store16 MemArg
     | I64Store8 MemArg
@@ -1839,6 +1848,7 @@ desugarize fields = do
         synInstrToStruct _ (PlainInstr (I64Load memArg)) = return $ S.I64Load memArg
         synInstrToStruct _ (PlainInstr (F32Load memArg)) = return $ S.F32Load memArg
         synInstrToStruct _ (PlainInstr (F64Load memArg)) = return $ S.F64Load memArg
+        synInstrToStruct _ (PlainInstr (V128Load memArg)) = return $ S.V128Load memArg
         synInstrToStruct _ (PlainInstr (I32Load8S memArg)) = return $ S.I32Load8S memArg
         synInstrToStruct _ (PlainInstr (I32Load8U memArg)) = return $ S.I32Load8U memArg
         synInstrToStruct _ (PlainInstr (I32Load16S memArg)) = return $ S.I32Load16S memArg
@@ -1853,6 +1863,7 @@ desugarize fields = do
         synInstrToStruct _ (PlainInstr (I64Store memArg)) = return $ S.I64Store memArg
         synInstrToStruct _ (PlainInstr (F32Store memArg)) = return $ S.F32Store memArg
         synInstrToStruct _ (PlainInstr (F64Store memArg)) = return $ S.F64Store memArg
+        synInstrToStruct _ (PlainInstr (V128Store memArg)) = return $ S.V128Store memArg
         synInstrToStruct _ (PlainInstr (I32Store8 memArg)) = return $ S.I32Store8 memArg
         synInstrToStruct _ (PlainInstr (I32Store16 memArg)) = return $ S.I32Store16 memArg
         synInstrToStruct _ (PlainInstr (I64Store8 memArg)) = return $ S.I64Store8 memArg

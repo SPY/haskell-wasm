@@ -164,6 +164,7 @@ data Instruction index =
     | I64Load MemArg
     | F32Load MemArg
     | F64Load MemArg
+    | V128Load MemArg
     | I32Load8S MemArg
     | I32Load8U MemArg
     | I32Load16S MemArg
@@ -178,6 +179,7 @@ data Instruction index =
     | I64Store MemArg
     | F32Store MemArg
     | F64Store MemArg
+    | V128Store MemArg
     | I32Store8 MemArg
     | I32Store16 MemArg
     | I64Store8 MemArg

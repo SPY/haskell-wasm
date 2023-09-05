@@ -868,6 +868,16 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
             makeLoadInstr ctx offset 4 $ (\rest val -> Done ctx { stack = VF32 (wordToFloat val) : rest })
         step ctx (F64Load MemArg { offset }) =
             makeLoadInstr ctx offset 8 $ (\rest val -> Done ctx { stack = VF64 (wordToDouble val) : rest })
+        step ctx@EvalCtx{ stack = (VI32 v:rest) } (V128Load MemArg { offset }) = do
+            let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
+            memory <- readIORef memoryRef
+            let addr = fromIntegral v + fromIntegral offset
+            len <- ByteArray.getSizeofMutableByteArray memory
+            if addr + 16 > len
+            then return Trap
+            else do
+                val <- ByteArray.freezeByteArray memory addr 16
+                return $ Done ctx { stack = VV128 val : rest }
         step ctx (I32Load8U MemArg { offset }) =
             makeLoadInstr @Word8 ctx offset 1 $ (\rest val -> Done ctx { stack = VI32 (fromIntegral val) : rest })
         step ctx (I32Load8S MemArg { offset }) =
@@ -906,6 +916,16 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
             makeStoreInstr ctx { stack = rest } offset 4 $ floatToWord f
         step ctx@EvalCtx{ stack = (VF64 f:rest) } (F64Store MemArg { offset }) =
             makeStoreInstr ctx { stack = rest } offset 8 $ doubleToWord f
+        step ctx@EvalCtx{ stack = (VV128 v:VI32 va:rest) } (V128Store MemArg { offset }) = do
+            let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
+            memory <- readIORef memoryRef
+            let addr = fromIntegral $ va + fromIntegral offset
+            len <- ByteArray.getSizeofMutableByteArray memory
+            if addr + 16 > len
+            then return Trap
+            else do
+                ByteArray.copyByteArray memory addr v 0 16
+                return $ Done ctx { stack = rest }
         step ctx@EvalCtx{ stack = (VI32 v:rest) } (I32Store8 MemArg { offset }) =
             makeStoreInstr @Word8 ctx { stack = rest } offset 1 $ fromIntegral v
         step ctx@EvalCtx{ stack = (VI32 v:rest) } (I32Store16 MemArg { offset }) =
