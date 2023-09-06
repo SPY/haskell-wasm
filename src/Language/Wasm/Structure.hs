@@ -230,7 +230,11 @@ data Instruction index =
     -- Vector instructions
     | V128Splat SimdShape
     | V128ExtractLane SimdShape index {- signed -} Bool
+    | V128ReplaceLane SimdShape index
+    | V128AllTrue SimdShape
+    | V128AnyTrue
     | I8x16Swizzle
+    | I8x16Shuffle [Int]
     deriving (Show, Eq, Generic, NFData)
 
 type Expression = [Instruction Natural]

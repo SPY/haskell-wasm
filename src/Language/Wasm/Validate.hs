@@ -524,10 +524,18 @@ getInstrType _ (FReinterpretI BS32) = return $ I32 ==> F32
 getInstrType _ (FReinterpretI BS64) = return $ I64 ==> F64
 getInstrType _ I8x16Swizzle =
     return $ [V128, V128] ==> V128
+getInstrType _ (I8x16Shuffle _) =
+    return $ [V128, V128] ==> V128
 getInstrType _ (V128Splat shape) =
     return $ getShapeElemType shape ==> V128
 getInstrType _ (V128ExtractLane shape _ _) =
     return $ V128 ==> getShapeElemType shape
+getInstrType _ (V128ReplaceLane shape _) =
+    return $ [V128, getShapeElemType shape] ==> V128
+getInstrType _ (V128AllTrue _) =
+    return $ V128 ==> I32
+getInstrType _ V128AnyTrue =
+    return $ V128 ==> I32
 
 getShapeElemType :: SimdShape -> ValueType
 getShapeElemType I8x16 = I32

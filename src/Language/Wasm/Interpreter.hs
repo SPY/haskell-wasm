@@ -1283,6 +1283,15 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
                     _ -> error "impossible due to validation"
             in
             return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IBinOp (BS128 shape) ISub) =
+            let r = case shape of
+                    I8x16 -> lanewise @Word8 shape v1 v2 (-)
+                    I16x8 -> lanewise @Word16 shape v1 v2 (-)
+                    I32x4 -> lanewise @Word32 shape v1 v2 (-)
+                    I64x2 -> lanewise @Word64 shape v1 v2 (-)
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (FUnOp BS32 FAbs) =
             return $ Done ctx { stack = VF32 (abs v) : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (FUnOp BS32 FNeg) =
@@ -1490,31 +1499,33 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
         step ctx@EvalCtx{ stack = (VI64 v:rest) } (FReinterpretI BS64) =
             return $ Done ctx { stack = VF64 (wordToDouble v) : rest }
         -- SIMD
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (I8x16Shuffle idxs) =
+            let get i = if i >= 16
+                    then ByteArray.indexByteArray @Word8 v2 (i - 16)
+                    else ByteArray.indexByteArray @Word8 v1 i
+            in
+            let val = ByteArray.byteArrayFromListN @Word8 16 $ get <$> idxs in
+            return $ Done ctx { stack = VV128 val : rest }
         step ctx@EvalCtx{ stack = (VV128 s:VV128 a:rest) } I8x16Swizzle =
             let get i = if i > 15 then 0 else ByteArray.indexByteArray @Word8 a $ fromIntegral i in
             let lanes = get . ByteArray.indexByteArray @Word8 s <$> [0..15] in
             let val = ByteArray.byteArrayFromListN @Word8 16 lanes in
             return $ Done ctx { stack = VV128 val : rest }
-        step ctx@EvalCtx{ stack } (V128Splat shape) = do
-            let (val, rest) = case shape of
-                    I8x16 ->
-                        let (VI32 v:rest) = stack in
-                        (ByteArray.byteArrayFromListN @Word8 16 $ take 16 $ repeat $ fromIntegral $ asInt32 v, rest)
-                    I16x8 ->
-                        let (VI32 v:rest) = stack in
-                        (ByteArray.byteArrayFromListN @Word16 8 $ take 8 $ repeat $ fromIntegral $ asInt32 v, rest)
-                    I32x4 ->
-                        let (VI32 v:rest) = stack in
-                        (ByteArray.byteArrayFromListN @Word32 4 $ take 4 $ repeat v, rest)
-                    I64x2 ->
-                        let (VI64 v:rest) = stack in
-                        (ByteArray.byteArrayFromListN @Word64 2 [v, v], rest)
-                    F32x4 ->
-                        let (VF32 f:rest) = stack in
-                        (ByteArray.byteArrayFromListN @Word32 4 $ take 4 $ repeat $ floatToWord f, rest)
-                    F64x2 ->
-                        let (VF64 d:rest) = stack in
-                        (ByteArray.byteArrayFromListN @Word64 2 [doubleToWord d, doubleToWord d], rest)
+        step ctx@EvalCtx{ stack = (h:rest) } (V128Splat shape) = do
+            let val = case (shape, h) of
+                    (I8x16, VI32 v) ->
+                        ByteArray.byteArrayFromListN @Word8 16 $ take 16 $ repeat $ fromIntegral $ asInt32 v
+                    (I16x8, VI32 v) ->
+                        ByteArray.byteArrayFromListN @Word16 8 $ take 8 $ repeat $ fromIntegral $ asInt32 v
+                    (I32x4, VI32 v) ->
+                        ByteArray.byteArrayFromListN @Word32 4 $ take 4 $ repeat v
+                    (I64x2, VI64 v) ->
+                        ByteArray.byteArrayFromListN @Word64 2 [v, v]
+                    (F32x4, VF32 f) ->
+                        ByteArray.byteArrayFromListN @Word32 4 $ take 4 $ repeat $ floatToWord f
+                    (F64x2, VF64 d) ->
+                        ByteArray.byteArrayFromListN @Word64 2 [doubleToWord d, doubleToWord d]
+                    _ -> error "impossible due to validation"
             return $ Done ctx { stack = VV128 val : rest }
         step ctx@EvalCtx{ stack = (VV128 v:rest) } (V128ExtractLane shape idx signed) = do
             let val = case shape of
@@ -1538,7 +1549,31 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
                         VF32 $ wordToFloat $ ByteArray.indexByteArray @Word32 v (fromIntegral idx)
                     F64x2 ->
                         VF64 $ wordToDouble $ ByteArray.indexByteArray @Word64 v (fromIntegral idx)
+                    _ -> error "impossible due to validation"
             return $ Done ctx { stack = val : rest }
+        step ctx@EvalCtx{ stack = (lane:VV128 v:rest) } (V128ReplaceLane shape idx) = do
+            arr <- ByteArray.thawByteArray v 0 16
+            val <- case (shape, lane) of
+                    (I8x16, VI32 c) -> do
+                        ByteArray.writeByteArray @Word8 arr (fromIntegral idx) (fromIntegral c)
+                        ByteArray.unsafeFreezeByteArray arr
+                    (I16x8, VI32 c) -> do
+                        ByteArray.writeByteArray @Word16 arr (fromIntegral idx) (fromIntegral c)
+                        ByteArray.unsafeFreezeByteArray arr
+                    (I32x4, VI32 c) -> do
+                        ByteArray.writeByteArray arr (fromIntegral idx) c
+                        ByteArray.unsafeFreezeByteArray arr
+                    (I64x2, VI64 c) -> do
+                        ByteArray.writeByteArray arr (fromIntegral idx) c
+                        ByteArray.unsafeFreezeByteArray arr
+                    (F32x4, VF32 c) -> do
+                        ByteArray.writeByteArray arr (fromIntegral idx) $ floatToWord c
+                        ByteArray.unsafeFreezeByteArray arr
+                    (F64x2, VF64 c) -> do
+                        ByteArray.writeByteArray arr (fromIntegral idx) $ doubleToWord c
+                        ByteArray.unsafeFreezeByteArray arr
+                    _ -> error "impossible due to validation"
+            return $ Done ctx { stack = VV128 val : rest }
         step EvalCtx{ stack } instr = error $ "Error during evaluation of instruction: " ++ show instr ++ ". Stack " ++ show stack
 eval _ _ _ HostInstance { funcType, hostCode } args = Just <$> hostCode args
 
