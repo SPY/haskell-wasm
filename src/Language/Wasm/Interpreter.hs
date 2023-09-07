@@ -1574,6 +1574,21 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
                         ByteArray.unsafeFreezeByteArray arr
                     _ -> error "impossible due to validation"
             return $ Done ctx { stack = VV128 val : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } V128AnyTrue =
+            let w0 = ByteArray.indexByteArray @Word64 v 0 in
+            let w1 = ByteArray.indexByteArray @Word64 v 1 in
+            let r = if w0 == 0 && w1 == 0 then 0 else 1 in
+            return $ Done ctx { stack = VI32 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (V128AllTrue shape) =
+            let r = case shape of
+                    I8x16 -> all (/= 0) $ ByteArray.indexByteArray @Word8 v <$> [0..15]
+                    I16x8 -> all (/= 0) $ ByteArray.indexByteArray @Word16 v <$> [0..8]
+                    I32x4 -> all (/= 0) $ ByteArray.indexByteArray @Word32 v <$> [0..4]
+                    I64x2 -> all (/= 0) $ ByteArray.indexByteArray @Word64 v <$> [0..2]
+                    F32x4 -> all (/= 0) $ wordToFloat . ByteArray.indexByteArray @Word32 v <$> [0..4]
+                    F64x2 -> all (/= 0) $ wordToDouble . ByteArray.indexByteArray @Word64 v <$> [0..2]
+            in
+            return $ Done ctx { stack = VI32 (if r then 1 else 0) : rest }
         step EvalCtx{ stack } instr = error $ "Error during evaluation of instruction: " ++ show instr ++ ". Stack " ++ show stack
 eval _ _ _ HostInstance { funcType, hostCode } args = Just <$> hostCode args
 

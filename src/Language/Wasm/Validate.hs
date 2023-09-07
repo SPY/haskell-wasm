@@ -40,6 +40,7 @@ data ValidationError =
     | ElemIndexOutOfRange Natural
     | DataIndexOutOfRange Natural
     | LabelIndexOutOfRange
+    | LaneIndexOutOfRange
     | TypeIndexOutOfRange
     | ResultTypeDoesntMatch
     | TypeMismatch { actual :: Arrow, expected :: Arrow }
@@ -524,13 +525,16 @@ getInstrType _ (FReinterpretI BS32) = return $ I32 ==> F32
 getInstrType _ (FReinterpretI BS64) = return $ I64 ==> F64
 getInstrType _ I8x16Swizzle =
     return $ [V128, V128] ==> V128
-getInstrType _ (I8x16Shuffle _) =
+getInstrType _ (I8x16Shuffle idxs) = do
+    when (any (>= 32) idxs) $ throwError LaneIndexOutOfRange
     return $ [V128, V128] ==> V128
 getInstrType _ (V128Splat shape) =
     return $ getShapeElemType shape ==> V128
-getInstrType _ (V128ExtractLane shape _ _) =
+getInstrType _ (V128ExtractLane shape idx _) = do
+    when (idx >= lanesCount shape) $ throwError LaneIndexOutOfRange
     return $ V128 ==> getShapeElemType shape
-getInstrType _ (V128ReplaceLane shape _) =
+getInstrType _ (V128ReplaceLane shape idx) = do
+    when (idx >= lanesCount shape) $ throwError LaneIndexOutOfRange
     return $ [V128, getShapeElemType shape] ==> V128
 getInstrType _ (V128AllTrue _) =
     return $ V128 ==> I32
@@ -544,6 +548,16 @@ getShapeElemType I32x4 = I32
 getShapeElemType I64x2 = I64
 getShapeElemType F32x4 = F32
 getShapeElemType F64x2 = F64
+
+lanesCount :: SimdShape -> Natural
+lanesCount shape = case shape of
+    I8x16 -> 16
+    I16x8 -> 8
+    I32x4 -> 4
+    I64x2 -> 2
+    F32x4 -> 4
+    F64x2 -> 2
+    I128x1 -> 1
 
 replace :: (Eq a) => a -> a -> [a] -> [a]
 replace _ _ [] = []

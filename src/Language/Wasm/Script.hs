@@ -188,6 +188,7 @@ runScript onAssertFail script = do
         getFailureString (Validate.FunctionIndexOutOfRange idx) = ["unknown function", "unknown function " <> TL.pack (show idx)]
         getFailureString (Validate.GlobalIndexOutOfRange idx) = ["unknown global", "unknown global " <> TL.pack (show idx)]
         getFailureString Validate.LabelIndexOutOfRange = ["unknown label"]
+        getFailureString Validate.LaneIndexOutOfRange = ["invalid lane index"]
         getFailureString Validate.TypeIndexOutOfRange = ["unknown type"]
         getFailureString Validate.MinMoreThanMaxInMemoryLimit = ["size minimum must not be greater than maximum"]
         getFailureString Validate.MemoryLimitExceeded = ["memory size must be at most 65536 pages (4GiB)"]

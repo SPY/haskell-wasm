@@ -408,7 +408,8 @@ import Language.Wasm.Lexer (
 'output'              { Lexeme _ (TKeyword "output") }
 -- script extension end
 id                    { Lexeme _ (TId $$) }
-int                   { Lexeme _ (TIntLit $$) }
+signed                { Lexeme _ (TIntLit False $$) }
+nat                   { Lexeme _ (TIntLit True $$) }
 f64                   { Lexeme _ (TFloatLit $$) }
 offset                { Lexeme _ (TKeyword (asOffset -> Just $$)) }
 align                 { Lexeme _ (TKeyword (asAlign -> Just $$)) }
@@ -438,6 +439,10 @@ valtype :: { ValueType }
     | 'v128' { V128 }
     | 'funcref' { Func }
     | 'externref' { Extern }
+
+int :: {Integer}
+    : signed { $1 }
+    | nat { $1 }
 
 index :: { Index }
     : u32 { Index $1 }
@@ -524,6 +529,9 @@ v128_const :: { V128Rep }
         F64x2Const [$2, $3]
     }
 
+lane_index :: { Natural }
+    : nat {% if $1 < 256 then Right $ fromIntegral $1 else Left "malformed lane index"}
+
 plaininstr :: { PlainInstr }
     -- control instructions
     : 'unreachable'                  { Unreachable }
@@ -583,196 +591,198 @@ plaininstr :: { PlainInstr }
             Nothing -> TableInit (Index 0) $2
             Just elemIdx -> TableInit $2 elemIdx
     }
-    | 'table.get' opt(index)         { TableGet (fromMaybe (Index 0) $2) }
-    | 'table.set' opt(index)         { TableSet (fromMaybe (Index 0) $2) }
+    | 'table.get' opt(index)             { TableGet (fromMaybe (Index 0) $2) }
+    | 'table.set' opt(index)             { TableSet (fromMaybe (Index 0) $2) }
     | 'table.copy' opt(index) opt(index) { TableCopy (fromMaybe (Index 0) $2) (fromMaybe (Index 0) $3) }
-    | 'table.fill' opt(index)        { TableFill (fromMaybe (Index 0) $2) }
-    | 'table.size' opt(index)        { TableSize (fromMaybe (Index 0) $2) }
-    | 'table.grow' opt(index)        { TableGrow (fromMaybe (Index 0) $2) }
-    | 'elem.drop' index              { ElemDrop $2 }
-    -- numeric instructions
-    | 'i32.const' int32              { I32Const $2 }
-    | 'i64.const' int64              { I64Const $2 }
-    | 'f32.const' float32            { F32Const $2 }
-    | 'f64.const' float64            { F64Const $2 }
-    | 'v128.const' v128_const        { V128Const $2 }
-    | 'i32.clz'                      { IUnOp BS32 IClz }
-    | 'i32.ctz'                      { IUnOp BS32 ICtz }
-    | 'i32.popcnt'                   { IUnOp BS32 IPopcnt }
-    | 'i32.extend8_s'                { IUnOp BS32 IExtend8S }
-    | 'i32.extend16_s'               { IUnOp BS32 IExtend16S }
-    | 'i32.add'                      { IBinOp BS32 IAdd }
-    | 'i32.sub'                      { IBinOp BS32 ISub }
-    | 'i32.mul'                      { IBinOp BS32 IMul }
-    | 'i32.div_s'                    { IBinOp BS32 IDivS }
-    | 'i32.div_u'                    { IBinOp BS32 IDivU }
-    | 'i32.rem_s'                    { IBinOp BS32 IRemS }
-    | 'i32.rem_u'                    { IBinOp BS32 IRemU }
-    | 'i32.and'                      { IBinOp BS32 IAnd }
-    | 'i32.or'                       { IBinOp BS32 IOr }
-    | 'i32.xor'                      { IBinOp BS32 IXor }
-    | 'i32.shl'                      { IBinOp BS32 IShl }
-    | 'i32.shr_s'                    { IBinOp BS32 IShrS }
-    | 'i32.shr_u'                    { IBinOp BS32 IShrU }
-    | 'i32.rotl'                     { IBinOp BS32 IRotl }
-    | 'i32.rotr'                     { IBinOp BS32 IRotr }
-    | 'i64.clz'                      { IUnOp BS64 IClz }
-    | 'i64.ctz'                      { IUnOp BS64 ICtz }
-    | 'i64.popcnt'                   { IUnOp BS64 IPopcnt }
-    | 'i64.extend8_s'                { IUnOp BS64 IExtend8S }
-    | 'i64.extend16_s'               { IUnOp BS64 IExtend16S }
-    | 'i64.extend32_s'               { IUnOp BS64 IExtend32S }
-    | 'i64.add'                      { IBinOp BS64 IAdd }
-    | 'i64.sub'                      { IBinOp BS64 ISub }
-    | 'i64.mul'                      { IBinOp BS64 IMul }
-    | 'i64.div_s'                    { IBinOp BS64 IDivS }
-    | 'i64.div_u'                    { IBinOp BS64 IDivU }
-    | 'i64.rem_s'                    { IBinOp BS64 IRemS }
-    | 'i64.rem_u'                    { IBinOp BS64 IRemU }
-    | 'i64.and'                      { IBinOp BS64 IAnd }
-    | 'i64.or'                       { IBinOp BS64 IOr }
-    | 'i64.xor'                      { IBinOp BS64 IXor }
-    | 'i64.shl'                      { IBinOp BS64 IShl }
-    | 'i64.shr_s'                    { IBinOp BS64 IShrS }
-    | 'i64.shr_u'                    { IBinOp BS64 IShrU }
-    | 'i64.rotl'                     { IBinOp BS64 IRotl }
-    | 'i64.rotr'                     { IBinOp BS64 IRotr }
-    | 'f32.abs'                      { FUnOp BS32 FAbs }
-    | 'f32.neg'                      { FUnOp BS32 FNeg }
-    | 'f32.ceil'                     { FUnOp BS32 FCeil }
-    | 'f32.floor'                    { FUnOp BS32 FFloor }
-    | 'f32.trunc'                    { FUnOp BS32 FTrunc }
-    | 'f32.nearest'                  { FUnOp BS32 FNearest }
-    | 'f32.sqrt'                     { FUnOp BS32 FSqrt }
-    | 'f32.add'                      { FBinOp BS32 FAdd }
-    | 'f32.sub'                      { FBinOp BS32 FSub }
-    | 'f32.mul'                      { FBinOp BS32 FMul }
-    | 'f32.div'                      { FBinOp BS32 FDiv }
-    | 'f32.min'                      { FBinOp BS32 FMin }
-    | 'f32.max'                      { FBinOp BS32 FMax }
-    | 'f32.copysign'                 { FBinOp BS32 FCopySign }
-    | 'f64.abs'                      { FUnOp BS64 FAbs }
-    | 'f64.neg'                      { FUnOp BS64 FNeg }
-    | 'f64.ceil'                     { FUnOp BS64 FCeil }
-    | 'f64.floor'                    { FUnOp BS64 FFloor }
-    | 'f64.trunc'                    { FUnOp BS64 FTrunc }
-    | 'f64.nearest'                  { FUnOp BS64 FNearest }
-    | 'f64.sqrt'                     { FUnOp BS64 FSqrt }
-    | 'f64.add'                      { FBinOp BS64 FAdd }
-    | 'f64.sub'                      { FBinOp BS64 FSub }
-    | 'f64.mul'                      { FBinOp BS64 FMul }
-    | 'f64.div'                      { FBinOp BS64 FDiv }
-    | 'f64.min'                      { FBinOp BS64 FMin }
-    | 'f64.max'                      { FBinOp BS64 FMax }
-    | 'f64.copysign'                 { FBinOp BS64 FCopySign }
-    | 'i32.eqz'                      { I32Eqz }
-    | 'i32.eq'                       { IRelOp BS32 IEq }
-    | 'i32.ne'                       { IRelOp BS32 INe }
-    | 'i32.lt_s'                     { IRelOp BS32 ILtS }
-    | 'i32.lt_u'                     { IRelOp BS32 ILtU }
-    | 'i32.gt_s'                     { IRelOp BS32 IGtS }
-    | 'i32.gt_u'                     { IRelOp BS32 IGtU }
-    | 'i32.le_s'                     { IRelOp BS32 ILeS }
-    | 'i32.le_u'                     { IRelOp BS32 ILeU }
-    | 'i32.ge_s'                     { IRelOp BS32 IGeS }
-    | 'i32.ge_u'                     { IRelOp BS32 IGeU }
-    | 'i64.eqz'                      { I64Eqz }
-    | 'i64.eq'                       { IRelOp BS64 IEq }
-    | 'i64.ne'                       { IRelOp BS64 INe }
-    | 'i64.lt_s'                     { IRelOp BS64 ILtS }
-    | 'i64.lt_u'                     { IRelOp BS64 ILtU }
-    | 'i64.gt_s'                     { IRelOp BS64 IGtS }
-    | 'i64.gt_u'                     { IRelOp BS64 IGtU }
-    | 'i64.le_s'                     { IRelOp BS64 ILeS }
-    | 'i64.le_u'                     { IRelOp BS64 ILeU }
-    | 'i64.ge_s'                     { IRelOp BS64 IGeS }
-    | 'i64.ge_u'                     { IRelOp BS64 IGeU }
-    | 'f32.eq'                       { FRelOp BS32 FEq }
-    | 'f32.ne'                       { FRelOp BS32 FNe }
-    | 'f32.lt'                       { FRelOp BS32 FLt }
-    | 'f32.gt'                       { FRelOp BS32 FGt }
-    | 'f32.le'                       { FRelOp BS32 FLe }
-    | 'f32.ge'                       { FRelOp BS32 FGe }
-    | 'f64.eq'                       { FRelOp BS64 FEq }
-    | 'f64.ne'                       { FRelOp BS64 FNe }
-    | 'f64.lt'                       { FRelOp BS64 FLt }
-    | 'f64.gt'                       { FRelOp BS64 FGt }
-    | 'f64.le'                       { FRelOp BS64 FLe }
-    | 'f64.ge'                       { FRelOp BS64 FGe }
-    | 'i32.wrap_i64'                 { I32WrapI64 }
-    | 'i32.trunc_f32_s'              { ITruncFS BS32 BS32 }
-    | 'i32.trunc_f32_u'              { ITruncFU BS32 BS32 }
-    | 'i32.trunc_f64_s'              { ITruncFS BS32 BS64 }
-    | 'i32.trunc_f64_u'              { ITruncFU BS32 BS64 }
-    | 'i32.trunc_sat_f32_s'          { ITruncSatFS BS32 BS32 }
-    | 'i32.trunc_sat_f32_u'          { ITruncSatFU BS32 BS32 }
-    | 'i32.trunc_sat_f64_s'          { ITruncSatFS BS32 BS64 }
-    | 'i32.trunc_sat_f64_u'          { ITruncSatFU BS32 BS64 }
-    | 'i64.extend_i32_s'             { I64ExtendSI32 }
-    | 'i64.extend_i32_u'             { I64ExtendUI32 }
-    | 'i64.trunc_f32_s'              { ITruncFS BS64 BS32 }
-    | 'i64.trunc_f32_u'              { ITruncFU BS64 BS32 }
-    | 'i64.trunc_f64_s'              { ITruncFS BS64 BS64 }
-    | 'i64.trunc_f64_u'              { ITruncFU BS64 BS64 }
-    | 'i64.trunc_sat_f32_s'          { ITruncSatFS BS64 BS32 }
-    | 'i64.trunc_sat_f32_u'          { ITruncSatFU BS64 BS32 }
-    | 'i64.trunc_sat_f64_s'          { ITruncSatFS BS64 BS64 }
-    | 'i64.trunc_sat_f64_u'          { ITruncSatFU BS64 BS64 }
-    | 'f32.convert_i32_s'            { FConvertIS BS32 BS32 }
-    | 'f32.convert_i32_u'            { FConvertIU BS32 BS32 }
-    | 'f32.convert_i64_s'            { FConvertIS BS32 BS64 }
-    | 'f32.convert_i64_u'            { FConvertIU BS32 BS64 }
-    | 'f32.demote_f64'               { F32DemoteF64 }
-    | 'f64.convert_i32_s'            { FConvertIS BS64 BS32 }
-    | 'f64.convert_i32_u'            { FConvertIU BS64 BS32 }
-    | 'f64.convert_i64_s'            { FConvertIS BS64 BS64 }
-    | 'f64.convert_i64_u'            { FConvertIU BS64 BS64 }
-    | 'f64.promote_f32'              { F64PromoteF32 }
-    | 'i32.reinterpret_f32'          { IReinterpretF BS32 }
-    | 'i64.reinterpret_f64'          { IReinterpretF BS64 }
-    | 'f32.reinterpret_i32'          { FReinterpretI BS32 }
-    | 'f64.reinterpret_i64'          { FReinterpretI BS64 }
+    | 'table.fill' opt(index)            { TableFill (fromMaybe (Index 0) $2) }
+    | 'table.size' opt(index)            { TableSize (fromMaybe (Index 0) $2) }
+    | 'table.grow' opt(index)            { TableGrow (fromMaybe (Index 0) $2) }
+    | 'elem.drop' index                  { ElemDrop $2 }
+    -- numeric instructions    
+    | 'i32.const' int32                  { I32Const $2 }
+    | 'i64.const' int64                  { I64Const $2 }
+    | 'f32.const' float32                { F32Const $2 }
+    | 'f64.const' float64                { F64Const $2 }
+    | 'v128.const' v128_const            { V128Const $2 }
+    | 'i32.clz'                          { IUnOp BS32 IClz }
+    | 'i32.ctz'                          { IUnOp BS32 ICtz }
+    | 'i32.popcnt'                       { IUnOp BS32 IPopcnt }
+    | 'i32.extend8_s'                    { IUnOp BS32 IExtend8S }
+    | 'i32.extend16_s'                   { IUnOp BS32 IExtend16S }
+    | 'i32.add'                          { IBinOp BS32 IAdd }
+    | 'i32.sub'                          { IBinOp BS32 ISub }
+    | 'i32.mul'                          { IBinOp BS32 IMul }
+    | 'i32.div_s'                        { IBinOp BS32 IDivS }
+    | 'i32.div_u'                        { IBinOp BS32 IDivU }
+    | 'i32.rem_s'                        { IBinOp BS32 IRemS }
+    | 'i32.rem_u'                        { IBinOp BS32 IRemU }
+    | 'i32.and'                          { IBinOp BS32 IAnd }
+    | 'i32.or'                           { IBinOp BS32 IOr }
+    | 'i32.xor'                          { IBinOp BS32 IXor }
+    | 'i32.shl'                          { IBinOp BS32 IShl }
+    | 'i32.shr_s'                        { IBinOp BS32 IShrS }
+    | 'i32.shr_u'                        { IBinOp BS32 IShrU }
+    | 'i32.rotl'                         { IBinOp BS32 IRotl }
+    | 'i32.rotr'                         { IBinOp BS32 IRotr }
+    | 'i64.clz'                          { IUnOp BS64 IClz }
+    | 'i64.ctz'                          { IUnOp BS64 ICtz }
+    | 'i64.popcnt'                       { IUnOp BS64 IPopcnt }
+    | 'i64.extend8_s'                    { IUnOp BS64 IExtend8S }
+    | 'i64.extend16_s'                   { IUnOp BS64 IExtend16S }
+    | 'i64.extend32_s'                   { IUnOp BS64 IExtend32S }
+    | 'i64.add'                          { IBinOp BS64 IAdd }
+    | 'i64.sub'                          { IBinOp BS64 ISub }
+    | 'i64.mul'                          { IBinOp BS64 IMul }
+    | 'i64.div_s'                        { IBinOp BS64 IDivS }
+    | 'i64.div_u'                        { IBinOp BS64 IDivU }
+    | 'i64.rem_s'                        { IBinOp BS64 IRemS }
+    | 'i64.rem_u'                        { IBinOp BS64 IRemU }
+    | 'i64.and'                          { IBinOp BS64 IAnd }
+    | 'i64.or'                           { IBinOp BS64 IOr }
+    | 'i64.xor'                          { IBinOp BS64 IXor }
+    | 'i64.shl'                          { IBinOp BS64 IShl }
+    | 'i64.shr_s'                        { IBinOp BS64 IShrS }
+    | 'i64.shr_u'                        { IBinOp BS64 IShrU }
+    | 'i64.rotl'                         { IBinOp BS64 IRotl }
+    | 'i64.rotr'                         { IBinOp BS64 IRotr }
+    | 'f32.abs'                          { FUnOp BS32 FAbs }
+    | 'f32.neg'                          { FUnOp BS32 FNeg }
+    | 'f32.ceil'                         { FUnOp BS32 FCeil }
+    | 'f32.floor'                        { FUnOp BS32 FFloor }
+    | 'f32.trunc'                        { FUnOp BS32 FTrunc }
+    | 'f32.nearest'                      { FUnOp BS32 FNearest }
+    | 'f32.sqrt'                         { FUnOp BS32 FSqrt }
+    | 'f32.add'                          { FBinOp BS32 FAdd }
+    | 'f32.sub'                          { FBinOp BS32 FSub }
+    | 'f32.mul'                          { FBinOp BS32 FMul }
+    | 'f32.div'                          { FBinOp BS32 FDiv }
+    | 'f32.min'                          { FBinOp BS32 FMin }
+    | 'f32.max'                          { FBinOp BS32 FMax }
+    | 'f32.copysign'                     { FBinOp BS32 FCopySign }
+    | 'f64.abs'                          { FUnOp BS64 FAbs }
+    | 'f64.neg'                          { FUnOp BS64 FNeg }
+    | 'f64.ceil'                         { FUnOp BS64 FCeil }
+    | 'f64.floor'                        { FUnOp BS64 FFloor }
+    | 'f64.trunc'                        { FUnOp BS64 FTrunc }
+    | 'f64.nearest'                      { FUnOp BS64 FNearest }
+    | 'f64.sqrt'                         { FUnOp BS64 FSqrt }
+    | 'f64.add'                          { FBinOp BS64 FAdd }
+    | 'f64.sub'                          { FBinOp BS64 FSub }
+    | 'f64.mul'                          { FBinOp BS64 FMul }
+    | 'f64.div'                          { FBinOp BS64 FDiv }
+    | 'f64.min'                          { FBinOp BS64 FMin }
+    | 'f64.max'                          { FBinOp BS64 FMax }
+    | 'f64.copysign'                     { FBinOp BS64 FCopySign }
+    | 'i32.eqz'                          { I32Eqz }
+    | 'i32.eq'                           { IRelOp BS32 IEq }
+    | 'i32.ne'                           { IRelOp BS32 INe }
+    | 'i32.lt_s'                         { IRelOp BS32 ILtS }
+    | 'i32.lt_u'                         { IRelOp BS32 ILtU }
+    | 'i32.gt_s'                         { IRelOp BS32 IGtS }
+    | 'i32.gt_u'                         { IRelOp BS32 IGtU }
+    | 'i32.le_s'                         { IRelOp BS32 ILeS }
+    | 'i32.le_u'                         { IRelOp BS32 ILeU }
+    | 'i32.ge_s'                         { IRelOp BS32 IGeS }
+    | 'i32.ge_u'                         { IRelOp BS32 IGeU }
+    | 'i64.eqz'                          { I64Eqz }
+    | 'i64.eq'                           { IRelOp BS64 IEq }
+    | 'i64.ne'                           { IRelOp BS64 INe }
+    | 'i64.lt_s'                         { IRelOp BS64 ILtS }
+    | 'i64.lt_u'                         { IRelOp BS64 ILtU }
+    | 'i64.gt_s'                         { IRelOp BS64 IGtS }
+    | 'i64.gt_u'                         { IRelOp BS64 IGtU }
+    | 'i64.le_s'                         { IRelOp BS64 ILeS }
+    | 'i64.le_u'                         { IRelOp BS64 ILeU }
+    | 'i64.ge_s'                         { IRelOp BS64 IGeS }
+    | 'i64.ge_u'                         { IRelOp BS64 IGeU }
+    | 'f32.eq'                           { FRelOp BS32 FEq }
+    | 'f32.ne'                           { FRelOp BS32 FNe }
+    | 'f32.lt'                           { FRelOp BS32 FLt }
+    | 'f32.gt'                           { FRelOp BS32 FGt }
+    | 'f32.le'                           { FRelOp BS32 FLe }
+    | 'f32.ge'                           { FRelOp BS32 FGe }
+    | 'f64.eq'                           { FRelOp BS64 FEq }
+    | 'f64.ne'                           { FRelOp BS64 FNe }
+    | 'f64.lt'                           { FRelOp BS64 FLt }
+    | 'f64.gt'                           { FRelOp BS64 FGt }
+    | 'f64.le'                           { FRelOp BS64 FLe }
+    | 'f64.ge'                           { FRelOp BS64 FGe }
+    | 'i32.wrap_i64'                     { I32WrapI64 }
+    | 'i32.trunc_f32_s'                  { ITruncFS BS32 BS32 }
+    | 'i32.trunc_f32_u'                  { ITruncFU BS32 BS32 }
+    | 'i32.trunc_f64_s'                  { ITruncFS BS32 BS64 }
+    | 'i32.trunc_f64_u'                  { ITruncFU BS32 BS64 }
+    | 'i32.trunc_sat_f32_s'              { ITruncSatFS BS32 BS32 }
+    | 'i32.trunc_sat_f32_u'              { ITruncSatFU BS32 BS32 }
+    | 'i32.trunc_sat_f64_s'              { ITruncSatFS BS32 BS64 }
+    | 'i32.trunc_sat_f64_u'              { ITruncSatFU BS32 BS64 }
+    | 'i64.extend_i32_s'                 { I64ExtendSI32 }
+    | 'i64.extend_i32_u'                 { I64ExtendUI32 }
+    | 'i64.trunc_f32_s'                  { ITruncFS BS64 BS32 }
+    | 'i64.trunc_f32_u'                  { ITruncFU BS64 BS32 }
+    | 'i64.trunc_f64_s'                  { ITruncFS BS64 BS64 }
+    | 'i64.trunc_f64_u'                  { ITruncFU BS64 BS64 }
+    | 'i64.trunc_sat_f32_s'              { ITruncSatFS BS64 BS32 }
+    | 'i64.trunc_sat_f32_u'              { ITruncSatFU BS64 BS32 }
+    | 'i64.trunc_sat_f64_s'              { ITruncSatFS BS64 BS64 }
+    | 'i64.trunc_sat_f64_u'              { ITruncSatFU BS64 BS64 }
+    | 'f32.convert_i32_s'                { FConvertIS BS32 BS32 }
+    | 'f32.convert_i32_u'                { FConvertIU BS32 BS32 }
+    | 'f32.convert_i64_s'                { FConvertIS BS32 BS64 }
+    | 'f32.convert_i64_u'                { FConvertIU BS32 BS64 }
+    | 'f32.demote_f64'                   { F32DemoteF64 }
+    | 'f64.convert_i32_s'                { FConvertIS BS64 BS32 }
+    | 'f64.convert_i32_u'                { FConvertIU BS64 BS32 }
+    | 'f64.convert_i64_s'                { FConvertIS BS64 BS64 }
+    | 'f64.convert_i64_u'                { FConvertIU BS64 BS64 }
+    | 'f64.promote_f32'                  { F64PromoteF32 }
+    | 'i32.reinterpret_f32'              { IReinterpretF BS32 }
+    | 'i64.reinterpret_f64'              { IReinterpretF BS64 }
+    | 'f32.reinterpret_i32'              { FReinterpretI BS32 }
+    | 'f64.reinterpret_i64'              { FReinterpretI BS64 }
     -- simd
-    | 'i8x16.shuffle' i8 i8 i8 i8 i8 i8 i8 i8 i8 i8 i8 i8 i8 i8 i8 i8 {
-        I8x16Shuffle $ map fromIntegral
-            [$2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17]
+    | 'i8x16.shuffle' u32 u32 u32 u32 u32 u32 u32 u32 u32 u32 u32 u32 u32 u32 u32 u32 {%
+        let idxs = [$2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17] in
+        if any (\i -> i < 0 || i > 0xFF) idxs
+        then Left "malformed lane index"
+        else Right $ I8x16Shuffle $ map fromIntegral idxs
     }
-    | 'i8x16.swizzle'                { I8x16Swizzle }
-    | 'v128.any_true'                { V128AnyTrue }
-    | 'i8x16.splat'                  { V128Splat I8x16 }
-    | 'i16x8.splat'                  { V128Splat I16x8 }
-    | 'i32x4.splat'                  { V128Splat I32x4 }
-    | 'i64x2.splat'                  { V128Splat I64x2 }
-    | 'f32x4.splat'                  { V128Splat F32x4 }
-    | 'f64x2.splat'                  { V128Splat F64x2 }
-    | 'i8x16.all_true'               { V128AllTrue I8x16 }
-    | 'i16x8.all_true'               { V128AllTrue I16x8 }
-    | 'i32x4.all_true'               { V128AllTrue I32x4 }
-    | 'i64x2.all_true'               { V128AllTrue I64x2 }
-    | 'f32x4.all_true'               { V128AllTrue F32x4 }
-    | 'f64x2.all_true'               { V128AllTrue F64x2 }
-    | 'i8x16.extract_lane_s' u32     { V128ExtractLane I8x16 $2 True }
-    | 'i16x8.extract_lane_s' u32     { V128ExtractLane I16x8 $2 True }
-    | 'i8x16.extract_lane_u' u32     { V128ExtractLane I8x16 $2 False }
-    | 'i16x8.extract_lane_u' u32     { V128ExtractLane I16x8 $2 False }
-    | 'i32x4.extract_lane' u32       { V128ExtractLane I32x4 $2 False }
-    | 'i64x2.extract_lane' u32       { V128ExtractLane I64x2 $2 False }
-    | 'f32x4.extract_lane' u32       { V128ExtractLane F32x4 $2 False }
-    | 'f64x2.extract_lane' u32       { V128ExtractLane F64x2 $2 False }
-    | 'i8x16.replace_lane' u32       { V128ReplaceLane I8x16 $2 }
-    | 'i16x8.replace_lane' u32       { V128ReplaceLane I16x8 $2 }
-    | 'i32x4.replace_lane' u32       { V128ReplaceLane I32x4 $2 }
-    | 'i64x2.replace_lane' u32       { V128ReplaceLane I64x2 $2 }
-    | 'f32x4.replace_lane' u32       { V128ReplaceLane F32x4 $2 }
-    | 'f64x2.replace_lane' u32       { V128ReplaceLane F64x2 $2 }
-    | 'i8x16.add'                    { IBinOp (BS128 I8x16) IAdd }
-    | 'i16x8.add'                    { IBinOp (BS128 I16x8) IAdd }
-    | 'i32x4.add'                    { IBinOp (BS128 I32x4) IAdd }
-    | 'i64x2.add'                    { IBinOp (BS128 I64x2) IAdd }
-    | 'i8x16.sub'                    { IBinOp (BS128 I8x16) ISub }
-    | 'i16x8.sub'                    { IBinOp (BS128 I16x8) ISub }
-    | 'i32x4.sub'                    { IBinOp (BS128 I32x4) ISub }
-    | 'i64x2.sub'                    { IBinOp (BS128 I64x2) ISub }
+    | 'i8x16.swizzle'                    { I8x16Swizzle }
+    | 'v128.any_true'                    { V128AnyTrue }
+    | 'i8x16.splat'                      { V128Splat I8x16 }
+    | 'i16x8.splat'                      { V128Splat I16x8 }
+    | 'i32x4.splat'                      { V128Splat I32x4 }
+    | 'i64x2.splat'                      { V128Splat I64x2 }
+    | 'f32x4.splat'                      { V128Splat F32x4 }
+    | 'f64x2.splat'                      { V128Splat F64x2 }
+    | 'i8x16.all_true'                   { V128AllTrue I8x16 }
+    | 'i16x8.all_true'                   { V128AllTrue I16x8 }
+    | 'i32x4.all_true'                   { V128AllTrue I32x4 }
+    | 'i64x2.all_true'                   { V128AllTrue I64x2 }
+    | 'f32x4.all_true'                   { V128AllTrue F32x4 }
+    | 'f64x2.all_true'                   { V128AllTrue F64x2 }
+    | 'i8x16.extract_lane_s' lane_index  { V128ExtractLane I8x16 $2 True }
+    | 'i16x8.extract_lane_s' lane_index  { V128ExtractLane I16x8 $2 True }
+    | 'i8x16.extract_lane_u' lane_index  { V128ExtractLane I8x16 $2 False }
+    | 'i16x8.extract_lane_u' lane_index  { V128ExtractLane I16x8 $2 False }
+    | 'i32x4.extract_lane' lane_index    { V128ExtractLane I32x4 $2 False }
+    | 'i64x2.extract_lane' lane_index    { V128ExtractLane I64x2 $2 False }
+    | 'f32x4.extract_lane' lane_index    { V128ExtractLane F32x4 $2 False }
+    | 'f64x2.extract_lane' lane_index    { V128ExtractLane F64x2 $2 False }
+    | 'i8x16.replace_lane' lane_index    { V128ReplaceLane I8x16 $2 }
+    | 'i16x8.replace_lane' lane_index    { V128ReplaceLane I16x8 $2 }
+    | 'i32x4.replace_lane' lane_index    { V128ReplaceLane I32x4 $2 }
+    | 'i64x2.replace_lane' lane_index    { V128ReplaceLane I64x2 $2 }
+    | 'f32x4.replace_lane' lane_index    { V128ReplaceLane F32x4 $2 }
+    | 'f64x2.replace_lane' lane_index    { V128ReplaceLane F64x2 $2 }
+    | 'i8x16.add'                        { IBinOp (BS128 I8x16) IAdd }
+    | 'i16x8.add'                        { IBinOp (BS128 I16x8) IAdd }
+    | 'i32x4.add'                        { IBinOp (BS128 I32x4) IAdd }
+    | 'i64x2.add'                        { IBinOp (BS128 I64x2) IAdd }
+    | 'i8x16.sub'                        { IBinOp (BS128 I8x16) ISub }
+    | 'i16x8.sub'                        { IBinOp (BS128 I16x8) ISub }
+    | 'i32x4.sub'                        { IBinOp (BS128 I32x4) ISub }
+    | 'i64x2.sub'                        { IBinOp (BS128 I64x2) ISub }
 
 typeuse(next)
     : '(' typeuse1(folded_instr_list(next), instruction_list(next)) {
