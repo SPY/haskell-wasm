@@ -927,6 +927,18 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
             else do
                 ByteArray.copyByteArray memory addr v 0 16
                 return $ Done ctx { stack = rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (V128Store8Lane MemArg { offset } idx) = do
+            let i = ByteArray.indexByteArray v $ fromIntegral idx
+            makeStoreInstr @Word8 ctx { stack = rest } offset 1 i
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (V128Store16Lane MemArg { offset } idx) = do
+            let i = ByteArray.indexByteArray v $ fromIntegral idx
+            makeStoreInstr @Word16 ctx { stack = rest } offset 2 i
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (V128Store32Lane MemArg { offset } idx) = do
+            let i = ByteArray.indexByteArray v $ fromIntegral idx
+            makeStoreInstr @Word32 ctx { stack = rest } offset 4 i
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (V128Store64Lane MemArg { offset } idx) = do
+            let i = ByteArray.indexByteArray v $ fromIntegral idx
+            makeStoreInstr @Word64 ctx { stack = rest } offset 8 i
         step ctx@EvalCtx{ stack = (VI32 v:rest) } (I32Store8 MemArg { offset }) =
             makeStoreInstr @Word8 ctx { stack = rest } offset 1 $ fromIntegral v
         step ctx@EvalCtx{ stack = (VI32 v:rest) } (I32Store16 MemArg { offset }) =

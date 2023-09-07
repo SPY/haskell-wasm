@@ -166,6 +166,10 @@ import Language.Wasm.Lexer (
 'f32.store'           { Lexeme _ (TKeyword "f32.store") }
 'f64.store'           { Lexeme _ (TKeyword "f64.store") }
 'v128.store'          { Lexeme _ (TKeyword "v128.store") }
+'v128.store8_lane'    { Lexeme _ (TKeyword "v128.store8_lane") }
+'v128.store16_lane'   { Lexeme _ (TKeyword "v128.store16_lane") }
+'v128.store32_lane'   { Lexeme _ (TKeyword "v128.store32_lane") }
+'v128.store64_lane'   { Lexeme _ (TKeyword "v128.store64_lane") }
 'i32.store8'          { Lexeme _ (TKeyword "i32.store8") }
 'i32.store16'         { Lexeme _ (TKeyword "i32.store16") }
 'i64.store8'          { Lexeme _ (TKeyword "i64.store8") }
@@ -574,6 +578,10 @@ plaininstr :: { PlainInstr }
     | 'f32.store' memarg4            { F32Store $2 }
     | 'f64.store' memarg8            { F64Store $2 }
     | 'v128.store' memarg16          { V128Store $2 }
+    | 'v128.store8_lane' memarg1 lane_index { V128Store8Lane $2 $3 }
+    | 'v128.store16_lane' memarg2 lane_index { V128Store16Lane $2 $3 }
+    | 'v128.store32_lane' memarg4 lane_index { V128Store32Lane $2 $3 }
+    | 'v128.store64_lane' memarg8 lane_index { V128Store64Lane $2 $3 }
     | 'i32.store8' memarg1           { I32Store8 $2 }
     | 'i32.store16' memarg2          { I32Store16 $2 }
     | 'i64.store8' memarg1           { I64Store8 $2 }
@@ -1436,6 +1444,10 @@ data PlainInstr =
     | F32Store MemArg
     | F64Store MemArg
     | V128Store MemArg
+    | V128Store8Lane MemArg Natural
+    | V128Store16Lane MemArg Natural
+    | V128Store32Lane MemArg Natural
+    | V128Store64Lane MemArg Natural
     | I32Store8 MemArg
     | I32Store16 MemArg
     | I64Store8 MemArg
@@ -1955,6 +1967,10 @@ desugarize fields = do
         synInstrToStruct _ (PlainInstr (F32Store memArg)) = return $ S.F32Store memArg
         synInstrToStruct _ (PlainInstr (F64Store memArg)) = return $ S.F64Store memArg
         synInstrToStruct _ (PlainInstr (V128Store memArg)) = return $ S.V128Store memArg
+        synInstrToStruct _ (PlainInstr (V128Store8Lane memArg idx)) = return $ S.V128Store8Lane memArg idx
+        synInstrToStruct _ (PlainInstr (V128Store16Lane memArg idx)) = return $ S.V128Store16Lane memArg idx
+        synInstrToStruct _ (PlainInstr (V128Store32Lane memArg idx)) = return $ S.V128Store32Lane memArg idx
+        synInstrToStruct _ (PlainInstr (V128Store64Lane memArg idx)) = return $ S.V128Store64Lane memArg idx
         synInstrToStruct _ (PlainInstr (I32Store8 memArg)) = return $ S.I32Store8 memArg
         synInstrToStruct _ (PlainInstr (I32Store16 memArg)) = return $ S.I32Store16 memArg
         synInstrToStruct _ (PlainInstr (I64Store8 memArg)) = return $ S.I64Store8 memArg

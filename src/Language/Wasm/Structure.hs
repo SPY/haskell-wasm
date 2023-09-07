@@ -180,6 +180,10 @@ data Instruction index =
     | F32Store MemArg
     | F64Store MemArg
     | V128Store MemArg
+    | V128Store8Lane MemArg Natural
+    | V128Store16Lane MemArg Natural
+    | V128Store32Lane MemArg Natural
+    | V128Store64Lane MemArg Natural
     | I32Store8 MemArg
     | I32Store16 MemArg
     | I64Store8 MemArg
