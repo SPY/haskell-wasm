@@ -358,6 +358,24 @@ getInstrType _ (V128Load32Zero memarg) = do
 getInstrType _ (V128Load64Zero memarg) = do
     checkMemoryInstr 8 memarg
     return $ I32 ==> V128
+getInstrType _ (V128Load8x8S memarg) = do
+    checkMemoryInstr 8 memarg
+    return $ I32 ==> V128
+getInstrType _ (V128Load8x8U memarg) = do
+    checkMemoryInstr 8 memarg
+    return $ I32 ==> V128
+getInstrType _ (V128Load16x4S memarg) = do
+    checkMemoryInstr 8 memarg
+    return $ I32 ==> V128
+getInstrType _ (V128Load16x4U memarg) = do
+    checkMemoryInstr 8 memarg
+    return $ I32 ==> V128
+getInstrType _ (V128Load32x2S memarg) = do
+    checkMemoryInstr 8 memarg
+    return $ I32 ==> V128
+getInstrType _ (V128Load32x2U memarg) = do
+    checkMemoryInstr 8 memarg
+    return $ I32 ==> V128
 getInstrType _ (I32Load8S memarg) = do
     checkMemoryInstr 1 memarg
     return $ I32 ==> I32

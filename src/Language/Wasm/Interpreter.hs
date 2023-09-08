@@ -717,6 +717,19 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
                 )
         makeLoadInstr _ _ _ _ = error "Incorrect value on top of stack for memory instruction"
 
+        loadByteArray :: EvalCtx -> Natural -> Int -> ([Value] -> ByteArray.ByteArray -> EvalResult) -> IO EvalResult
+        loadByteArray ctx@EvalCtx{ stack = (VI32 v:rest) } offset byteWidth cont = do
+            let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
+            memory <- readIORef memoryRef
+            let addr = fromIntegral v + fromIntegral offset
+            len <- ByteArray.getSizeofMutableByteArray memory
+            if addr + byteWidth > len
+            then return Trap
+            else do
+                val <- ByteArray.freezeByteArray memory addr byteWidth
+                return $ cont rest val
+        loadByteArray _ _ _ _ = error "Incorrect value on top of stack for memory instruction"
+
         makeStoreInstr :: (Primitive.Prim i, Bits i, Integral i) => EvalCtx -> Natural -> Int -> i -> IO EvalResult
         makeStoreInstr ctx@EvalCtx{ stack = (VI32 va:rest) } offset byteWidth v = do
             let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
@@ -869,16 +882,9 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
             makeLoadInstr ctx offset 4 $ (\rest val -> Done ctx { stack = VF32 (wordToFloat val) : rest })
         step ctx (F64Load MemArg { offset }) =
             makeLoadInstr ctx offset 8 $ (\rest val -> Done ctx { stack = VF64 (wordToDouble val) : rest })
-        step ctx@EvalCtx{ stack = (VI32 v:rest) } (V128Load MemArg { offset }) = do
-            let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
-            memory <- readIORef memoryRef
-            let addr = fromIntegral v + fromIntegral offset
-            len <- ByteArray.getSizeofMutableByteArray memory
-            if addr + 16 > len
-            then return Trap
-            else do
-                val <- ByteArray.freezeByteArray memory addr 16
-                return $ Done ctx { stack = VV128 val : rest }
+        step ctx (V128Load MemArg { offset }) =
+            loadByteArray ctx offset 16 $ \rest arr ->
+                Done ctx { stack = VV128 arr : rest }
         step ctx (V128Load8Splat MemArg { offset }) =
             makeLoadInstr @Word8 ctx offset 1 $ \rest val ->
                 let v = ByteArray.byteArrayFromListN 16 $ replicate 16 val in
@@ -902,6 +908,45 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
         step ctx (V128Load64Zero MemArg { offset }) =
             makeLoadInstr @Word64 ctx offset 8 $ \rest val ->
                 let v = ByteArray.byteArrayFromListN 2 [val, 0] in
+                Done ctx { stack = VV128 v : rest }
+        step ctx (V128Load8x8S MemArg { offset }) =
+            loadByteArray ctx offset 8 $ \rest arr ->
+                let ext b = if b >= 0x80 then 0xFF00 + fromIntegral b else fromIntegral b in
+                let v = ByteArray.byteArrayFromListN @Word16 8
+                        $ ByteArray.foldrByteArray @Word8 (\b -> (ext b:)) [] arr
+                in
+                Done ctx { stack = VV128 v : rest }
+        step ctx (V128Load8x8U MemArg { offset }) =
+            loadByteArray ctx offset 8 $ \rest arr ->
+                let v = ByteArray.byteArrayFromListN @Word16 8
+                        $ ByteArray.foldrByteArray @Word8 (\b -> (fromIntegral b:)) [] arr
+                in
+                Done ctx { stack = VV128 v : rest }
+        step ctx (V128Load16x4S MemArg { offset }) =
+            loadByteArray ctx offset 8 $ \rest arr ->
+                let ext b = if b >= 0x8000 then 0xFFFF0000 + fromIntegral b else fromIntegral b in
+                let v = ByteArray.byteArrayFromListN @Word32 4
+                        $ ByteArray.foldrByteArray @Word16 (\b -> (ext b:)) [] arr
+                in
+                Done ctx { stack = VV128 v : rest }
+        step ctx (V128Load16x4U MemArg { offset }) =
+            loadByteArray ctx offset 8 $ \rest arr ->
+                let v = ByteArray.byteArrayFromListN @Word32 4
+                        $ ByteArray.foldrByteArray @Word16 (\b -> (fromIntegral b:)) [] arr
+                in
+                Done ctx { stack = VV128 v : rest }
+        step ctx (V128Load32x2S MemArg { offset }) =
+            loadByteArray ctx offset 8 $ \rest arr ->
+                let ext b = if b >= 0x80000000 then 0xFFFFFFFF00000000 + fromIntegral b else fromIntegral b in
+                let v = ByteArray.byteArrayFromListN @Word64 2
+                        $ ByteArray.foldrByteArray @Word32 (\b -> (ext b:)) [] arr
+                in
+                Done ctx { stack = VV128 v : rest }
+        step ctx (V128Load32x2U MemArg { offset }) =
+            loadByteArray ctx offset 8 $ \rest arr ->
+                let v = ByteArray.byteArrayFromListN @Word64 2
+                        $ ByteArray.foldrByteArray @Word32 (\b -> (fromIntegral b:)) [] arr
+                in
                 Done ctx { stack = VV128 v : rest }
         step ctx (I32Load8U MemArg { offset }) =
             makeLoadInstr @Word8 ctx offset 1 $ (\rest val -> Done ctx { stack = VI32 (fromIntegral val) : rest })
