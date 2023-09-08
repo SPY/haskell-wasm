@@ -895,6 +895,14 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
             makeLoadInstr @Word64 ctx offset 8 $ \rest val ->
                 let v = ByteArray.byteArrayFromListN 2 [val, val] in
                 Done ctx { stack = VV128 v : rest }
+        step ctx (V128Load32Zero MemArg { offset }) =
+            makeLoadInstr @Word32 ctx offset 4 $ \rest val ->
+                let v = ByteArray.byteArrayFromListN 4 $ val : [0, 0, 0] in
+                Done ctx { stack = VV128 v : rest }
+        step ctx (V128Load64Zero MemArg { offset }) =
+            makeLoadInstr @Word64 ctx offset 8 $ \rest val ->
+                let v = ByteArray.byteArrayFromListN 2 [val, 0] in
+                Done ctx { stack = VV128 v : rest }
         step ctx (I32Load8U MemArg { offset }) =
             makeLoadInstr @Word8 ctx offset 1 $ (\rest val -> Done ctx { stack = VI32 (fromIntegral val) : rest })
         step ctx (I32Load8S MemArg { offset }) =
