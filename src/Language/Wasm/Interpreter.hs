@@ -879,6 +879,22 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
             else do
                 val <- ByteArray.freezeByteArray memory addr 16
                 return $ Done ctx { stack = VV128 val : rest }
+        step ctx (V128Load8Splat MemArg { offset }) =
+            makeLoadInstr @Word8 ctx offset 1 $ \rest val ->
+                let v = ByteArray.byteArrayFromListN 16 $ replicate 16 val in
+                Done ctx { stack = VV128 v : rest }
+        step ctx (V128Load16Splat MemArg { offset }) =
+            makeLoadInstr @Word16 ctx offset 2 $ \rest val ->
+                let v = ByteArray.byteArrayFromListN 8 $ replicate 8 val in
+                Done ctx { stack = VV128 v : rest }
+        step ctx (V128Load32Splat MemArg { offset }) =
+            makeLoadInstr @Word32 ctx offset 4 $ \rest val ->
+                let v = ByteArray.byteArrayFromListN 4 $ replicate 4 val in
+                Done ctx { stack = VV128 v : rest }
+        step ctx (V128Load64Splat MemArg { offset }) =
+            makeLoadInstr @Word64 ctx offset 8 $ \rest val ->
+                let v = ByteArray.byteArrayFromListN 2 [val, val] in
+                Done ctx { stack = VV128 v : rest }
         step ctx (I32Load8U MemArg { offset }) =
             makeLoadInstr @Word8 ctx offset 1 $ (\rest val -> Done ctx { stack = VI32 (fromIntegral val) : rest })
         step ctx (I32Load8S MemArg { offset }) =

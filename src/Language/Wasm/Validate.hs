@@ -340,6 +340,18 @@ getInstrType _ (F64Load memarg) = do
 getInstrType _ (V128Load memarg) = do
     checkMemoryInstr 16 memarg
     return $ I32 ==> V128
+getInstrType _ (V128Load8Splat memarg) = do
+    checkMemoryInstr 1 memarg
+    return $ I32 ==> V128
+getInstrType _ (V128Load16Splat memarg) = do
+    checkMemoryInstr 2 memarg
+    return $ I32 ==> V128
+getInstrType _ (V128Load32Splat memarg) = do
+    checkMemoryInstr 4 memarg
+    return $ I32 ==> V128
+getInstrType _ (V128Load64Splat memarg) = do
+    checkMemoryInstr 8 memarg
+    return $ I32 ==> V128
 getInstrType _ (I32Load8S memarg) = do
     checkMemoryInstr 1 memarg
     return $ I32 ==> I32
