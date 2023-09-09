@@ -699,8 +699,8 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
                 Done ctx' -> go ctx' rest
                 command -> return command
         
-        makeLoadInstr :: (Primitive.Prim i, Bits i, Integral i) => EvalCtx -> Natural -> Int -> ([Value] -> i -> EvalResult) -> IO EvalResult
-        makeLoadInstr ctx@EvalCtx{ stack = (VI32 v:rest) } offset byteWidth cont = do
+        makeLoadInstrIO :: (Primitive.Prim i, Bits i, Integral i) => EvalCtx -> Natural -> Int -> ([Value] -> i -> IO EvalResult) -> IO EvalResult
+        makeLoadInstrIO ctx@EvalCtx{ stack = (VI32 v:rest) } offset byteWidth cont = do
             let MemoryInstance { memory = memoryRef } = memInstances store ! (memaddrs moduleInstance ! 0)
             memory <- readIORef memoryRef
             let addr = fromIntegral v + fromIntegral offset
@@ -713,10 +713,14 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
             then return Trap
             else (
                     if isAligned
-                    then cont rest <$> ByteArray.readByteArray memory (addr `quot` byteWidth)
-                    else cont rest . sum <$> mapM readByte [0..byteWidth-1]
+                    then do
+                        ByteArray.readByteArray memory (addr `quot` byteWidth) >>= cont rest
+                    else mapM readByte [0..byteWidth-1] >>= cont rest . sum
                 )
-        makeLoadInstr _ _ _ _ = error "Incorrect value on top of stack for memory instruction"
+        makeLoadInstrIO _ _ _ _ = error "Incorrect value on top of stack for memory instruction"
+
+        makeLoadInstr :: (Primitive.Prim i, Bits i, Integral i) => EvalCtx -> Natural -> Int -> ([Value] -> i -> EvalResult) -> IO EvalResult
+        makeLoadInstr ctx off w cont = makeLoadInstrIO ctx off w (\x -> return . cont x)
 
         loadByteArray :: EvalCtx -> Natural -> Int -> ([Value] -> ByteArray.ByteArray -> EvalResult) -> IO EvalResult
         loadByteArray ctx@EvalCtx{ stack = (VI32 v:rest) } offset byteWidth cont = do
@@ -886,6 +890,30 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
         step ctx (V128Load MemArg { offset }) =
             loadByteArray ctx offset 16 $ \rest arr ->
                 Done ctx { stack = VV128 arr : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (V128Load8Lane MemArg { offset } lane) =
+            makeLoadInstrIO @Word8 ctx{stack = rest} offset 1 $ \rest w -> do
+                arr <- ByteArray.thawByteArray v 0 16
+                ByteArray.writeByteArray arr (fromIntegral lane) w
+                r <- ByteArray.unsafeFreezeByteArray arr
+                return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (V128Load16Lane MemArg { offset } lane) =
+            makeLoadInstrIO @Word16 ctx{stack = rest} offset 2 $ \rest w -> do
+                arr <- ByteArray.thawByteArray v 0 16
+                ByteArray.writeByteArray arr (fromIntegral lane) w
+                r <- ByteArray.unsafeFreezeByteArray arr
+                return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (V128Load32Lane MemArg { offset } lane) =
+            makeLoadInstrIO @Word32 ctx{stack = rest} offset 4 $ \rest w -> do
+                arr <- ByteArray.thawByteArray v 0 16
+                ByteArray.writeByteArray arr (fromIntegral lane) w
+                r <- ByteArray.unsafeFreezeByteArray arr
+                return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (V128Load64Lane MemArg { offset } lane) =
+            makeLoadInstrIO @Word64 ctx{stack = rest} offset 8 $ \rest w -> do
+                arr <- ByteArray.thawByteArray v 0 16
+                ByteArray.writeByteArray arr (fromIntegral lane) w
+                r <- ByteArray.unsafeFreezeByteArray arr
+                return $ Done ctx { stack = VV128 r : rest }
         step ctx (V128Load8Splat MemArg { offset }) =
             makeLoadInstr @Word8 ctx offset 1 $ \rest val ->
                 let v = ByteArray.byteArrayFromListN 16 $ replicate 16 val in

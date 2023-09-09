@@ -340,6 +340,22 @@ getInstrType _ (F64Load memarg) = do
 getInstrType _ (V128Load memarg) = do
     checkMemoryInstr 16 memarg
     return $ I32 ==> V128
+getInstrType _ (V128Load8Lane memarg idx) = do
+    checkMemoryInstr 1 memarg
+    when (idx >= 16) $ throwError LaneIndexOutOfRange
+    return $ [I32, V128] ==> V128
+getInstrType _ (V128Load16Lane memarg idx) = do
+    checkMemoryInstr 2 memarg
+    when (idx >= 8) $ throwError LaneIndexOutOfRange
+    return $ [I32, V128] ==> V128
+getInstrType _ (V128Load32Lane memarg idx) = do
+    checkMemoryInstr 4 memarg
+    when (idx >= 4) $ throwError LaneIndexOutOfRange
+    return $ [I32, V128] ==> V128
+getInstrType _ (V128Load64Lane memarg idx) = do
+    checkMemoryInstr 8 memarg
+    when (idx >= 2) $ throwError LaneIndexOutOfRange
+    return $ [I32, V128] ==> V128
 getInstrType _ (V128Load8Splat memarg) = do
     checkMemoryInstr 1 memarg
     return $ I32 ==> V128

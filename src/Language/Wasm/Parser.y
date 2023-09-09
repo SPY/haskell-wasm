@@ -151,6 +151,10 @@ import Language.Wasm.Lexer (
 'f32.load'            { Lexeme _ (TKeyword "f32.load") }
 'f64.load'            { Lexeme _ (TKeyword "f64.load") }
 'v128.load'           { Lexeme _ (TKeyword "v128.load") }
+'v128.load8_lane'     { Lexeme _ (TKeyword "v128.load8_lane") }
+'v128.load16_lane'    { Lexeme _ (TKeyword "v128.load16_lane") }
+'v128.load32_lane'    { Lexeme _ (TKeyword "v128.load32_lane") }
+'v128.load64_lane'    { Lexeme _ (TKeyword "v128.load64_lane") }
 'v128.load8_splat'    { Lexeme _ (TKeyword "v128.load8_splat") }
 'v128.load16_splat'   { Lexeme _ (TKeyword "v128.load16_splat") }
 'v128.load32_splat'   { Lexeme _ (TKeyword "v128.load32_splat") }
@@ -609,6 +613,10 @@ plaininstr :: { PlainInstr }
     | 'f32.load' memarg4             { F32Load $2 }
     | 'f64.load' memarg8             { F64Load $2 }
     | 'v128.load' memarg16           { V128Load $2 }
+    | 'v128.load8_lane' memarg1 lane_index  { V128Load8Lane $2 $3 }
+    | 'v128.load16_lane' memarg2 lane_index { V128Load16Lane $2 $3 }
+    | 'v128.load32_lane' memarg4 lane_index { V128Load32Lane $2 $3 }
+    | 'v128.load64_lane' memarg8 lane_index { V128Load64Lane $2 $3 }
     | 'v128.load8_splat' memarg1     { V128Load8Splat $2 }
     | 'v128.load16_splat' memarg2    { V128Load16Splat $2 }
     | 'v128.load32_splat' memarg4    { V128Load32Splat $2 }
@@ -1493,6 +1501,10 @@ data PlainInstr =
     | F32Load MemArg
     | F64Load MemArg
     | V128Load MemArg
+    | V128Load8Lane MemArg Natural
+    | V128Load16Lane MemArg Natural
+    | V128Load32Lane MemArg Natural
+    | V128Load64Lane MemArg Natural
     | V128Load8Splat MemArg
     | V128Load16Splat MemArg
     | V128Load32Splat MemArg
@@ -2029,6 +2041,10 @@ desugarize fields = do
         synInstrToStruct _ (PlainInstr (F32Load memArg)) = return $ S.F32Load memArg
         synInstrToStruct _ (PlainInstr (F64Load memArg)) = return $ S.F64Load memArg
         synInstrToStruct _ (PlainInstr (V128Load memArg)) = return $ S.V128Load memArg
+        synInstrToStruct _ (PlainInstr (V128Load8Lane memArg idx)) = return $ S.V128Load8Lane memArg idx
+        synInstrToStruct _ (PlainInstr (V128Load16Lane memArg idx)) = return $ S.V128Load16Lane memArg idx
+        synInstrToStruct _ (PlainInstr (V128Load32Lane memArg idx)) = return $ S.V128Load32Lane memArg idx
+        synInstrToStruct _ (PlainInstr (V128Load64Lane memArg idx)) = return $ S.V128Load64Lane memArg idx
         synInstrToStruct _ (PlainInstr (V128Load8Splat memArg)) = return $ S.V128Load8Splat memArg
         synInstrToStruct _ (PlainInstr (V128Load16Splat memArg)) = return $ S.V128Load16Splat memArg
         synInstrToStruct _ (PlainInstr (V128Load32Splat memArg)) = return $ S.V128Load32Splat memArg

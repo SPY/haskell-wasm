@@ -167,6 +167,10 @@ data Instruction index =
     | F32Load MemArg
     | F64Load MemArg
     | V128Load MemArg
+    | V128Load8Lane MemArg Natural
+    | V128Load16Lane MemArg Natural
+    | V128Load32Lane MemArg Natural
+    | V128Load64Lane MemArg Natural
     | V128Load8Splat MemArg
     | V128Load16Splat MemArg
     | V128Load32Splat MemArg
