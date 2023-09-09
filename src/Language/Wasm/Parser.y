@@ -421,6 +421,9 @@ import Language.Wasm.Lexer (
 'i16x8.add_sat_u'     { Lexeme _ (TKeyword "i16x8.add_sat_u") }
 'i8x16.sub_sat_u'     { Lexeme _ (TKeyword "i8x16.sub_sat_u") }
 'i16x8.sub_sat_u'     { Lexeme _ (TKeyword "i16x8.sub_sat_u") }
+'i16x8.mul'           { Lexeme _ (TKeyword "i16x8.mul") }
+'i32x4.mul'           { Lexeme _ (TKeyword "i32x4.mul") }
+'i64x2.mul'           { Lexeme _ (TKeyword "i64x2.mul") }
 'i8x16.abs'           { Lexeme _ (TKeyword "i8x16.abs") }
 'i16x8.abs'           { Lexeme _ (TKeyword "i16x8.abs") }
 'i32x4.abs'           { Lexeme _ (TKeyword "i32x4.abs") }
@@ -899,6 +902,9 @@ plaininstr :: { PlainInstr }
     | 'i16x8.add_sat_u'                  { IBinOp (BS128 I16x8) IAddSatU }
     | 'i8x16.sub_sat_u'                  { IBinOp (BS128 I8x16) ISubSatU }
     | 'i16x8.sub_sat_u'                  { IBinOp (BS128 I16x8) ISubSatU }
+    | 'i16x8.mul'                        { IBinOp (BS128 I16x8) IMul }
+    | 'i32x4.mul'                        { IBinOp (BS128 I32x4) IMul }
+    | 'i64x2.mul'                        { IBinOp (BS128 I64x2) IMul }
     | 'i8x16.shl'                        { IBinOp (BS128 I8x16) IShl }
     | 'i16x8.shl'                        { IBinOp (BS128 I16x8) IShl }
     | 'i32x4.shl'                        { IBinOp (BS128 I32x4) IShl }

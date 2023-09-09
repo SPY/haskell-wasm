@@ -1446,6 +1446,14 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
                     _ -> error "impossible due to validation"
             in
             return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IBinOp (BS128 shape) IMul) =
+            let r = case shape of
+                    I16x8 -> lanewise @Word16 shape v1 v2 (*)
+                    I32x4 -> lanewise @Word32 shape v1 v2 (*)
+                    I64x2 -> lanewise @Word64 shape v1 v2 (*)
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
         step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IBinOp (BS128 shape) IAddSatU) =
             let r = case shape of
                     I8x16 -> lanewise @Word8 shape v1 v2 $ \a b ->
