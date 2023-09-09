@@ -41,7 +41,7 @@ import qualified Data.Primitive.Types as Primitive
 import qualified Control.Monad.Primitive as Primitive
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.Word (Word8, Word16, Word32, Word64)
-import Data.Int (Int32, Int64)
+import Data.Int (Int8, Int16, Int32, Int64)
 import Numeric.Natural (Natural)
 import qualified Control.Monad as Monad
 import Data.Bits (
@@ -84,6 +84,17 @@ data Value =
     | RE (Maybe Natural)
     deriving (Eq, Show)
 
+asInt8 :: Word8 -> Int8
+asInt8 w =
+    if w < 0x80
+    then fromIntegral w
+    else -1 * fromIntegral (0xFF - w + 1)
+
+asInt16 :: Word16 -> Int16
+asInt16 w =
+    if w < 0x8000
+    then fromIntegral w
+    else -1 * fromIntegral (0xFFFF - w + 1)
 
 asInt32 :: Word32 -> Int32
 asInt32 w =
@@ -96,6 +107,16 @@ asInt64 w =
     if w < 0x8000000000000000
     then fromIntegral w
     else -1 * fromIntegral (0xFFFFFFFFFFFFFFFF - w + 1)
+
+asWord8 :: Int8 -> Word8
+asWord8 i
+    | i >= 0 = fromIntegral i
+    | otherwise = 0xFF - (fromIntegral (abs i)) + 1
+
+asWord16 :: Int16 -> Word16
+asWord16 i
+    | i >= 0 = fromIntegral i
+    | otherwise = 0xFFFF - (fromIntegral (abs i)) + 1
 
 asWord32 :: Int32 -> Word32
 asWord32 i
@@ -1418,6 +1439,30 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
             return $ Done ctx { stack = VV128 r : rest }
         step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IBinOp (BS128 _) IXor) =
             let r = lanewise @Word64 I64x2 v1 v2 xor in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VI32 s:VV128 v:rest) } (IBinOp (BS128 shape) IShl) =
+            let r = case shape of
+                    I8x16 -> ByteArray.byteArrayFromList $ (`shiftL` (fromIntegral s `rem` 8)) . ByteArray.indexByteArray @Word8 v <$> [0..15]
+                    I16x8 -> ByteArray.byteArrayFromList $ (`shiftL` (fromIntegral s `rem` 16)) . ByteArray.indexByteArray @Word16 v <$> [0..7]
+                    I32x4 -> ByteArray.byteArrayFromList $ (`shiftL` (fromIntegral s `rem` 32)) . ByteArray.indexByteArray @Word32 v <$> [0..3]
+                    I64x2 -> ByteArray.byteArrayFromList $ (`shiftL` (fromIntegral s `rem` 64)) . ByteArray.indexByteArray @Word64 v <$> [0..1]
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VI32 s:VV128 v:rest) } (IBinOp (BS128 shape) IShrU) =
+            let r = case shape of
+                    I8x16 -> ByteArray.byteArrayFromList $ (`shiftR` (fromIntegral s `rem` 8)) . ByteArray.indexByteArray @Word8 v <$> [0..15]
+                    I16x8 -> ByteArray.byteArrayFromList $ (`shiftR` (fromIntegral s `rem` 16)) . ByteArray.indexByteArray @Word16 v <$> [0..7]
+                    I32x4 -> ByteArray.byteArrayFromList $ (`shiftR` (fromIntegral s `rem` 32)) . ByteArray.indexByteArray @Word32 v <$> [0..3]
+                    I64x2 -> ByteArray.byteArrayFromList $ (`shiftR` (fromIntegral s `rem` 64)) . ByteArray.indexByteArray @Word64 v <$> [0..1]
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VI32 s:VV128 v:rest) } (IBinOp (BS128 shape) IShrS) =
+            let r = case shape of
+                    I8x16 -> ByteArray.byteArrayFromList $ (asWord8 . (`shiftR` (fromIntegral s `rem` 8)) . asInt8) . ByteArray.indexByteArray @Word8 v <$> [0..15]
+                    I16x8 -> ByteArray.byteArrayFromList $ (asWord16 . (`shiftR` (fromIntegral s `rem` 16)) . asInt16) . ByteArray.indexByteArray @Word16 v <$> [0..7]
+                    I32x4 -> ByteArray.byteArrayFromList $ (asWord32 . (`shiftR` (fromIntegral s `rem` 32)) . asInt32) . ByteArray.indexByteArray @Word32 v <$> [0..3]
+                    I64x2 -> ByteArray.byteArrayFromList $ (asWord64 . (`shiftR` (fromIntegral s `rem` 64)) . asInt64) . ByteArray.indexByteArray @Word64 v <$> [0..1]
+            in
             return $ Done ctx { stack = VV128 r : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (FUnOp BS32 FAbs) =
             return $ Done ctx { stack = VF32 (abs v) : rest }

@@ -413,6 +413,18 @@ import Language.Wasm.Lexer (
 'i16x8.sub'           { Lexeme _ (TKeyword "i16x8.sub") }
 'i32x4.sub'           { Lexeme _ (TKeyword "i32x4.sub") }
 'i64x2.sub'           { Lexeme _ (TKeyword "i64x2.sub") }
+'i8x16.shl'           { Lexeme _ (TKeyword "i8x16.shl") }
+'i16x8.shl'           { Lexeme _ (TKeyword "i16x8.shl") }
+'i32x4.shl'           { Lexeme _ (TKeyword "i32x4.shl") }
+'i64x2.shl'           { Lexeme _ (TKeyword "i64x2.shl") }
+'i8x16.shr_u'         { Lexeme _ (TKeyword "i8x16.shr_u") }
+'i16x8.shr_u'         { Lexeme _ (TKeyword "i16x8.shr_u") }
+'i32x4.shr_u'         { Lexeme _ (TKeyword "i32x4.shr_u") }
+'i64x2.shr_u'         { Lexeme _ (TKeyword "i64x2.shr_u") }
+'i8x16.shr_s'         { Lexeme _ (TKeyword "i8x16.shr_s") }
+'i16x8.shr_s'         { Lexeme _ (TKeyword "i16x8.shr_s") }
+'i32x4.shr_s'         { Lexeme _ (TKeyword "i32x4.shr_s") }
+'i64x2.shr_s'         { Lexeme _ (TKeyword "i64x2.shr_s") }
 'i8x16.bitmask'       { Lexeme _ (TKeyword "i8x16.bitmask") }
 'i16x8.bitmask'       { Lexeme _ (TKeyword "i16x8.bitmask") }
 'i32x4.bitmask'       { Lexeme _ (TKeyword "i32x4.bitmask") }
@@ -863,6 +875,18 @@ plaininstr :: { PlainInstr }
     | 'i16x8.sub'                        { IBinOp (BS128 I16x8) ISub }
     | 'i32x4.sub'                        { IBinOp (BS128 I32x4) ISub }
     | 'i64x2.sub'                        { IBinOp (BS128 I64x2) ISub }
+    | 'i8x16.shl'                        { IBinOp (BS128 I8x16) IShl }
+    | 'i16x8.shl'                        { IBinOp (BS128 I16x8) IShl }
+    | 'i32x4.shl'                        { IBinOp (BS128 I32x4) IShl }
+    | 'i64x2.shl'                        { IBinOp (BS128 I64x2) IShl }
+    | 'i8x16.shr_u'                      { IBinOp (BS128 I8x16) IShrU }
+    | 'i16x8.shr_u'                      { IBinOp (BS128 I16x8) IShrU }
+    | 'i32x4.shr_u'                      { IBinOp (BS128 I32x4) IShrU }
+    | 'i64x2.shr_u'                      { IBinOp (BS128 I64x2) IShrU }
+    | 'i8x16.shr_s'                      { IBinOp (BS128 I8x16) IShrS }
+    | 'i16x8.shr_s'                      { IBinOp (BS128 I16x8) IShrS }
+    | 'i32x4.shr_s'                      { IBinOp (BS128 I32x4) IShrS }
+    | 'i64x2.shr_s'                      { IBinOp (BS128 I64x2) IShrS }
     | 'i8x16.bitmask'                    { V128BitMask I8x16 }
     | 'i16x8.bitmask'                    { V128BitMask I16x8 }
     | 'i32x4.bitmask'                    { V128BitMask I32x4 }

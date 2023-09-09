@@ -548,6 +548,8 @@ getInstrType _ (IUnOp BS64 _) = return $ I64 ==> I64
 getInstrType _ (IUnOp (BS128 _) _) = return $ V128 ==> V128
 getInstrType _ (IBinOp BS32 _) = return $ [I32, I32] ==> I32
 getInstrType _ (IBinOp BS64 _) = return $ [I64, I64] ==> I64
+getInstrType _ (IBinOp (BS128 _) op) | op == IShl || op == IShrS || op == IShrU =
+    return $ [V128, I32] ==> V128
 getInstrType _ (IBinOp (BS128 _) _) = return $ [V128, V128] ==> V128
 getInstrType _ I32Eqz = return $ I32 ==> I32
 getInstrType _ I64Eqz = return $ I64 ==> I32
