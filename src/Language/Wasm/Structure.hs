@@ -254,6 +254,7 @@ data Instruction index =
     | V128ExtractLane SimdShape index {- signed -} Bool
     | V128ReplaceLane SimdShape index
     | V128AllTrue SimdShape
+    | V128BitMask SimdShape
     | V128AnyTrue
     | V128BitSelect
     | I8x16Swizzle

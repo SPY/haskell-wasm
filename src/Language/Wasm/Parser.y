@@ -398,8 +398,6 @@ import Language.Wasm.Lexer (
 'i16x8.all_true'      { Lexeme _ (TKeyword "i16x8.all_true") }
 'i32x4.all_true'      { Lexeme _ (TKeyword "i32x4.all_true") }
 'i64x2.all_true'      { Lexeme _ (TKeyword "i64x2.all_true") }
-'f32x4.all_true'      { Lexeme _ (TKeyword "f32x4.all_true") }
-'f64x2.all_true'      { Lexeme _ (TKeyword "f64x2.all_true") }
 'v128.not'            { Lexeme _ (TKeyword "v128.not") }
 'v128.and'            { Lexeme _ (TKeyword "v128.and") }
 'v128.andnot'         { Lexeme _ (TKeyword "v128.andnot") }
@@ -415,6 +413,10 @@ import Language.Wasm.Lexer (
 'i16x8.sub'           { Lexeme _ (TKeyword "i16x8.sub") }
 'i32x4.sub'           { Lexeme _ (TKeyword "i32x4.sub") }
 'i64x2.sub'           { Lexeme _ (TKeyword "i64x2.sub") }
+'i8x16.bitmask'       { Lexeme _ (TKeyword "i8x16.bitmask") }
+'i16x8.bitmask'       { Lexeme _ (TKeyword "i16x8.bitmask") }
+'i32x4.bitmask'       { Lexeme _ (TKeyword "i32x4.bitmask") }
+'i64x2.bitmask'       { Lexeme _ (TKeyword "i64x2.bitmask") }
 -- script extension
 'binary'              { Lexeme _ (TKeyword "binary") }
 'quote'               { Lexeme _ (TKeyword "quote") }
@@ -839,8 +841,6 @@ plaininstr :: { PlainInstr }
     | 'i16x8.all_true'                   { V128AllTrue I16x8 }
     | 'i32x4.all_true'                   { V128AllTrue I32x4 }
     | 'i64x2.all_true'                   { V128AllTrue I64x2 }
-    | 'f32x4.all_true'                   { V128AllTrue F32x4 }
-    | 'f64x2.all_true'                   { V128AllTrue F64x2 }
     | 'i8x16.extract_lane_s' lane_index  { V128ExtractLane I8x16 $2 True }
     | 'i16x8.extract_lane_s' lane_index  { V128ExtractLane I16x8 $2 True }
     | 'i8x16.extract_lane_u' lane_index  { V128ExtractLane I8x16 $2 False }
@@ -863,6 +863,10 @@ plaininstr :: { PlainInstr }
     | 'i16x8.sub'                        { IBinOp (BS128 I16x8) ISub }
     | 'i32x4.sub'                        { IBinOp (BS128 I32x4) ISub }
     | 'i64x2.sub'                        { IBinOp (BS128 I64x2) ISub }
+    | 'i8x16.bitmask'                    { V128BitMask I8x16 }
+    | 'i16x8.bitmask'                    { V128BitMask I16x8 }
+    | 'i32x4.bitmask'                    { V128BitMask I32x4 }
+    | 'i64x2.bitmask'                    { V128BitMask I64x2 }
 
 typeuse(next)
     : '(' typeuse1(folded_instr_list(next), instruction_list(next)) {
@@ -1588,6 +1592,7 @@ data PlainInstr =
     | V128ExtractLane SimdShape Natural Bool
     | V128ReplaceLane SimdShape Natural
     | V128AllTrue SimdShape
+    | V128BitMask SimdShape
     | V128AnyTrue
     | V128BitSelect
     | I8x16Shuffle [Int]
@@ -2169,6 +2174,7 @@ desugarize fields = do
         synInstrToStruct _ (PlainInstr (V128ExtractLane shape idx sign)) = return $ S.V128ExtractLane shape idx sign
         synInstrToStruct _ (PlainInstr (V128ReplaceLane shape idx)) = return $ S.V128ReplaceLane shape idx
         synInstrToStruct _ (PlainInstr (V128AllTrue shape)) = return $ S.V128AllTrue shape
+        synInstrToStruct _ (PlainInstr (V128BitMask shape)) = return $ S.V128BitMask shape
         synInstrToStruct _ (PlainInstr V128AnyTrue) = return $ S.V128AnyTrue
         synInstrToStruct _ (PlainInstr V128BitSelect) = return $ S.V128BitSelect
         synInstrToStruct _ (PlainInstr (I8x16Shuffle idxs)) = return $ S.I8x16Shuffle idxs

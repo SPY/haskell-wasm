@@ -611,6 +611,8 @@ getInstrType _ V128AnyTrue =
     return $ V128 ==> I32
 getInstrType _ V128BitSelect =
     return $ [V128, V128, V128] ==> V128
+getInstrType _ (V128BitMask _) =
+    return $ V128 ==> I32
 
 getShapeElemType :: SimdShape -> ValueType
 getShapeElemType I8x16 = I32

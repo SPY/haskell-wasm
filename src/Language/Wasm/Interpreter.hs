@@ -1709,13 +1709,19 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
         step ctx@EvalCtx{ stack = (VV128 v:rest) } (V128AllTrue shape) =
             let r = case shape of
                     I8x16 -> all (/= 0) $ ByteArray.indexByteArray @Word8 v <$> [0..15]
-                    I16x8 -> all (/= 0) $ ByteArray.indexByteArray @Word16 v <$> [0..8]
-                    I32x4 -> all (/= 0) $ ByteArray.indexByteArray @Word32 v <$> [0..4]
-                    I64x2 -> all (/= 0) $ ByteArray.indexByteArray @Word64 v <$> [0..2]
-                    F32x4 -> all (/= 0) $ wordToFloat . ByteArray.indexByteArray @Word32 v <$> [0..4]
-                    F64x2 -> all (/= 0) $ wordToDouble . ByteArray.indexByteArray @Word64 v <$> [0..2]
+                    I16x8 -> all (/= 0) $ ByteArray.indexByteArray @Word16 v <$> [0..7]
+                    I32x4 -> all (/= 0) $ ByteArray.indexByteArray @Word32 v <$> [0..3]
+                    I64x2 -> all (/= 0) $ ByteArray.indexByteArray @Word64 v <$> [0..1]
             in
             return $ Done ctx { stack = VI32 (if r then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (V128BitMask shape) =
+            let r = foldr (.|.) 0 $ case shape of
+                    I8x16 -> (\i -> flip shiftL i . flip shiftR 7 . fromIntegral $ ByteArray.indexByteArray @Word8 v i) <$> [0..15]
+                    I16x8 -> (\i -> flip shiftL i . flip shiftR 15 . fromIntegral $ ByteArray.indexByteArray @Word16 v i) <$> [0..7]
+                    I32x4 -> (\i -> flip shiftL i . flip shiftR 31 . fromIntegral $ ByteArray.indexByteArray @Word32 v i) <$> [0..3]
+                    I64x2 -> (\i -> flip shiftL i . fromIntegral $ flip shiftR 63 $ ByteArray.indexByteArray @Word64 v i) <$> [0..1]
+            in
+            return $ Done ctx { stack = VI32 r : rest }
         step ctx@EvalCtx{ stack = (VV128 c:VV128 v2:VV128 v1:rest) } V128BitSelect =
             let bitselect idx =
                     let w1 = ByteArray.indexByteArray @Word64 v1 idx in
