@@ -448,6 +448,46 @@ import Language.Wasm.Lexer (
 'i16x8.bitmask'       { Lexeme _ (TKeyword "i16x8.bitmask") }
 'i32x4.bitmask'       { Lexeme _ (TKeyword "i32x4.bitmask") }
 'i64x2.bitmask'       { Lexeme _ (TKeyword "i64x2.bitmask") }
+'i8x16.eq'           { Lexeme _ (TKeyword "i8x16.eq") }
+'i16x8.eq'           { Lexeme _ (TKeyword "i16x8.eq") }
+'i32x4.eq'           { Lexeme _ (TKeyword "i32x4.eq") }
+'i64x2.eq'           { Lexeme _ (TKeyword "i64x2.eq") }
+'i8x16.ne'           { Lexeme _ (TKeyword "i8x16.ne") }
+'i16x8.ne'           { Lexeme _ (TKeyword "i16x8.ne") }
+'i32x4.ne'           { Lexeme _ (TKeyword "i32x4.ne") }
+'i64x2.ne'           { Lexeme _ (TKeyword "i64x2.ne") }
+'i8x16.lt_s'         { Lexeme _ (TKeyword "i8x16.lt_s") }
+'i16x8.lt_s'         { Lexeme _ (TKeyword "i16x8.lt_s") }
+'i32x4.lt_s'         { Lexeme _ (TKeyword "i32x4.lt_s") }
+'i64x2.lt_s'         { Lexeme _ (TKeyword "i64x2.lt_s") }
+'i8x16.lt_u'         { Lexeme _ (TKeyword "i8x16.lt_u") }
+'i16x8.lt_u'         { Lexeme _ (TKeyword "i16x8.lt_u") }
+'i32x4.lt_u'         { Lexeme _ (TKeyword "i32x4.lt_u") }
+'i64x2.lt_u'         { Lexeme _ (TKeyword "i64x2.lt_u") }
+'i8x16.le_s'         { Lexeme _ (TKeyword "i8x16.le_s") }
+'i16x8.le_s'         { Lexeme _ (TKeyword "i16x8.le_s") }
+'i32x4.le_s'         { Lexeme _ (TKeyword "i32x4.le_s") }
+'i64x2.le_s'         { Lexeme _ (TKeyword "i64x2.le_s") }
+'i8x16.le_u'         { Lexeme _ (TKeyword "i8x16.le_u") }
+'i16x8.le_u'         { Lexeme _ (TKeyword "i16x8.le_u") }
+'i32x4.le_u'         { Lexeme _ (TKeyword "i32x4.le_u") }
+'i64x2.le_u'         { Lexeme _ (TKeyword "i64x2.le_u") }
+'i8x16.gt_s'         { Lexeme _ (TKeyword "i8x16.gt_s") }
+'i16x8.gt_s'         { Lexeme _ (TKeyword "i16x8.gt_s") }
+'i32x4.gt_s'         { Lexeme _ (TKeyword "i32x4.gt_s") }
+'i64x2.gt_s'         { Lexeme _ (TKeyword "i64x2.gt_s") }
+'i8x16.gt_u'         { Lexeme _ (TKeyword "i8x16.gt_u") }
+'i16x8.gt_u'         { Lexeme _ (TKeyword "i16x8.gt_u") }
+'i32x4.gt_u'         { Lexeme _ (TKeyword "i32x4.gt_u") }
+'i64x2.gt_u'         { Lexeme _ (TKeyword "i64x2.gt_u") }
+'i8x16.ge_s'         { Lexeme _ (TKeyword "i8x16.ge_s") }
+'i16x8.ge_s'         { Lexeme _ (TKeyword "i16x8.ge_s") }
+'i32x4.ge_s'         { Lexeme _ (TKeyword "i32x4.ge_s") }
+'i64x2.ge_s'         { Lexeme _ (TKeyword "i64x2.ge_s") }
+'i8x16.ge_u'         { Lexeme _ (TKeyword "i8x16.ge_u") }
+'i16x8.ge_u'         { Lexeme _ (TKeyword "i16x8.ge_u") }
+'i32x4.ge_u'         { Lexeme _ (TKeyword "i32x4.ge_u") }
+'i64x2.ge_u'         { Lexeme _ (TKeyword "i64x2.ge_u") }
 -- script extension
 'binary'              { Lexeme _ (TKeyword "binary") }
 'quote'               { Lexeme _ (TKeyword "quote") }
@@ -929,6 +969,46 @@ plaininstr :: { PlainInstr }
     | 'i16x8.bitmask'                    { V128BitMask I16x8 }
     | 'i32x4.bitmask'                    { V128BitMask I32x4 }
     | 'i64x2.bitmask'                    { V128BitMask I64x2 }
+    | 'i8x16.eq'                         { IRelOp (BS128 I8x16) IEq }
+    | 'i16x8.eq'                         { IRelOp (BS128 I16x8) IEq }
+    | 'i32x4.eq'                         { IRelOp (BS128 I32x4) IEq }
+    | 'i64x2.eq'                         { IRelOp (BS128 I64x2) IEq }
+    | 'i8x16.ne'                         { IRelOp (BS128 I8x16) INe }
+    | 'i16x8.ne'                         { IRelOp (BS128 I16x8) INe }
+    | 'i32x4.ne'                         { IRelOp (BS128 I32x4) INe }
+    | 'i64x2.ne'                         { IRelOp (BS128 I64x2) INe }
+    | 'i8x16.lt_s'                       { IRelOp (BS128 I8x16) ILtS }
+    | 'i16x8.lt_s'                       { IRelOp (BS128 I16x8) ILtS }
+    | 'i32x4.lt_s'                       { IRelOp (BS128 I32x4) ILtS }
+    | 'i64x2.lt_s'                       { IRelOp (BS128 I64x2) ILtS }
+    | 'i8x16.lt_u'                       { IRelOp (BS128 I8x16) ILtU }
+    | 'i16x8.lt_u'                       { IRelOp (BS128 I16x8) ILtU }
+    | 'i32x4.lt_u'                       { IRelOp (BS128 I32x4) ILtU }
+    | 'i64x2.lt_u'                       { IRelOp (BS128 I64x2) ILtU }
+    | 'i8x16.le_s'                       { IRelOp (BS128 I8x16) ILeS }
+    | 'i16x8.le_s'                       { IRelOp (BS128 I16x8) ILeS }
+    | 'i32x4.le_s'                       { IRelOp (BS128 I32x4) ILeS }
+    | 'i64x2.le_s'                       { IRelOp (BS128 I64x2) ILeS }
+    | 'i8x16.le_u'                       { IRelOp (BS128 I8x16) ILeU }
+    | 'i16x8.le_u'                       { IRelOp (BS128 I16x8) ILeU }
+    | 'i32x4.le_u'                       { IRelOp (BS128 I32x4) ILeU }
+    | 'i64x2.le_u'                       { IRelOp (BS128 I64x2) ILeU }
+    | 'i8x16.gt_s'                       { IRelOp (BS128 I8x16) IGtS }
+    | 'i16x8.gt_s'                       { IRelOp (BS128 I16x8) IGtS }
+    | 'i32x4.gt_s'                       { IRelOp (BS128 I32x4) IGtS }
+    | 'i64x2.gt_s'                       { IRelOp (BS128 I64x2) IGtS }
+    | 'i8x16.gt_u'                       { IRelOp (BS128 I8x16) IGtU }
+    | 'i16x8.gt_u'                       { IRelOp (BS128 I16x8) IGtU }
+    | 'i32x4.gt_u'                       { IRelOp (BS128 I32x4) IGtU }
+    | 'i64x2.gt_u'                       { IRelOp (BS128 I64x2) IGtU }
+    | 'i8x16.ge_s'                       { IRelOp (BS128 I8x16) IGeS }
+    | 'i16x8.ge_s'                       { IRelOp (BS128 I16x8) IGeS }
+    | 'i32x4.ge_s'                       { IRelOp (BS128 I32x4) IGeS }
+    | 'i64x2.ge_s'                       { IRelOp (BS128 I64x2) IGeS }
+    | 'i8x16.ge_u'                       { IRelOp (BS128 I8x16) IGeU }
+    | 'i16x8.ge_u'                       { IRelOp (BS128 I16x8) IGeU }
+    | 'i32x4.ge_u'                       { IRelOp (BS128 I32x4) IGeU }
+    | 'i64x2.ge_u'                       { IRelOp (BS128 I64x2) IGeU }
 
 typeuse(next)
     : '(' typeuse1(folded_instr_list(next), instruction_list(next)) {

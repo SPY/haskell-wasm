@@ -1564,6 +1564,96 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
                     I64x2 -> ByteArray.byteArrayFromList $ (asWord64 . (`shiftR` (fromIntegral s `rem` 64)) . asInt64) . ByteArray.indexByteArray @Word64 v <$> [0..1]
             in
             return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IRelOp (BS128 shape) IEq) =
+            let r = case shape of
+                    I8x16 -> lanewise @Word8 shape v1 v2 $ \a b -> if a == b then fromIntegral (-1) else 0
+                    I16x8 -> lanewise @Word16 shape v1 v2 $ \a b -> if a == b then fromIntegral (-1) else 0
+                    I32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> if a == b then fromIntegral (-1) else 0
+                    I64x2 -> lanewise @Word64 shape v1 v2 $ \a b -> if a == b then fromIntegral (-1) else 0
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IRelOp (BS128 shape) INe) =
+            let r = case shape of
+                    I8x16 -> lanewise @Word8 shape v1 v2 $ \a b -> if a /= b then fromIntegral (-1) else 0
+                    I16x8 -> lanewise @Word16 shape v1 v2 $ \a b -> if a /= b then fromIntegral (-1) else 0
+                    I32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> if a /= b then fromIntegral (-1) else 0
+                    I64x2 -> lanewise @Word64 shape v1 v2 $ \a b -> if a /= b then fromIntegral (-1) else 0
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IRelOp (BS128 shape) ILtU) =
+            let r = case shape of
+                    I8x16 -> lanewise @Word8 shape v1 v2 $ \a b -> if a < b then fromIntegral (-1) else 0
+                    I16x8 -> lanewise @Word16 shape v1 v2 $ \a b -> if a < b then fromIntegral (-1) else 0
+                    I32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> if a < b then fromIntegral (-1) else 0
+                    I64x2 -> lanewise @Word64 shape v1 v2 $ \a b -> if a < b then fromIntegral (-1) else 0
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IRelOp (BS128 shape) ILtS) =
+            let r = case shape of
+                    I8x16 -> lanewise @Word8 shape v1 v2 $ \a b -> if asInt8 a < asInt8 b then fromIntegral (-1) else 0
+                    I16x8 -> lanewise @Word16 shape v1 v2 $ \a b -> if asInt16 a < asInt16 b then fromIntegral (-1) else 0
+                    I32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> if asInt32 a < asInt32 b then fromIntegral (-1) else 0
+                    I64x2 -> lanewise @Word64 shape v1 v2 $ \a b -> if asInt64 a < asInt64 b then fromIntegral (-1) else 0
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IRelOp (BS128 shape) IGtU) =
+            let r = case shape of
+                    I8x16 -> lanewise @Word8 shape v1 v2 $ \a b -> if a > b then fromIntegral (-1) else 0
+                    I16x8 -> lanewise @Word16 shape v1 v2 $ \a b -> if a > b then fromIntegral (-1) else 0
+                    I32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> if a > b then fromIntegral (-1) else 0
+                    I64x2 -> lanewise @Word64 shape v1 v2 $ \a b -> if a > b then fromIntegral (-1) else 0
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IRelOp (BS128 shape) IGtS) =
+            let r = case shape of
+                    I8x16 -> lanewise @Word8 shape v1 v2 $ \a b -> if asInt8 a > asInt8 b then fromIntegral (-1) else 0
+                    I16x8 -> lanewise @Word16 shape v1 v2 $ \a b -> if asInt16 a > asInt16 b then fromIntegral (-1) else 0
+                    I32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> if asInt32 a > asInt32 b then fromIntegral (-1) else 0
+                    I64x2 -> lanewise @Word64 shape v1 v2 $ \a b -> if asInt64 a > asInt64 b then fromIntegral (-1) else 0
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IRelOp (BS128 shape) ILeU) =
+            let r = case shape of
+                    I8x16 -> lanewise @Word8 shape v1 v2 $ \a b -> if a <= b then fromIntegral (-1) else 0
+                    I16x8 -> lanewise @Word16 shape v1 v2 $ \a b -> if a <= b then fromIntegral (-1) else 0
+                    I32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> if a <= b then fromIntegral (-1) else 0
+                    I64x2 -> lanewise @Word64 shape v1 v2 $ \a b -> if a <= b then fromIntegral (-1) else 0
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IRelOp (BS128 shape) ILeS) =
+            let r = case shape of
+                    I8x16 -> lanewise @Word8 shape v1 v2 $ \a b -> if asInt8 a <= asInt8 b then fromIntegral (-1) else 0
+                    I16x8 -> lanewise @Word16 shape v1 v2 $ \a b -> if asInt16 a <= asInt16 b then fromIntegral (-1) else 0
+                    I32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> if asInt32 a <= asInt32 b then fromIntegral (-1) else 0
+                    I64x2 -> lanewise @Word64 shape v1 v2 $ \a b -> if asInt64 a <= asInt64 b then fromIntegral (-1) else 0
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IRelOp (BS128 shape) IGeU) =
+            let r = case shape of
+                    I8x16 -> lanewise @Word8 shape v1 v2 $ \a b -> if a >= b then fromIntegral (-1) else 0
+                    I16x8 -> lanewise @Word16 shape v1 v2 $ \a b -> if a >= b then fromIntegral (-1) else 0
+                    I32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> if a >= b then fromIntegral (-1) else 0
+                    I64x2 -> lanewise @Word64 shape v1 v2 $ \a b -> if a >= b then fromIntegral (-1) else 0
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IRelOp (BS128 shape) IGeS) =
+            let r = case shape of
+                    I8x16 -> lanewise @Word8 shape v1 v2 $ \a b -> if asInt8 a >= asInt8 b then fromIntegral (-1) else 0
+                    I16x8 -> lanewise @Word16 shape v1 v2 $ \a b -> if asInt16 a >= asInt16 b then fromIntegral (-1) else 0
+                    I32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> if asInt32 a >= asInt32 b then fromIntegral (-1) else 0
+                    I64x2 -> lanewise @Word64 shape v1 v2 $ \a b -> if asInt64 a >= asInt64 b then fromIntegral (-1) else 0
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (FUnOp BS32 FAbs) =
             return $ Done ctx { stack = VF32 (abs v) : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (FUnOp BS32 FNeg) =

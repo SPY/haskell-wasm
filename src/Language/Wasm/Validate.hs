@@ -555,6 +555,7 @@ getInstrType _ I32Eqz = return $ I32 ==> I32
 getInstrType _ I64Eqz = return $ I64 ==> I32
 getInstrType _ (IRelOp BS32 _) = return $ [I32, I32] ==> I32
 getInstrType _ (IRelOp BS64 _) = return $ [I64, I64] ==> I32
+getInstrType _ (IRelOp (BS128 _) _) = return $ [V128, V128] ==> V128
 getInstrType _ (FUnOp BS32 _) = return $ F32 ==> F32
 getInstrType _ (FUnOp BS64 _) = return $ F64 ==> F64
 getInstrType _ (FBinOp BS32 _) = return $ [F32, F32] ==> F32
