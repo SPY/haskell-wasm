@@ -529,6 +529,7 @@ getInstrType _ (F64Const _) = return $ empty ==> F64
 getInstrType _ (V128Const _) = return $ empty ==> V128
 getInstrType _ (IUnOp BS32 _) = return $ I32 ==> I32
 getInstrType _ (IUnOp BS64 _) = return $ I64 ==> I64
+getInstrType _ (IUnOp (BS128 _) _) = return $ V128 ==> V128
 getInstrType _ (IBinOp BS32 _) = return $ [I32, I32] ==> I32
 getInstrType _ (IBinOp BS64 _) = return $ [I64, I64] ==> I64
 getInstrType _ (IBinOp (BS128 _) _) = return $ [V128, V128] ==> V128
@@ -592,6 +593,8 @@ getInstrType _ (V128AllTrue _) =
     return $ V128 ==> I32
 getInstrType _ V128AnyTrue =
     return $ V128 ==> I32
+getInstrType _ V128BitSelect =
+    return $ [V128, V128, V128] ==> V128
 
 getShapeElemType :: SimdShape -> ValueType
 getShapeElemType I8x16 = I32

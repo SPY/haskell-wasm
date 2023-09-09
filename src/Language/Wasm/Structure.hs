@@ -71,6 +71,7 @@ data IUnOp =
     | IExtend8S
     | IExtend16S
     | IExtend32S
+    | INot
     deriving (Show, Eq, Generic, NFData)
 
 data IBinOp =
@@ -82,6 +83,7 @@ data IBinOp =
     | IRemU
     | IRemS
     | IAnd
+    | IAndNot
     | IOr
     | IXor
     | IShl
@@ -249,6 +251,7 @@ data Instruction index =
     | V128ReplaceLane SimdShape index
     | V128AllTrue SimdShape
     | V128AnyTrue
+    | V128BitSelect
     | I8x16Swizzle
     | I8x16Shuffle [Int]
     deriving (Show, Eq, Generic, NFData)

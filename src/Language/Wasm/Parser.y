@@ -396,7 +396,13 @@ import Language.Wasm.Lexer (
 'i64x2.all_true'      { Lexeme _ (TKeyword "i64x2.all_true") }
 'f32x4.all_true'      { Lexeme _ (TKeyword "f32x4.all_true") }
 'f64x2.all_true'      { Lexeme _ (TKeyword "f64x2.all_true") }
+'v128.not'            { Lexeme _ (TKeyword "v128.not") }
+'v128.and'            { Lexeme _ (TKeyword "v128.and") }
+'v128.andnot'         { Lexeme _ (TKeyword "v128.andnot") }
+'v128.or'             { Lexeme _ (TKeyword "v128.or") }
+'v128.xor'            { Lexeme _ (TKeyword "v128.xor") }
 'v128.any_true'       { Lexeme _ (TKeyword "v128.any_true") }
+'v128.bitselect'      { Lexeme _ (TKeyword "v128.bitselect") }
 'i8x16.add'           { Lexeme _ (TKeyword "i8x16.add") }
 'i16x8.add'           { Lexeme _ (TKeyword "i16x8.add") }
 'i32x4.add'           { Lexeme _ (TKeyword "i32x4.add") }
@@ -424,8 +430,9 @@ import Language.Wasm.Lexer (
 'output'              { Lexeme _ (TKeyword "output") }
 -- script extension end
 id                    { Lexeme _ (TId $$) }
-signed                { Lexeme _ (TIntLit False $$) }
-nat                   { Lexeme _ (TIntLit True $$) }
+signed_pos            { Lexeme _ (TIntLit (Just False) $$) }
+signed_neg            { Lexeme _ (TIntLit (Just True) $$) }
+nat                   { Lexeme _ (TIntLit Nothing $$) }
 f64                   { Lexeme _ (TFloatLit $$) }
 offset                { Lexeme _ (TKeyword (asOffset -> Just $$)) }
 align                 { Lexeme _ (TKeyword (asAlign -> Just $$)) }
@@ -457,7 +464,8 @@ valtype :: { ValueType }
     | 'externref' { Extern }
 
 int :: {Integer}
-    : signed { $1 }
+    : signed_neg { $1 }
+    | signed_pos { $1 }
     | nat { $1 }
 
 index :: { Index }
@@ -500,7 +508,20 @@ int64 :: { Integer }
     }
 
 float32 :: { FloatRep }
-    : int {%
+    : signed_neg {%
+        -- it is stupid, but to preserve minus bit of "-0" we have to do it
+        let maxInt = 340282356779733623858607532500980858880 in
+        if $1 <= maxInt && $1 >= -maxInt
+        then return $ BinRep $ if $1 == 0 then negate $ fromIntegral $1 else fromIntegral $1
+        else Left "constant out of range"
+    }
+    | signed_pos {%
+        let maxInt = 340282356779733623858607532500980858880 in
+        if $1 <= maxInt && $1 >= -maxInt
+        then return $ BinRep $ fromIntegral $1
+        else Left "constant out of range"
+    }
+    | nat {%
         let maxInt = 340282356779733623858607532500980858880 in
         if $1 <= maxInt && $1 >= -maxInt
         then return $ BinRep $ fromIntegral $1
@@ -509,7 +530,20 @@ float32 :: { FloatRep }
     | f64 { $1 }
 
 float64 :: { FloatRep }
-    : int {%
+    : signed_neg {%
+        -- it is stupid, but to preserve minus bit of "-0" we have to do it
+        let maxInt = round (maxFinite :: Double) in
+        if $1 <= maxInt && $1 >= -maxInt
+        then fmap (BinRep . if $1 == 0 then negate else id) $ doubleFromInteger $1
+        else Left "constant out of range"
+    }
+    | signed_pos {%
+        let maxInt = round (maxFinite :: Double) in
+        if $1 <= maxInt && $1 >= -maxInt
+        then fmap BinRep $ doubleFromInteger $1
+        else Left "constant out of range"
+    }
+    | nat {%
         let maxInt = round (maxFinite :: Double) in
         if $1 <= maxInt && $1 >= -maxInt
         then fmap BinRep $ doubleFromInteger $1
@@ -780,6 +814,12 @@ plaininstr :: { PlainInstr }
         else Right $ I8x16Shuffle $ map fromIntegral idxs
     }
     | 'i8x16.swizzle'                    { I8x16Swizzle }
+    | 'v128.not'                         { IUnOp (BS128 I128x1) INot }
+    | 'v128.and'                         { IBinOp (BS128 I128x1) IAnd }
+    | 'v128.andnot'                      { IBinOp (BS128 I128x1) IAndNot }
+    | 'v128.or'                          { IBinOp (BS128 I128x1) IOr }
+    | 'v128.xor'                         { IBinOp (BS128 I128x1) IXor }
+    | 'v128.bitselect'                   { V128BitSelect }
     | 'v128.any_true'                    { V128AnyTrue }
     | 'i8x16.splat'                      { V128Splat I8x16 }
     | 'i16x8.splat'                      { V128Splat I16x8 }
@@ -1537,6 +1577,7 @@ data PlainInstr =
     | V128ReplaceLane SimdShape Natural
     | V128AllTrue SimdShape
     | V128AnyTrue
+    | V128BitSelect
     | I8x16Shuffle [Int]
     | I8x16Swizzle
     deriving (Show, Eq)
@@ -2113,6 +2154,7 @@ desugarize fields = do
         synInstrToStruct _ (PlainInstr (V128ReplaceLane shape idx)) = return $ S.V128ReplaceLane shape idx
         synInstrToStruct _ (PlainInstr (V128AllTrue shape)) = return $ S.V128AllTrue shape
         synInstrToStruct _ (PlainInstr V128AnyTrue) = return $ S.V128AnyTrue
+        synInstrToStruct _ (PlainInstr V128BitSelect) = return $ S.V128BitSelect
         synInstrToStruct _ (PlainInstr (I8x16Shuffle idxs)) = return $ S.I8x16Shuffle idxs
         synInstrToStruct _ (PlainInstr I8x16Swizzle) = return $ S.I8x16Swizzle
         synInstrToStruct ctx@FunCtx { ctxMod = Module { types } } BlockInstr {label, blockType, body} = do

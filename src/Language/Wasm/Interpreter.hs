@@ -45,7 +45,7 @@ import Data.Int (Int32, Int64)
 import Numeric.Natural (Natural)
 import qualified Control.Monad as Monad
 import Data.Bits (
-        Bits,
+        Bits (complement),
         (.|.),
         (.&.),
         xor,
@@ -55,7 +55,8 @@ import Data.Bits (
         rotateR,
         popCount,
         countLeadingZeros,
-        countTrailingZeros
+        countTrailingZeros,
+        complement
     )
 import Numeric.IEEE (IEEE, copySign, minNum, maxNum, identicalIEEE)
 import Control.Monad.Except (ExceptT, runExceptT, throwError)
@@ -1355,6 +1356,11 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
             let half = v .&. 0xFFFFFFFF in
             let r = if half >= 0x80000000 then asWord64 (fromIntegral half - 0x100000000) else half in
             return $ Done ctx { stack = VI64 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (IUnOp (BS128 _) INot) =
+            let w0 = ByteArray.indexByteArray @Word64 v 0 in
+            let w1 = ByteArray.indexByteArray @Word64 v 1 in
+            let r = ByteArray.byteArrayFromList [complement w0, complement w1] in
+            return $ Done ctx { stack = VV128 r : rest }
         step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IBinOp (BS128 shape) IAdd) =
             let r = case shape of
                     I8x16 -> lanewise @Word8 shape v1 v2 (+)
@@ -1372,6 +1378,18 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
                     I64x2 -> lanewise @Word64 shape v1 v2 (-)
                     _ -> error "impossible due to validation"
             in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IBinOp (BS128 _) IAnd) =
+            let r = lanewise @Word64 I64x2 v1 v2 (.&.) in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IBinOp (BS128 _) IAndNot) =
+            let r = lanewise @Word64 I64x2 v1 v2 (\a b -> a .&. complement b) in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IBinOp (BS128 _) IOr) =
+            let r = lanewise @Word64 I64x2 v1 v2 (.|.) in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IBinOp (BS128 _) IXor) =
+            let r = lanewise @Word64 I64x2 v1 v2 xor in
             return $ Done ctx { stack = VV128 r : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (FUnOp BS32 FAbs) =
             return $ Done ctx { stack = VF32 (abs v) : rest }
@@ -1670,6 +1688,15 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
                     F64x2 -> all (/= 0) $ wordToDouble . ByteArray.indexByteArray @Word64 v <$> [0..2]
             in
             return $ Done ctx { stack = VI32 (if r then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VV128 c:VV128 v2:VV128 v1:rest) } V128BitSelect =
+            let bitselect idx =
+                    let w1 = ByteArray.indexByteArray @Word64 v1 idx in
+                    let w2 = ByteArray.indexByteArray @Word64 v2 idx in
+                    let wc = ByteArray.indexByteArray @Word64 c idx in
+                    (w1 .&. wc) .|. (w2 .&. complement wc)
+            in
+            let r = ByteArray.byteArrayFromList @Word64 $ bitselect <$> [0, 1] in
+            return $ Done ctx { stack = VV128 r : rest }
         step EvalCtx{ stack } instr = error $ "Error during evaluation of instruction: " ++ show instr ++ ". Stack " ++ show stack
 eval _ _ _ HostInstance { funcType, hostCode } args = Just <$> hostCode args
 

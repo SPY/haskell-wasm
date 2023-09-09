@@ -80,10 +80,8 @@ tokens :-
 <0> @id                                   { tokenStr TId }
 <0> "("                                   { constToken TOpenBracket }
 <0> ")"                                   { constToken TCloseBracket }
-<0> @num                                  { parseDecimalSignedInt True }
-<0> "0x" @hexnum                          { parseHexalSignedInt True }
-<0> $sign @num                            { parseDecimalSignedInt False }
-<0> $sign "0x" @hexnum                    { parseHexalSignedInt False }
+<0> $sign? @num                           { parseDecimalSignedInt }
+<0> $sign? "0x" @hexnum                   { parseHexalSignedInt }
 <0> $sign? @float                         { parseDecFloat }
 <0> $sign? @hexfloat                      { parseHexFloat }
 <0, blockComment> @startblockcomment      { startBlockComment }
@@ -121,20 +119,20 @@ minusNaN = negate nan
 inf = infinity
 minusInf = -infinity
 
-parseSign :: (Num a) => LBS.ByteString -> ((a -> a), Int64)
+parseSign :: (Num a) => LBS.ByteString -> ((a -> a), Int64, Maybe Bool)
 parseSign str =
     let Just (ch, _) = LBSUtf8.decode str in
     case ch of
-        '-' -> (negate, 1)
-        '+' -> (abs, 1)
-        otherwise -> (abs, 0)
+        '-' -> (negate, 1, Just True)
+        '+' -> (abs, 1, Just False)
+        otherwise -> (abs, 0, Nothing)
 
-{-# SPECIALIZE parseSign :: LBS.ByteString -> ((Integer -> Integer), Int64) #-}
-{-# SPECIALIZE parseSign :: LBS.ByteString -> ((Double -> Double), Int64) #-}
+{-# SPECIALIZE parseSign :: LBS.ByteString -> ((Integer -> Integer), Int64, Maybe Bool) #-}
+{-# SPECIALIZE parseSign :: LBS.ByteString -> ((Double -> Double), Int64, Maybe Bool) #-}
 
-parseHexalSignedInt :: Bool -> AlexAction Lexeme
-parseHexalSignedInt nat = token $ \(pos, _, s, _) len -> 
-    let (sign, slen) = parseSign s in
+parseHexalSignedInt :: AlexAction Lexeme
+parseHexalSignedInt = token $ \(pos, _, s, _) len -> 
+    let (sign, slen, nat) = parseSign s in
     let num = readHexFromPrefix (len - 2 - slen) $ LBSUtf8.drop (2 + slen) s in
     Lexeme (Just pos) $ TIntLit nat $ sign num
 
@@ -148,9 +146,9 @@ parseNanSigned = token $ \(pos, _, s, _) len ->
     let num = readHexFromPrefix (len - 6 - slen) $ LBSUtf8.drop (6 + slen) s in
     Lexeme (Just pos) $ TFloatLit $ NanRep $ NanHex sign $ fromIntegral num
 
-parseDecimalSignedInt :: Bool -> AlexAction Lexeme
-parseDecimalSignedInt nat = token $ \(pos, _, s, _) len ->
-    let (sign, slen) = parseSign s in
+parseDecimalSignedInt :: AlexAction Lexeme
+parseDecimalSignedInt = token $ \(pos, _, s, _) len ->
+    let (sign, slen, nat) = parseSign s in
     let num = readDecFromPrefix (len - slen) $ LBSUtf8.drop slen s in
     Lexeme (Just pos) $ TIntLit nat $ sign num
 
@@ -366,7 +364,7 @@ data NaN
     deriving (Show, Eq)
 
 data Token = TKeyword LBS.ByteString
-    | TIntLit {- Natural -} Bool Integer
+    | TIntLit {- Natural -} (Maybe Bool) Integer
     | TFloatLit FloatRep
     | TStringLit LBS.ByteString
     | TId LBS.ByteString
