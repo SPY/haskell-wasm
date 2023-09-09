@@ -1410,6 +1410,24 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
             let w1 = ByteArray.indexByteArray @Word64 v 1 in
             let r = ByteArray.byteArrayFromList [complement w0, complement w1] in
             return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (IUnOp (BS128 shape) INeg) =
+            let r = case shape of
+                    I8x16 -> ByteArray.byteArrayFromList $ (asWord8 . negate . asInt8) . ByteArray.indexByteArray @Word8 v <$> [0..15]
+                    I16x8 -> ByteArray.byteArrayFromList $ (asWord16 . negate . asInt16) . ByteArray.indexByteArray @Word16 v <$> [0..7]
+                    I32x4 -> ByteArray.byteArrayFromList $ (asWord32 . negate . asInt32) . ByteArray.indexByteArray @Word32 v <$> [0..3]
+                    I64x2 -> ByteArray.byteArrayFromList $ (asWord64 . negate . asInt64) . ByteArray.indexByteArray @Word64 v <$> [0..1]
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (IUnOp (BS128 shape) IAbs) =
+            let r = case shape of
+                    I8x16 -> ByteArray.byteArrayFromList $ (asWord8 . abs . asInt8) . ByteArray.indexByteArray @Word8 v <$> [0..15]
+                    I16x8 -> ByteArray.byteArrayFromList $ (asWord16 . abs . asInt16) . ByteArray.indexByteArray @Word16 v <$> [0..7]
+                    I32x4 -> ByteArray.byteArrayFromList $ (asWord32 . abs . asInt32) . ByteArray.indexByteArray @Word32 v <$> [0..3]
+                    I64x2 -> ByteArray.byteArrayFromList $ (asWord64 . abs . asInt64) . ByteArray.indexByteArray @Word64 v <$> [0..1]
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
         step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IBinOp (BS128 shape) IAdd) =
             let r = case shape of
                     I8x16 -> lanewise @Word8 shape v1 v2 (+)
@@ -1425,6 +1443,80 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
                     I16x8 -> lanewise @Word16 shape v1 v2 (-)
                     I32x4 -> lanewise @Word32 shape v1 v2 (-)
                     I64x2 -> lanewise @Word64 shape v1 v2 (-)
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IBinOp (BS128 shape) IAddSatU) =
+            let r = case shape of
+                    I8x16 -> lanewise @Word8 shape v1 v2 $ \a b ->
+                            let i = fromIntegral a in
+                            let j = fromIntegral b in
+                            let r = i + j in
+                            if r >= 0xFF then 0xFF
+                            else asWord8 $ fromIntegral r
+                    I16x8 -> lanewise @Word16 shape v1 v2 $ \a b ->
+                            let i = fromIntegral a in
+                            let j = fromIntegral b in
+                            let r = i + j in
+                            if r >= 0xFFFF then 0xFFFF
+                            else asWord16 $ fromIntegral r
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IBinOp (BS128 shape) ISubSatU) =
+            let r = case shape of
+                    I8x16 -> lanewise @Word8 shape v1 v2 $ \a b ->
+                            let i = fromIntegral a in
+                            let j = fromIntegral b in
+                            let r = i - j in
+                            if r >= 0xFF then 0xFF
+                            else if r <= 0 then 0
+                            else asWord8 $ fromIntegral r
+                    I16x8 -> lanewise @Word16 shape v1 v2 $ \a b ->
+                            let i = fromIntegral a in
+                            let j = fromIntegral b in
+                            let r = i - j in
+                            if r >= 0xFFFF then 0xFFFF
+                            else if r <= 0 then 0
+                            else asWord16 $ fromIntegral r
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IBinOp (BS128 shape) IAddSatS) =
+            let r = case shape of
+                    I8x16 -> lanewise @Word8 shape v1 v2 $ \a b ->
+                            let i = fromIntegral $ asInt8 a in
+                            let j = fromIntegral $ asInt8 b in
+                            let r = i + j in
+                            if r >= 0x7F then 0x7F
+                            else if r <= -0x80 then 0x80
+                            else asWord8 $ fromIntegral r
+                    I16x8 -> lanewise @Word16 shape v1 v2 $ \a b ->
+                            let i = fromIntegral $ asInt16 a in
+                            let j = fromIntegral $ asInt16 b in
+                            let r = i + j in
+                            if r >= 0x7FFF then 0x7FFF
+                            else if r < -0x8000 then 0x8000
+                            else asWord16 $ fromIntegral r
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IBinOp (BS128 shape) ISubSatS) =
+            let r = case shape of
+                    I8x16 -> lanewise @Word8 shape v1 v2 $ \a b ->
+                            let i = fromIntegral $ asInt8 a in
+                            let j = fromIntegral $ asInt8 b in
+                            let r = i - j in
+                            if r >= 0x7F then 0x7F
+                            else if r <= -0x80 then 0x80
+                            else asWord8 $ fromIntegral r
+                    I16x8 -> lanewise @Word16 shape v1 v2 $ \a b ->
+                            let i = fromIntegral $ asInt16 a in
+                            let j = fromIntegral $ asInt16 b in
+                            let r = i - j in
+                            if r >= 0x7FFF then 0x7FFF
+                            else if r < -0x8000 then 0x8000
+                            else asWord16 $ fromIntegral r
                     _ -> error "impossible due to validation"
             in
             return $ Done ctx { stack = VV128 r : rest }

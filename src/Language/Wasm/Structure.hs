@@ -72,11 +72,17 @@ data IUnOp =
     | IExtend16S
     | IExtend32S
     | INot
+    | IAbs
+    | INeg
     deriving (Show, Eq, Generic, NFData)
 
 data IBinOp =
     IAdd
     | ISub
+    | IAddSatS
+    | ISubSatS
+    | IAddSatU
+    | ISubSatU
     | IMul
     | IDivU
     | IDivS

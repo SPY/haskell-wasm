@@ -413,6 +413,22 @@ import Language.Wasm.Lexer (
 'i16x8.sub'           { Lexeme _ (TKeyword "i16x8.sub") }
 'i32x4.sub'           { Lexeme _ (TKeyword "i32x4.sub") }
 'i64x2.sub'           { Lexeme _ (TKeyword "i64x2.sub") }
+'i8x16.add_sat_s'     { Lexeme _ (TKeyword "i8x16.add_sat_s") }
+'i16x8.add_sat_s'     { Lexeme _ (TKeyword "i16x8.add_sat_s") }
+'i8x16.sub_sat_s'     { Lexeme _ (TKeyword "i8x16.sub_sat_s") }
+'i16x8.sub_sat_s'     { Lexeme _ (TKeyword "i16x8.sub_sat_s") }
+'i8x16.add_sat_u'     { Lexeme _ (TKeyword "i8x16.add_sat_u") }
+'i16x8.add_sat_u'     { Lexeme _ (TKeyword "i16x8.add_sat_u") }
+'i8x16.sub_sat_u'     { Lexeme _ (TKeyword "i8x16.sub_sat_u") }
+'i16x8.sub_sat_u'     { Lexeme _ (TKeyword "i16x8.sub_sat_u") }
+'i8x16.abs'           { Lexeme _ (TKeyword "i8x16.abs") }
+'i16x8.abs'           { Lexeme _ (TKeyword "i16x8.abs") }
+'i32x4.abs'           { Lexeme _ (TKeyword "i32x4.abs") }
+'i64x2.abs'           { Lexeme _ (TKeyword "i64x2.abs") }
+'i8x16.neg'           { Lexeme _ (TKeyword "i8x16.neg") }
+'i16x8.neg'           { Lexeme _ (TKeyword "i16x8.neg") }
+'i32x4.neg'           { Lexeme _ (TKeyword "i32x4.neg") }
+'i64x2.neg'           { Lexeme _ (TKeyword "i64x2.neg") }
 'i8x16.shl'           { Lexeme _ (TKeyword "i8x16.shl") }
 'i16x8.shl'           { Lexeme _ (TKeyword "i16x8.shl") }
 'i32x4.shl'           { Lexeme _ (TKeyword "i32x4.shl") }
@@ -875,6 +891,14 @@ plaininstr :: { PlainInstr }
     | 'i16x8.sub'                        { IBinOp (BS128 I16x8) ISub }
     | 'i32x4.sub'                        { IBinOp (BS128 I32x4) ISub }
     | 'i64x2.sub'                        { IBinOp (BS128 I64x2) ISub }
+    | 'i8x16.add_sat_s'                  { IBinOp (BS128 I8x16) IAddSatS }
+    | 'i16x8.add_sat_s'                  { IBinOp (BS128 I16x8) IAddSatS }
+    | 'i8x16.sub_sat_s'                  { IBinOp (BS128 I8x16) ISubSatS }
+    | 'i16x8.sub_sat_s'                  { IBinOp (BS128 I16x8) ISubSatS }
+    | 'i8x16.add_sat_u'                  { IBinOp (BS128 I8x16) IAddSatU }
+    | 'i16x8.add_sat_u'                  { IBinOp (BS128 I16x8) IAddSatU }
+    | 'i8x16.sub_sat_u'                  { IBinOp (BS128 I8x16) ISubSatU }
+    | 'i16x8.sub_sat_u'                  { IBinOp (BS128 I16x8) ISubSatU }
     | 'i8x16.shl'                        { IBinOp (BS128 I8x16) IShl }
     | 'i16x8.shl'                        { IBinOp (BS128 I16x8) IShl }
     | 'i32x4.shl'                        { IBinOp (BS128 I32x4) IShl }
@@ -887,6 +911,14 @@ plaininstr :: { PlainInstr }
     | 'i16x8.shr_s'                      { IBinOp (BS128 I16x8) IShrS }
     | 'i32x4.shr_s'                      { IBinOp (BS128 I32x4) IShrS }
     | 'i64x2.shr_s'                      { IBinOp (BS128 I64x2) IShrS }
+    | 'i8x16.abs'                        { IUnOp (BS128 I8x16) IAbs }
+    | 'i16x8.abs'                        { IUnOp (BS128 I16x8) IAbs }
+    | 'i32x4.abs'                        { IUnOp (BS128 I32x4) IAbs }
+    | 'i64x2.abs'                        { IUnOp (BS128 I64x2) IAbs }
+    | 'i8x16.neg'                        { IUnOp (BS128 I8x16) INeg }
+    | 'i16x8.neg'                        { IUnOp (BS128 I16x8) INeg }
+    | 'i32x4.neg'                        { IUnOp (BS128 I32x4) INeg }
+    | 'i64x2.neg'                        { IUnOp (BS128 I64x2) INeg }
     | 'i8x16.bitmask'                    { V128BitMask I8x16 }
     | 'i16x8.bitmask'                    { V128BitMask I16x8 }
     | 'i32x4.bitmask'                    { V128BitMask I32x4 }
