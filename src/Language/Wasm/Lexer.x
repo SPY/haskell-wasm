@@ -226,11 +226,13 @@ readHexFloat toFloat sz expLimit manitisaSize str = do
                         then ([True], 0, exp' + 1)
                         else (rounded, 1, exp')
                     else (rounded, 0, exp')
-        if exp'' > expLimit || exp'' < (negate $ expLimit + manitisaSize) then Left "constant out of range" else return ()
-        if exp'' >= (negate $ expLimit - 1)
-        then return $ toFloat $ sign .|. ((fromIntegral $ exp'' + expLimit) `shiftL` manitisaSize) .|. ((fromBits (tail bits') + a) `shiftL` (manitisaSize + 1 - length bits'))
+        e <- if exp'' > expLimit then Left "const out of range"
+                else if exp'' < (negate $ expLimit + manitisaSize) then return $ negate $ expLimit + manitisaSize + 1
+                else return exp''
+        if e >= (negate $ expLimit - 1)
+        then return $ toFloat $ sign .|. ((fromIntegral $ e + expLimit) `shiftL` manitisaSize) .|. ((fromBits (tail bits') + a) `shiftL` (manitisaSize + 1 - length bits'))
         else do
-            let shift = expLimit + manitisaSize - length bits' - abs exp''
+            let shift = expLimit + manitisaSize - length bits' - abs e
             if shift < 0
             then return $ toFloat sign
             else return $ toFloat $ sign .|. ((fromBits bits' + a) `shiftL` shift)

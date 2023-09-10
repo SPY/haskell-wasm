@@ -1682,6 +1682,28 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
             return $ Done ctx { stack = VF64 (nearest v) : rest }
         step ctx@EvalCtx{ stack = (VF64 v:rest) } (FUnOp BS64 FSqrt) =
             return $ Done ctx { stack = VF64 (sqrt v) : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (FUnOp (BS128 shape) FNeg) =
+            let r = case shape of
+                    F32x4 -> ByteArray.byteArrayFromList
+                        $ floatToWord . negate . wordToFloat . ByteArray.indexByteArray @Word32 v
+                            <$> [0..3]
+                    F64x2 -> ByteArray.byteArrayFromList
+                        $ doubleToWord . negate . wordToDouble . ByteArray.indexByteArray @Word64 v
+                            <$> [0..1]
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (FUnOp (BS128 shape) FSqrt) =
+            let r = case shape of
+                    F32x4 -> ByteArray.byteArrayFromList
+                        $ floatToWord . sqrt . wordToFloat . ByteArray.indexByteArray @Word32 v
+                            <$> [0..3]
+                    F64x2 -> ByteArray.byteArrayFromList
+                        $ doubleToWord . sqrt . wordToDouble . ByteArray.indexByteArray @Word64 v
+                            <$> [0..1]
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
         step ctx@EvalCtx{ stack = (VF32 v2:VF32 v1:rest) } (FBinOp BS32 FAdd) =
             return $ Done ctx { stack = VF32 (v1 + v2) : rest }
         step ctx@EvalCtx{ stack = (VF32 v2:VF32 v1:rest) } (FBinOp BS32 FSub) =

@@ -164,13 +164,12 @@ runScript onAssertFail script = do
         isValueMatch val v@(Parser.ExactValue _) = isValueEqual val $ asArg v
         isValueMatch (Interpreter.VF32 v) Parser.CanonicalNan = identicalIEEE v nan || identicalIEEE v (abs nan)
         isValueMatch (Interpreter.VF32 v) Parser.ArithmeticNan =
-            -- floatToWord v .&. floatToWord (abs nan) == floatToWord (abs nan)
-            isNaN v
+            let posNan = 0x7F800000 in
+            floatToWord v .&. posNan == posNan
         isValueMatch (Interpreter.VF64 v) Parser.CanonicalNan = identicalIEEE v nan || identicalIEEE v (abs nan)
         isValueMatch (Interpreter.VF64 v) Parser.ArithmeticNan =
-            -- let posNan = doubleToWord (abs nan) in
-            -- doubleToWord v .&. posNan == posNan
-            isNaN v
+            let posNan = 0x7FF0000000000000 in
+            doubleToWord v .&. posNan == posNan
         isValueMatch (Interpreter.VV128 v) (Parser.VectorPat Struct.F32x4 pat) =
             let vals = Interpreter.VF32 . wordToFloat . ByteArray.indexByteArray v <$> [0..3] in
             and $ zipWith isValueMatch vals pat
