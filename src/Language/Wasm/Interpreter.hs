@@ -1528,6 +1528,45 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
                     _ -> error "impossible due to validation"
             in
             return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IBinOp (BS128 shape) IAvgrU) =
+            let r = case shape of
+                    I8x16 -> lanewise @Word8 shape v1 v2 $ \a b -> fromIntegral $ (fromIntegral a + fromIntegral b + 1) `div` 2
+                    I16x8 -> lanewise @Word16 shape v1 v2 $ \a b -> fromIntegral $ (fromIntegral a + fromIntegral b + 1) `div` 2
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IBinOp (BS128 shape) IMinU) =
+            let r = case shape of
+                    I8x16 -> lanewise @Word8 shape v1 v2 min
+                    I16x8 -> lanewise @Word16 shape v1 v2 min
+                    I32x4 -> lanewise @Word32 shape v1 v2 min
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IBinOp (BS128 shape) IMinS) =
+            let r = case shape of
+                    I8x16 -> lanewise @Word8 shape v1 v2 $ \a b -> asWord8 $ min (asInt8 a) (asInt8 b)
+                    I16x8 -> lanewise @Word16 shape v1 v2 $ \a b -> asWord16 $ min (asInt16 a) (asInt16 b)
+                    I32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> asWord32 $ min (asInt32 a) (asInt32 b)
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IBinOp (BS128 shape) IMaxU) =
+            let r = case shape of
+                    I8x16 -> lanewise @Word8 shape v1 v2 max
+                    I16x8 -> lanewise @Word16 shape v1 v2 max
+                    I32x4 -> lanewise @Word32 shape v1 v2 max
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IBinOp (BS128 shape) IMaxS) =
+            let r = case shape of
+                    I8x16 -> lanewise @Word8 shape v1 v2 $ \a b -> asWord8 $ max (asInt8 a) (asInt8 b)
+                    I16x8 -> lanewise @Word16 shape v1 v2 $ \a b -> asWord16 $ max (asInt16 a) (asInt16 b)
+                    I32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> asWord32 $ max (asInt32 a) (asInt32 b)
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
         step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IBinOp (BS128 _) IAnd) =
             let r = lanewise @Word64 I64x2 v1 v2 (.&.) in
             return $ Done ctx { stack = VV128 r : rest }
@@ -1682,6 +1721,17 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
             return $ Done ctx { stack = VF64 (nearest v) : rest }
         step ctx@EvalCtx{ stack = (VF64 v:rest) } (FUnOp BS64 FSqrt) =
             return $ Done ctx { stack = VF64 (sqrt v) : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (FUnOp (BS128 shape) FAbs) =
+            let r = case shape of
+                    F32x4 -> ByteArray.byteArrayFromList
+                        $ floatToWord . abs . wordToFloat . ByteArray.indexByteArray @Word32 v
+                            <$> [0..3]
+                    F64x2 -> ByteArray.byteArrayFromList
+                        $ doubleToWord . abs . wordToDouble . ByteArray.indexByteArray @Word64 v
+                            <$> [0..1]
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
         step ctx@EvalCtx{ stack = (VV128 v:rest) } (FUnOp (BS128 shape) FNeg) =
             let r = case shape of
                     F32x4 -> ByteArray.byteArrayFromList
@@ -1757,6 +1807,20 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
             let r = case shape of
                     F32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> floatToWord $ wordToFloat a / wordToFloat b
                     F64x2 -> lanewise @Word64 shape v1 v2 $ \a b -> doubleToWord $ wordToDouble a / wordToDouble b
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (FBinOp (BS128 shape) FMin) =
+            let r = case shape of
+                    F32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> floatToWord $ zeroAwareMin (wordToFloat a) (wordToFloat b)
+                    F64x2 -> lanewise @Word64 shape v1 v2 $ \a b -> doubleToWord $ zeroAwareMin (wordToDouble a) (wordToDouble b)
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (FBinOp (BS128 shape) FMax) =
+            let r = case shape of
+                    F32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> floatToWord $ zeroAwareMax (wordToFloat a) (wordToFloat b)
+                    F64x2 -> lanewise @Word64 shape v1 v2 $ \a b -> doubleToWord $ zeroAwareMax (wordToDouble a) (wordToDouble b)
                     _ -> error "impossible due to validation"
             in
             return $ Done ctx { stack = VV128 r : rest }

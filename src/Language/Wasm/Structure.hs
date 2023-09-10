@@ -83,6 +83,7 @@ data IBinOp =
     | ISubSatS
     | IAddSatU
     | ISubSatU
+    | IAvgrU
     | IMul
     | IDivU
     | IDivS
@@ -97,6 +98,10 @@ data IBinOp =
     | IShrS
     | IRotl
     | IRotr
+    | IMinU
+    | IMinS
+    | IMaxU
+    | IMaxS
     deriving (Show, Eq, Generic, NFData)
 
 data IRelOp = IEq | INe | ILtU | ILtS | IGtU | IGtS | ILeU | ILeS | IGeU | IGeS deriving (Show, Eq, Generic, NFData)

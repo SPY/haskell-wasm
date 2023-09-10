@@ -422,6 +422,20 @@ import Language.Wasm.Lexer (
 'i16x8.add_sat_u'     { Lexeme _ (TKeyword "i16x8.add_sat_u") }
 'i8x16.sub_sat_u'     { Lexeme _ (TKeyword "i8x16.sub_sat_u") }
 'i16x8.sub_sat_u'     { Lexeme _ (TKeyword "i16x8.sub_sat_u") }
+'i8x16.avgr_u'        { Lexeme _ (TKeyword "i8x16.avgr_u") }
+'i16x8.avgr_u'        { Lexeme _ (TKeyword "i16x8.avgr_u") }
+'i8x16.min_s'         { Lexeme _ (TKeyword "i8x16.min_s") }
+'i16x8.min_s'         { Lexeme _ (TKeyword "i16x8.min_s") }
+'i32x4.min_s'         { Lexeme _ (TKeyword "i32x4.min_s") }
+'i8x16.min_u'         { Lexeme _ (TKeyword "i8x16.min_u") }
+'i16x8.min_u'         { Lexeme _ (TKeyword "i16x8.min_u") }
+'i32x4.min_u'         { Lexeme _ (TKeyword "i32x4.min_u") }
+'i8x16.max_s'         { Lexeme _ (TKeyword "i8x16.max_s") }
+'i16x8.max_s'         { Lexeme _ (TKeyword "i16x8.max_s") }
+'i32x4.max_s'         { Lexeme _ (TKeyword "i32x4.max_s") }
+'i8x16.max_u'         { Lexeme _ (TKeyword "i8x16.max_u") }
+'i16x8.max_u'         { Lexeme _ (TKeyword "i16x8.max_u") }
+'i32x4.max_u'         { Lexeme _ (TKeyword "i32x4.max_u") }
 'i16x8.mul'           { Lexeme _ (TKeyword "i16x8.mul") }
 'i32x4.mul'           { Lexeme _ (TKeyword "i32x4.mul") }
 'i64x2.mul'           { Lexeme _ (TKeyword "i64x2.mul") }
@@ -497,6 +511,12 @@ import Language.Wasm.Lexer (
 'f64x2.mul'           { Lexeme _ (TKeyword "f64x2.mul") }
 'f32x4.div'           { Lexeme _ (TKeyword "f32x4.div") }
 'f64x2.div'           { Lexeme _ (TKeyword "f64x2.div") }
+'f32x4.min'           { Lexeme _ (TKeyword "f32x4.min") }
+'f64x2.min'           { Lexeme _ (TKeyword "f64x2.min") }
+'f32x4.max'           { Lexeme _ (TKeyword "f32x4.max") }
+'f64x2.max'           { Lexeme _ (TKeyword "f64x2.max") }
+'f32x4.abs'           { Lexeme _ (TKeyword "f32x4.abs") }
+'f64x2.abs'           { Lexeme _ (TKeyword "f64x2.abs") }
 'f32x4.neg'           { Lexeme _ (TKeyword "f32x4.neg") }
 'f64x2.neg'           { Lexeme _ (TKeyword "f64x2.neg") }
 'f32x4.sqrt'          { Lexeme _ (TKeyword "f32x4.sqrt") }
@@ -967,6 +987,20 @@ plaininstr :: { PlainInstr }
     | 'i16x8.add_sat_u'                  { IBinOp (BS128 I16x8) IAddSatU }
     | 'i8x16.sub_sat_u'                  { IBinOp (BS128 I8x16) ISubSatU }
     | 'i16x8.sub_sat_u'                  { IBinOp (BS128 I16x8) ISubSatU }
+    | 'i8x16.avgr_u'                     { IBinOp (BS128 I8x16) IAvgrU }
+    | 'i16x8.avgr_u'                     { IBinOp (BS128 I16x8) IAvgrU }
+    | 'i8x16.min_s'                      { IBinOp (BS128 I8x16) IMinS }
+    | 'i16x8.min_s'                      { IBinOp (BS128 I16x8) IMinS }
+    | 'i32x4.min_s'                      { IBinOp (BS128 I32x4) IMinS }
+    | 'i8x16.min_u'                      { IBinOp (BS128 I8x16) IMinU }
+    | 'i16x8.min_u'                      { IBinOp (BS128 I16x8) IMinU }
+    | 'i32x4.min_u'                      { IBinOp (BS128 I32x4) IMinU }
+    | 'i8x16.max_s'                      { IBinOp (BS128 I8x16) IMaxS }
+    | 'i16x8.max_s'                      { IBinOp (BS128 I16x8) IMaxS }
+    | 'i32x4.max_s'                      { IBinOp (BS128 I32x4) IMaxS }
+    | 'i8x16.max_u'                      { IBinOp (BS128 I8x16) IMaxU }
+    | 'i16x8.max_u'                      { IBinOp (BS128 I16x8) IMaxU }
+    | 'i32x4.max_u'                      { IBinOp (BS128 I32x4) IMaxU }
     | 'i16x8.mul'                        { IBinOp (BS128 I16x8) IMul }
     | 'i32x4.mul'                        { IBinOp (BS128 I32x4) IMul }
     | 'i64x2.mul'                        { IBinOp (BS128 I64x2) IMul }
@@ -1042,6 +1076,12 @@ plaininstr :: { PlainInstr }
     | 'f64x2.mul'                        { FBinOp (BS128 F64x2) FMul }
     | 'f32x4.div'                        { FBinOp (BS128 F32x4) FDiv }
     | 'f64x2.div'                        { FBinOp (BS128 F64x2) FDiv }
+    | 'f32x4.min'                        { FBinOp (BS128 F32x4) FMin }
+    | 'f64x2.min'                        { FBinOp (BS128 F64x2) FMin }
+    | 'f32x4.max'                        { FBinOp (BS128 F32x4) FMax }
+    | 'f64x2.max'                        { FBinOp (BS128 F64x2) FMax }
+    | 'f32x4.abs'                        { FUnOp (BS128 F32x4) FAbs }
+    | 'f64x2.abs'                        { FUnOp (BS128 F64x2) FAbs }
     | 'f32x4.neg'                        { FUnOp (BS128 F32x4) FNeg }
     | 'f64x2.neg'                        { FUnOp (BS128 F64x2) FNeg }
     | 'f32x4.sqrt'                       { FUnOp (BS128 F32x4) FSqrt }
