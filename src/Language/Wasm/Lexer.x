@@ -80,10 +80,10 @@ tokens :-
 <0> @id                                   { tokenStr TId }
 <0> "("                                   { constToken TOpenBracket }
 <0> ")"                                   { constToken TCloseBracket }
+<0> $sign? @hexfloat                      { parseHexFloat }
 <0> $sign? @num                           { parseDecimalSignedInt }
 <0> $sign? "0x" @hexnum                   { parseHexalSignedInt }
 <0> $sign? @float                         { parseDecFloat }
-<0> $sign? @hexfloat                      { parseHexFloat }
 <0, blockComment> @startblockcomment      { startBlockComment }
 <blockComment> [.\n]                      ;
 <blockComment> @endblockcomment           { endBlockComment }

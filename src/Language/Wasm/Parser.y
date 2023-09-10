@@ -38,7 +38,8 @@ module Language.Wasm.Parser (
     Command(..),
     Action(..),
     Assertion(..),
-    Meta(..)
+    Meta(..),
+    ValuePattern(..)
 ) where
 
 import Language.Wasm.Structure (
@@ -488,6 +489,18 @@ import Language.Wasm.Lexer (
 'i16x8.ge_u'         { Lexeme _ (TKeyword "i16x8.ge_u") }
 'i32x4.ge_u'         { Lexeme _ (TKeyword "i32x4.ge_u") }
 'i64x2.ge_u'         { Lexeme _ (TKeyword "i64x2.ge_u") }
+'f32x4.add'          { Lexeme _ (TKeyword "f32x4.add") }
+'f64x2.add'          { Lexeme _ (TKeyword "f64x2.add") }
+'f32x4.sub'          { Lexeme _ (TKeyword "f32x4.sub") }
+'f64x2.sub'          { Lexeme _ (TKeyword "f64x2.sub") }
+'f32x4.mul'          { Lexeme _ (TKeyword "f32x4.mul") }
+'f64x2.mul'          { Lexeme _ (TKeyword "f64x2.mul") }
+'f32x4.div'          { Lexeme _ (TKeyword "f32x4.div") }
+'f64x2.div'          { Lexeme _ (TKeyword "f64x2.div") }
+'f32x4.neg'          { Lexeme _ (TKeyword "f32x4.neg") }
+'f64x2.neg'          { Lexeme _ (TKeyword "f64x2.neg") }
+'f32x4.sqrt'         { Lexeme _ (TKeyword "f32x4.sqrt") }
+'f64x2.sqrt'         { Lexeme _ (TKeyword "f64x2.sqrt") }
 -- script extension
 'binary'              { Lexeme _ (TKeyword "binary") }
 'quote'               { Lexeme _ (TKeyword "quote") }
@@ -1009,6 +1022,18 @@ plaininstr :: { PlainInstr }
     | 'i16x8.ge_u'                       { IRelOp (BS128 I16x8) IGeU }
     | 'i32x4.ge_u'                       { IRelOp (BS128 I32x4) IGeU }
     | 'i64x2.ge_u'                       { IRelOp (BS128 I64x2) IGeU }
+    | 'f32x4.add'                        { FBinOp (BS128 F32x4) FAdd }
+    | 'f64x2.add'                        { FBinOp (BS128 F64x2) FAdd }
+    | 'f32x4.sub'                        { FBinOp (BS128 F32x4) FSub }
+    | 'f64x2.sub'                        { FBinOp (BS128 F64x2) FSub }
+    | 'f32x4.mul'                        { FBinOp (BS128 F32x4) FMul }
+    | 'f64x2.mul'                        { FBinOp (BS128 F64x2) FMul }
+    | 'f32x4.div'                        { FBinOp (BS128 F32x4) FDiv }
+    | 'f64x2.div'                        { FBinOp (BS128 F64x2) FDiv }
+    | 'f32x4.neg'                        { FUnOp (BS128 F32x4) FNeg }
+    | 'f64x2.neg'                        { FUnOp (BS128 F64x2) FNeg }
+    | 'f32x4.sqrt'                       { FUnOp (BS128 F32x4) FSqrt }
+    | 'f64x2.sqrt'                       { FUnOp (BS128 F64x2) FSqrt }
 
 typeuse(next)
     : '(' typeuse1(folded_instr_list(next), instruction_list(next)) {
@@ -1461,13 +1486,13 @@ module1 :: { ModuleDef }
 
 action1 :: { Action }
     : 'invoke' opt(ident) string list(folded_instr) ')' {%
-        fmap (Invoke $2 $3) $ (mapM (mapM constInstructionToValue) $4)
+        fmap (Invoke $2 $3) $ (mapM (constInstructionToValue . head) $4)
     }
     | 'get' opt(ident) string ')' { Get $2 $3 }
 
 assertion1 :: { (Maybe AlexPosn, Assertion) }
     : 'assert_return' '(' action1 list(folded_instr) ')' {%
-        fmap ((\a -> ($1, a)) . AssertReturn $3) $ (mapM (mapM constInstructionToValue) $4)
+        fmap ((\a -> ($1, a)) . AssertReturn $3) $ (mapM (constInstructionToValue . head) $4)
     }
     | 'assert_return_canonical_nan' '(' action1 ')' { ($1, AssertReturnCanonicalNaN $3) }
     | 'assert_return_arithmetic_nan' '(' action1 ')' { ($1, AssertReturnArithmeticNaN $3) }
@@ -1912,15 +1937,22 @@ data Command
     | Meta Meta
     deriving (Show, Eq)
 
+data ValuePattern =
+    ExactValue (S.Instruction Natural)
+    | CanonicalNan
+    | ArithmeticNan
+    | VectorPat SimdShape [ValuePattern]
+    deriving (Show, Eq)
+
 data Action
-    = Invoke (Maybe Ident) TL.Text [S.Expression]
+    = Invoke (Maybe Ident) TL.Text [ValuePattern]
     | Get (Maybe Ident) TL.Text
     deriving (Show, Eq)
 
 type FailureString = TL.Text
 
 data Assertion
-    = AssertReturn Action [S.Expression]
+    = AssertReturn Action [ValuePattern]
     | AssertReturnCanonicalNaN Action
     | AssertReturnArithmeticNaN Action
     | AssertTrap (Either Action ModuleDef) FailureString
@@ -1959,14 +1991,27 @@ v128RepToBytes (F32x4Const floats) =
 v128RepToBytes (F64x2Const doubles) =
     ByteArray.byteArrayFromListN 2 <$> mapM (fmap doubleToWord . asDouble) doubles
 
-constInstructionToValue :: Instruction -> Either String (S.Instruction Natural)
-constInstructionToValue (PlainInstr (I32Const v)) = return $ S.I32Const $ integerToWord32 v
-constInstructionToValue (PlainInstr (F32Const v)) = S.F32Const <$> asFloat v
-constInstructionToValue (PlainInstr (I64Const v)) = return $ S.I64Const $ integerToWord64 v
-constInstructionToValue (PlainInstr (F64Const v)) = S.F64Const <$> asDouble v
-constInstructionToValue (PlainInstr (V128Const v)) = S.V128Const <$> v128RepToBytes v
-constInstructionToValue (PlainInstr (RefNull et)) = return $ S.RefNull et
-constInstructionToValue (PlainInstr (RefExtern n)) = return $ S.RefExtern n
+isNaNRep :: FloatRep -> Bool
+isNaNRep (NanRep Canonical) = True
+isNaNRep (NanRep Arithmetic) = True
+isNaNRep _ = False
+
+constInstructionToValue :: Instruction -> Either String ValuePattern
+constInstructionToValue (PlainInstr (I32Const v)) = return $ ExactValue $ S.I32Const $ integerToWord32 v
+constInstructionToValue (PlainInstr (F32Const (NanRep Canonical))) = return CanonicalNan
+constInstructionToValue (PlainInstr (F32Const (NanRep Arithmetic))) = return ArithmeticNan
+constInstructionToValue (PlainInstr (F32Const v)) = ExactValue . S.F32Const <$> asFloat v
+constInstructionToValue (PlainInstr (I64Const v)) = return $ ExactValue $ S.I64Const $ integerToWord64 v
+constInstructionToValue (PlainInstr (F64Const (NanRep Canonical))) = return CanonicalNan
+constInstructionToValue (PlainInstr (F64Const (NanRep Arithmetic))) = return ArithmeticNan
+constInstructionToValue (PlainInstr (F64Const v)) = ExactValue . S.F64Const <$> asDouble v
+constInstructionToValue (PlainInstr (V128Const (F32x4Const floats))) | any isNaNRep floats =
+    VectorPat F32x4 <$> mapM (constInstructionToValue . PlainInstr . F32Const) floats
+constInstructionToValue (PlainInstr (V128Const (F64x2Const floats))) | any isNaNRep floats =
+    VectorPat F64x2 <$> mapM (constInstructionToValue . PlainInstr . F64Const) floats
+constInstructionToValue (PlainInstr (V128Const v)) = ExactValue . S.V128Const <$> v128RepToBytes v
+constInstructionToValue (PlainInstr (RefNull et)) = return $ ExactValue $ S.RefNull et
+constInstructionToValue (PlainInstr (RefExtern n)) = return $ ExactValue $ S.RefExtern n
 constInstructionToValue _ = Left "Only const instructions supported as arguments for actions"
 
 funcIndexToExpr :: [FuncIndex] -> [[Instruction]]

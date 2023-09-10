@@ -31,6 +31,9 @@ import qualified Language.Wasm.Structure as Struct
 import qualified Language.Wasm.Parser as Parser
 import qualified Language.Wasm.Lexer as Lexer
 import qualified Language.Wasm.Binary as Binary
+import Language.Wasm.FloatUtils (floatToWord, wordToFloat, doubleToWord, wordToDouble)
+import Numeric.IEEE (nan)
+import Data.Bits ((.&.))
 
 type OnAssertFail = String -> Assertion -> IO ()
 
@@ -120,16 +123,22 @@ runScript onAssertFail script = do
         getModule st (Just (Ident i)) = Map.lookup i (modules st)
         getModule st Nothing = lastModule st
 
-        asArg :: Struct.Expression -> Interpreter.Value
-        asArg [Struct.I32Const v] = Interpreter.VI32 v
-        asArg [Struct.F32Const v] = Interpreter.VF32 v
-        asArg [Struct.I64Const v] = Interpreter.VI64 v
-        asArg [Struct.F64Const v] = Interpreter.VF64 v
-        asArg [Struct.V128Const v] = Interpreter.VV128 v
-        asArg [Struct.RefNull Struct.FuncRef] = Interpreter.RF Nothing
-        asArg [Struct.RefNull Struct.ExternRef] = Interpreter.RE Nothing
-        asArg [Struct.RefExtern v] = Interpreter.RE (Just v)
+        asArg :: Parser.ValuePattern -> Interpreter.Value
+        asArg (Parser.ExactValue (Struct.I32Const v)) = Interpreter.VI32 v
+        asArg (Parser.ExactValue (Struct.F32Const v)) = Interpreter.VF32 v
+        asArg (Parser.ExactValue (Struct.I64Const v)) = Interpreter.VI64 v
+        asArg (Parser.ExactValue (Struct.F64Const v)) = Interpreter.VF64 v
+        asArg (Parser.ExactValue (Struct.V128Const v)) = Interpreter.VV128 v
+        asArg (Parser.ExactValue (Struct.RefNull Struct.FuncRef)) = Interpreter.RF Nothing
+        asArg (Parser.ExactValue (Struct.RefNull Struct.ExternRef))= Interpreter.RE Nothing
+        asArg (Parser.ExactValue (Struct.RefExtern v)) = Interpreter.RE (Just v)
         asArg expr = error $ "Only const instructions supported as arguments for actions: " ++ show expr
+
+        showArg :: Parser.ValuePattern -> String
+        showArg v@(Parser.ExactValue _) = show $ asArg v
+        showArg Parser.CanonicalNan = "nan:canonical"
+        showArg Parser.ArithmeticNan = "nan:arithmetic"
+        showArg (Parser.VectorPat _ pat) = show $ showArg <$> pat
 
         runAction :: ScriptState -> Action -> IO (Maybe [Interpreter.Value])
         runAction st (Invoke ident name args) = do
@@ -144,12 +153,31 @@ runScript onAssertFail script = do
         isValueEqual :: Interpreter.Value -> Interpreter.Value -> Bool
         isValueEqual (Interpreter.VI32 v1) (Interpreter.VI32 v2) = v1 == v2
         isValueEqual (Interpreter.VI64 v1) (Interpreter.VI64 v2) = v1 == v2
-        isValueEqual (Interpreter.VF32 v1) (Interpreter.VF32 v2) = (isNaN v1 && isNaN v2) || identicalIEEE v1 v2
-        isValueEqual (Interpreter.VF64 v1) (Interpreter.VF64 v2) = (isNaN v1 && isNaN v2) || identicalIEEE v1 v2
+        isValueEqual (Interpreter.VF32 v1) (Interpreter.VF32 v2) = identicalIEEE v1 v2
+        isValueEqual (Interpreter.VF64 v1) (Interpreter.VF64 v2) = identicalIEEE v1 v2
         isValueEqual (Interpreter.VV128 a) (Interpreter.VV128 b) = ByteArray.compareByteArrays a 0 b 0 16 == EQ
         isValueEqual (Interpreter.RF f1) (Interpreter.RF f2) = f1 == f2
         isValueEqual (Interpreter.RE e1) (Interpreter.RE e2) = e1 == e2
         isValueEqual _ _ = False
+
+        isValueMatch :: Interpreter.Value -> Parser.ValuePattern -> Bool
+        isValueMatch val v@(Parser.ExactValue _) = isValueEqual val $ asArg v
+        isValueMatch (Interpreter.VF32 v) Parser.CanonicalNan = identicalIEEE v nan || identicalIEEE v (abs nan)
+        isValueMatch (Interpreter.VF32 v) Parser.ArithmeticNan =
+            -- floatToWord v .&. floatToWord (abs nan) == floatToWord (abs nan)
+            isNaN v
+        isValueMatch (Interpreter.VF64 v) Parser.CanonicalNan = identicalIEEE v nan || identicalIEEE v (abs nan)
+        isValueMatch (Interpreter.VF64 v) Parser.ArithmeticNan =
+            -- let posNan = doubleToWord (abs nan) in
+            -- doubleToWord v .&. posNan == posNan
+            isNaN v
+        isValueMatch (Interpreter.VV128 v) (Parser.VectorPat Struct.F32x4 pat) =
+            let vals = Interpreter.VF32 . wordToFloat . ByteArray.indexByteArray v <$> [0..3] in
+            and $ zipWith isValueMatch vals pat
+        isValueMatch (Interpreter.VV128 v) (Parser.VectorPat Struct.F64x2 pat) =
+            let vals = Interpreter.VF64 . wordToDouble . ByteArray.indexByteArray v <$> [0, 1] in
+            and $ zipWith isValueMatch vals pat
+        isValueMatch _ _ = False
 
         isNaNReturned :: Action -> Assertion -> AssertM ()
         isNaNReturned action assert = do
@@ -220,10 +248,10 @@ runScript onAssertFail script = do
             result <- runActionInAssert action
             case result of
                 Just result -> do
-                    if length result == length expected && (all id $ zipWith isValueEqual result (map asArg expected))
+                    if length result == length expected && (all id $ zipWith isValueMatch result expected)
                     then return ()
-                    else printFailedAssert ("Expected " ++ show (map asArg expected) ++ ", but action returned " ++ show result) assert
-                Nothing -> printFailedAssert ("Expected " ++ show (map asArg expected) ++ ", but action returned Trap") assert
+                    else printFailedAssert ("Expected " ++ show (map showArg expected) ++ ", but action returned " ++ show result) assert
+                Nothing -> printFailedAssert ("Expected " ++ show (map showArg expected) ++ ", but action returned Trap") assert
         runAssert assert@(AssertReturnCanonicalNaN action) = isNaNReturned action assert
         runAssert assert@(AssertReturnArithmeticNaN action) = isNaNReturned action assert
         runAssert assert@(AssertInvalid moduleDef failureString) =

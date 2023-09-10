@@ -1710,6 +1710,34 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
             return $ Done ctx { stack = VF64 (zeroAwareMax v1 v2) : rest }
         step ctx@EvalCtx{ stack = (VF64 v2:VF64 v1:rest) } (FBinOp BS64 FCopySign) =
             return $ Done ctx { stack = VF64 (copySign v1 v2) : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (FBinOp (BS128 shape) FAdd) =
+            let r = case shape of
+                    F32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> floatToWord $ wordToFloat a + wordToFloat b
+                    F64x2 -> lanewise @Word64 shape v1 v2 $ \a b -> doubleToWord $ wordToDouble a + wordToDouble b
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (FBinOp (BS128 shape) FSub) =
+            let r = case shape of
+                    F32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> floatToWord $ wordToFloat a - wordToFloat b
+                    F64x2 -> lanewise @Word64 shape v1 v2 $ \a b -> doubleToWord $ wordToDouble a - wordToDouble b
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (FBinOp (BS128 shape) FMul) =
+            let r = case shape of
+                    F32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> floatToWord $ wordToFloat a * wordToFloat b
+                    F64x2 -> lanewise @Word64 shape v1 v2 $ \a b -> doubleToWord $ wordToDouble a * wordToDouble b
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (FBinOp (BS128 shape) FDiv) =
+            let r = case shape of
+                    F32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> floatToWord $ wordToFloat a / wordToFloat b
+                    F64x2 -> lanewise @Word64 shape v1 v2 $ \a b -> doubleToWord $ wordToDouble a / wordToDouble b
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
         step ctx@EvalCtx{ stack = (VF32 v2:VF32 v1:rest) } (FRelOp BS32 FEq) =
             return $ Done ctx { stack = VI32 (if v1 == v2 then 1 else 0) : rest }
         step ctx@EvalCtx{ stack = (VF32 v2:VF32 v1:rest) } (FRelOp BS32 FNe) =
