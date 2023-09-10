@@ -519,6 +519,14 @@ import Language.Wasm.Lexer (
 'f64x2.abs'           { Lexeme _ (TKeyword "f64x2.abs") }
 'f32x4.neg'           { Lexeme _ (TKeyword "f32x4.neg") }
 'f64x2.neg'           { Lexeme _ (TKeyword "f64x2.neg") }
+'f32x4.ceil'          { Lexeme _ (TKeyword "f32x4.ceil") }
+'f64x2.ceil'          { Lexeme _ (TKeyword "f64x2.ceil") }
+'f32x4.floor'         { Lexeme _ (TKeyword "f32x4.floor") }
+'f64x2.floor'         { Lexeme _ (TKeyword "f64x2.floor") }
+'f32x4.trunc'         { Lexeme _ (TKeyword "f32x4.trunc") }
+'f64x2.trunc'         { Lexeme _ (TKeyword "f64x2.trunc") }
+'f32x4.nearest'       { Lexeme _ (TKeyword "f32x4.nearest") }
+'f64x2.nearest'       { Lexeme _ (TKeyword "f64x2.nearest") }
 'f32x4.sqrt'          { Lexeme _ (TKeyword "f32x4.sqrt") }
 'f64x2.sqrt'          { Lexeme _ (TKeyword "f64x2.sqrt") }
 'f32x4.eq'            { Lexeme _ (TKeyword "f32x4.eq") }
@@ -1084,6 +1092,14 @@ plaininstr :: { PlainInstr }
     | 'f64x2.abs'                        { FUnOp (BS128 F64x2) FAbs }
     | 'f32x4.neg'                        { FUnOp (BS128 F32x4) FNeg }
     | 'f64x2.neg'                        { FUnOp (BS128 F64x2) FNeg }
+    | 'f32x4.ceil'                       { FUnOp (BS128 F32x4) FCeil }
+    | 'f64x2.ceil'                       { FUnOp (BS128 F64x2) FCeil }
+    | 'f32x4.floor'                      { FUnOp (BS128 F32x4) FFloor }
+    | 'f64x2.floor'                      { FUnOp (BS128 F64x2) FFloor }
+    | 'f32x4.trunc'                      { FUnOp (BS128 F32x4) FTrunc }
+    | 'f64x2.trunc'                      { FUnOp (BS128 F64x2) FTrunc }
+    | 'f32x4.nearest'                    { FUnOp (BS128 F32x4) FNearest }
+    | 'f64x2.nearest'                    { FUnOp (BS128 F64x2) FNearest }
     | 'f32x4.sqrt'                       { FUnOp (BS128 F32x4) FSqrt }
     | 'f64x2.sqrt'                       { FUnOp (BS128 F64x2) FSqrt }
     | 'f32x4.eq'                         { FRelOp (BS128 F32x4) FEq }

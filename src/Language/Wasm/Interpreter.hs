@@ -1743,6 +1743,50 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
                     _ -> error "impossible due to validation"
             in
             return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (FUnOp (BS128 shape) FCeil) =
+            let r = case shape of
+                    F32x4 -> ByteArray.byteArrayFromList
+                        $ floatToWord . floatCeil . wordToFloat . ByteArray.indexByteArray @Word32 v
+                            <$> [0..3]
+                    F64x2 -> ByteArray.byteArrayFromList
+                        $ doubleToWord . doubleCeil . wordToDouble . ByteArray.indexByteArray @Word64 v
+                            <$> [0..1]
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (FUnOp (BS128 shape) FFloor) =
+            let r = case shape of
+                    F32x4 -> ByteArray.byteArrayFromList
+                        $ floatToWord . floatFloor . wordToFloat . ByteArray.indexByteArray @Word32 v
+                            <$> [0..3]
+                    F64x2 -> ByteArray.byteArrayFromList
+                        $ doubleToWord . doubleFloor . wordToDouble . ByteArray.indexByteArray @Word64 v
+                            <$> [0..1]
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (FUnOp (BS128 shape) FTrunc) =
+            let r = case shape of
+                    F32x4 -> ByteArray.byteArrayFromList
+                        $ floatToWord . floatTrunc . wordToFloat . ByteArray.indexByteArray @Word32 v
+                            <$> [0..3]
+                    F64x2 -> ByteArray.byteArrayFromList
+                        $ doubleToWord . doubleTrunc . wordToDouble . ByteArray.indexByteArray @Word64 v
+                            <$> [0..1]
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (FUnOp (BS128 shape) FNearest) =
+            let r = case shape of
+                    F32x4 -> ByteArray.byteArrayFromList
+                        $ floatToWord . nearest . wordToFloat . ByteArray.indexByteArray @Word32 v
+                            <$> [0..3]
+                    F64x2 -> ByteArray.byteArrayFromList
+                        $ doubleToWord . nearest . wordToDouble . ByteArray.indexByteArray @Word64 v
+                            <$> [0..1]
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
         step ctx@EvalCtx{ stack = (VV128 v:rest) } (FUnOp (BS128 shape) FSqrt) =
             let r = case shape of
                     F32x4 -> ByteArray.byteArrayFromList
