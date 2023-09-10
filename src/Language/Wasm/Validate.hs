@@ -564,6 +564,7 @@ getInstrType _ (FBinOp BS64 _) = return $ [F64, F64] ==> F64
 getInstrType _ (FBinOp (BS128 _) _) = return $ [V128, V128] ==> V128
 getInstrType _ (FRelOp BS32 _) = return $ [F32, F32] ==> I32
 getInstrType _ (FRelOp BS64 _) = return $ [F64, F64] ==> I32
+getInstrType _ (FRelOp (BS128 _) _) = return $ [V128, V128] ==> V128
 getInstrType _ I32WrapI64 = return $ I64 ==> I32
 getInstrType _ (ITruncFU BS32 BS32) = return $ F32 ==> I32
 getInstrType _ (ITruncFU BS32 BS64) = return $ F64 ==> I32

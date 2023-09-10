@@ -1784,6 +1784,48 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
             return $ Done ctx { stack = VI32 (if v1 <= v2 then 1 else 0) : rest }
         step ctx@EvalCtx{ stack = (VF64 v2:VF64 v1:rest) } (FRelOp BS64 FGe) =
             return $ Done ctx { stack = VI32 (if v1 >= v2 then 1 else 0) : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (FRelOp (BS128 shape) FEq) =
+            let r = case shape of
+                    F32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> if wordToFloat a == wordToFloat b then fromIntegral (-1) else 0
+                    F64x2 -> lanewise @Word64 shape v1 v2 $ \a b -> if wordToDouble a == wordToDouble b then fromIntegral (-1) else 0
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (FRelOp (BS128 shape) FNe) =
+            let r = case shape of
+                    F32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> if wordToFloat a /= wordToFloat b then fromIntegral (-1) else 0
+                    F64x2 -> lanewise @Word64 shape v1 v2 $ \a b -> if wordToDouble a /= wordToDouble b then fromIntegral (-1) else 0
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (FRelOp (BS128 shape) FLt) =
+            let r = case shape of
+                    F32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> if wordToFloat a < wordToFloat b then fromIntegral (-1) else 0
+                    F64x2 -> lanewise @Word64 shape v1 v2 $ \a b -> if wordToDouble a < wordToDouble b then fromIntegral (-1) else 0
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (FRelOp (BS128 shape) FLe) =
+            let r = case shape of
+                    F32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> if wordToFloat a <= wordToFloat b then fromIntegral (-1) else 0
+                    F64x2 -> lanewise @Word64 shape v1 v2 $ \a b -> if wordToDouble a <= wordToDouble b then fromIntegral (-1) else 0
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (FRelOp (BS128 shape) FGt) =
+            let r = case shape of
+                    F32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> if wordToFloat a > wordToFloat b then fromIntegral (-1) else 0
+                    F64x2 -> lanewise @Word64 shape v1 v2 $ \a b -> if wordToDouble a > wordToDouble b then fromIntegral (-1) else 0
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (FRelOp (BS128 shape) FGe) =
+            let r = case shape of
+                    F32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> if wordToFloat a >= wordToFloat b then fromIntegral (-1) else 0
+                    F64x2 -> lanewise @Word64 shape v1 v2 $ \a b -> if wordToDouble a >= wordToDouble b then fromIntegral (-1) else 0
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
         step ctx@EvalCtx{ stack = (VI64 v:rest) } I32WrapI64 =
             return $ Done ctx { stack = VI32 (fromIntegral $ v .&. 0xFFFFFFFF) : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } (ITruncFU BS32 BS32) =
