@@ -162,6 +162,16 @@ zeroAwareMax a b
     | isNaN b = b
     | otherwise = maxNum a b
 
+nanAwareMin :: IEEE a => a -> a -> a
+nanAwareMin a b
+    | isNaN a = a
+    | otherwise = minNum a b
+
+nanAwareMax :: IEEE a => a -> a -> a
+nanAwareMax a b
+    | isNaN a = a
+    | otherwise = maxNum a b
+
 floatFloor :: Float -> Float
 floatFloor a
     | isNaN a = a
@@ -1929,6 +1939,20 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
             let r = case shape of
                     F32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> floatToWord $ zeroAwareMax (wordToFloat a) (wordToFloat b)
                     F64x2 -> lanewise @Word64 shape v1 v2 $ \a b -> doubleToWord $ zeroAwareMax (wordToDouble a) (wordToDouble b)
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (FBinOp (BS128 shape) FPMin) =
+            let r = case shape of
+                    F32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> floatToWord $ nanAwareMin (wordToFloat a) (wordToFloat b)
+                    F64x2 -> lanewise @Word64 shape v1 v2 $ \a b -> doubleToWord $ nanAwareMin (wordToDouble a) (wordToDouble b)
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (FBinOp (BS128 shape) FPMax) =
+            let r = case shape of
+                    F32x4 -> lanewise @Word32 shape v1 v2 $ \a b -> floatToWord $ nanAwareMax (wordToFloat a) (wordToFloat b)
+                    F64x2 -> lanewise @Word64 shape v1 v2 $ \a b -> doubleToWord $ nanAwareMax (wordToDouble a) (wordToDouble b)
                     _ -> error "impossible due to validation"
             in
             return $ Done ctx { stack = VV128 r : rest }

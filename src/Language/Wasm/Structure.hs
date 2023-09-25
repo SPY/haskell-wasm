@@ -110,7 +110,7 @@ data IRelOp = IEq | INe | ILtU | ILtS | IGtU | IGtS | ILeU | ILeS | IGeU | IGeS 
 
 data FUnOp = FAbs | FNeg | FCeil | FFloor | FTrunc | FNearest | FSqrt deriving (Show, Eq, Generic, NFData)
 
-data FBinOp = FAdd | FSub | FMul | FDiv | FMin | FMax | FCopySign deriving (Show, Eq, Generic, NFData)
+data FBinOp = FAdd | FSub | FMul | FDiv | FMin | FMax | FCopySign | FPMin | FPMax deriving (Show, Eq, Generic, NFData)
 
 data FRelOp = FEq | FNe | FLt | FGt | FLe | FGe deriving (Show, Eq, Generic, NFData)
 

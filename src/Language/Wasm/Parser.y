@@ -532,6 +532,10 @@ import Language.Wasm.Lexer (
 'f64x2.min'           { Lexeme _ (TKeyword "f64x2.min") }
 'f32x4.max'           { Lexeme _ (TKeyword "f32x4.max") }
 'f64x2.max'           { Lexeme _ (TKeyword "f64x2.max") }
+'f32x4.pmin'          { Lexeme _ (TKeyword "f32x4.pmin") }
+'f64x2.pmin'          { Lexeme _ (TKeyword "f64x2.pmin") }
+'f32x4.pmax'          { Lexeme _ (TKeyword "f32x4.pmax") }
+'f64x2.pmax'          { Lexeme _ (TKeyword "f64x2.pmax") }
 'f32x4.abs'           { Lexeme _ (TKeyword "f32x4.abs") }
 'f64x2.abs'           { Lexeme _ (TKeyword "f64x2.abs") }
 'f32x4.neg'           { Lexeme _ (TKeyword "f32x4.neg") }
@@ -1122,6 +1126,10 @@ plaininstr :: { PlainInstr }
     | 'f64x2.min'                        { FBinOp (BS128 F64x2) FMin }
     | 'f32x4.max'                        { FBinOp (BS128 F32x4) FMax }
     | 'f64x2.max'                        { FBinOp (BS128 F64x2) FMax }
+    | 'f32x4.pmin'                       { FBinOp (BS128 F32x4) FPMin }
+    | 'f64x2.pmin'                       { FBinOp (BS128 F64x2) FPMin }
+    | 'f32x4.pmax'                       { FBinOp (BS128 F32x4) FPMax }
+    | 'f64x2.pmax'                       { FBinOp (BS128 F64x2) FPMax }
     | 'f32x4.abs'                        { FUnOp (BS128 F32x4) FAbs }
     | 'f64x2.abs'                        { FUnOp (BS128 F64x2) FAbs }
     | 'f32x4.neg'                        { FUnOp (BS128 F32x4) FNeg }
