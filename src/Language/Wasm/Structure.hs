@@ -102,6 +102,7 @@ data IBinOp =
     | IMinS
     | IMaxU
     | IMaxS
+    | IExtMul {- Signed -} Bool {- High -} Bool
     deriving (Show, Eq, Generic, NFData)
 
 data IRelOp = IEq | INe | ILtU | ILtS | IGtU | IGtS | ILeU | ILeS | IGeU | IGeS deriving (Show, Eq, Generic, NFData)

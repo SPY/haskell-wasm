@@ -399,6 +399,7 @@ import Language.Wasm.Lexer (
 'i16x8.all_true'      { Lexeme _ (TKeyword "i16x8.all_true") }
 'i32x4.all_true'      { Lexeme _ (TKeyword "i32x4.all_true") }
 'i64x2.all_true'      { Lexeme _ (TKeyword "i64x2.all_true") }
+'i8x16.popcnt'        { Lexeme _ (TKeyword "i8x16.popcnt") }
 'v128.not'            { Lexeme _ (TKeyword "v128.not") }
 'v128.and'            { Lexeme _ (TKeyword "v128.and") }
 'v128.andnot'         { Lexeme _ (TKeyword "v128.andnot") }
@@ -424,6 +425,18 @@ import Language.Wasm.Lexer (
 'i16x8.sub_sat_u'     { Lexeme _ (TKeyword "i16x8.sub_sat_u") }
 'i8x16.avgr_u'        { Lexeme _ (TKeyword "i8x16.avgr_u") }
 'i16x8.avgr_u'        { Lexeme _ (TKeyword "i16x8.avgr_u") }
+'i16x8.extmul_low_i8x16_s' { Lexeme _ (TKeyword "i16x8.extmul_low_i8x16_s") }
+'i32x4.extmul_low_i16x8_s' { Lexeme _ (TKeyword "i32x4.extmul_low_i16x8_s") }
+'i64x2.extmul_low_i32x4_s' { Lexeme _ (TKeyword "i64x2.extmul_low_i32x4_s") }
+'i16x8.extmul_low_i8x16_u' { Lexeme _ (TKeyword "i16x8.extmul_low_i8x16_u") }
+'i32x4.extmul_low_i16x8_u' { Lexeme _ (TKeyword "i32x4.extmul_low_i16x8_u") }
+'i64x2.extmul_low_i32x4_u' { Lexeme _ (TKeyword "i64x2.extmul_low_i32x4_u") }
+'i16x8.extmul_high_i8x16_s' { Lexeme _ (TKeyword "i16x8.extmul_high_i8x16_s") }
+'i32x4.extmul_high_i16x8_s' { Lexeme _ (TKeyword "i32x4.extmul_high_i16x8_s") }
+'i64x2.extmul_high_i32x4_s' { Lexeme _ (TKeyword "i64x2.extmul_high_i32x4_s") }
+'i16x8.extmul_high_i8x16_u' { Lexeme _ (TKeyword "i16x8.extmul_high_i8x16_u") }
+'i32x4.extmul_high_i16x8_u' { Lexeme _ (TKeyword "i32x4.extmul_high_i16x8_u") }
+'i64x2.extmul_high_i32x4_u' { Lexeme _ (TKeyword "i64x2.extmul_high_i32x4_u") }
 'i8x16.min_s'         { Lexeme _ (TKeyword "i8x16.min_s") }
 'i16x8.min_s'         { Lexeme _ (TKeyword "i16x8.min_s") }
 'i32x4.min_s'         { Lexeme _ (TKeyword "i32x4.min_s") }
@@ -1009,6 +1022,18 @@ plaininstr :: { PlainInstr }
     | 'i8x16.max_u'                      { IBinOp (BS128 I8x16) IMaxU }
     | 'i16x8.max_u'                      { IBinOp (BS128 I16x8) IMaxU }
     | 'i32x4.max_u'                      { IBinOp (BS128 I32x4) IMaxU }
+    | 'i16x8.extmul_low_i8x16_s'         { IBinOp (BS128 I16x8) (IExtMul True False) }
+    | 'i32x4.extmul_low_i16x8_s'         { IBinOp (BS128 I32x4) (IExtMul True False) }
+    | 'i64x2.extmul_low_i32x4_s'         { IBinOp (BS128 I64x2) (IExtMul True False) }
+    | 'i16x8.extmul_low_i8x16_u'         { IBinOp (BS128 I16x8) (IExtMul False False) }
+    | 'i32x4.extmul_low_i16x8_u'         { IBinOp (BS128 I32x4) (IExtMul False False) }
+    | 'i64x2.extmul_low_i32x4_u'         { IBinOp (BS128 I64x2) (IExtMul False False) }
+    | 'i16x8.extmul_high_i8x16_s'        { IBinOp (BS128 I16x8) (IExtMul True True) }
+    | 'i32x4.extmul_high_i16x8_s'        { IBinOp (BS128 I32x4) (IExtMul True True) }
+    | 'i64x2.extmul_high_i32x4_s'        { IBinOp (BS128 I64x2) (IExtMul True True) }
+    | 'i16x8.extmul_high_i8x16_u'        { IBinOp (BS128 I16x8) (IExtMul False True) }
+    | 'i32x4.extmul_high_i16x8_u'        { IBinOp (BS128 I32x4) (IExtMul False True) }
+    | 'i64x2.extmul_high_i32x4_u'        { IBinOp (BS128 I64x2) (IExtMul False True) }
     | 'i16x8.mul'                        { IBinOp (BS128 I16x8) IMul }
     | 'i32x4.mul'                        { IBinOp (BS128 I32x4) IMul }
     | 'i64x2.mul'                        { IBinOp (BS128 I64x2) IMul }
@@ -1024,6 +1049,7 @@ plaininstr :: { PlainInstr }
     | 'i16x8.shr_s'                      { IBinOp (BS128 I16x8) IShrS }
     | 'i32x4.shr_s'                      { IBinOp (BS128 I32x4) IShrS }
     | 'i64x2.shr_s'                      { IBinOp (BS128 I64x2) IShrS }
+    | 'i8x16.popcnt'                     { IUnOp (BS128 I8x16) IPopcnt }
     | 'i8x16.abs'                        { IUnOp (BS128 I8x16) IAbs }
     | 'i16x8.abs'                        { IUnOp (BS128 I16x8) IAbs }
     | 'i32x4.abs'                        { IUnOp (BS128 I32x4) IAbs }
