@@ -1433,6 +1433,32 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
                     $ (fromIntegral . popCount) . ByteArray.indexByteArray @Word8 v <$> [0..15]
             in
             return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (IUnOp (BS128 shape) (IExtAddPairwise signed)) =
+            let count = case shape of
+                    I16x8 -> 8
+                    I32x4 -> 4
+                    _ -> error "impossible due to validation"
+            in
+            let high = [1,3..2*(count - 1) + 1]in
+            let low = [0,2..2 *(count-1)] in
+            let r = case shape of
+                    I16x8 ->
+                        let op = if signed
+                                then \a b -> asWord16 $ fromIntegral (asInt8 a) + fromIntegral (asInt8 b)
+                                else \a b -> fromIntegral a + fromIntegral b
+                        in
+                        ByteArray.byteArrayFromListN count
+                            $ zipWith op (ByteArray.indexByteArray v <$> high) (ByteArray.indexByteArray v <$> low)
+                    I32x4 ->
+                        let op = if signed
+                                then \a b -> asWord32 $ fromIntegral (asInt16 a) + fromIntegral (asInt16 b)
+                                else \a b -> fromIntegral a + fromIntegral b
+                        in
+                        ByteArray.byteArrayFromListN count
+                            $ zipWith op (ByteArray.indexByteArray v <$> high) (ByteArray.indexByteArray v <$> low)
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
         step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (IBinOp (BS128 shape) IAdd) =
             let r = case shape of
                     I8x16 -> lanewise @Word8 shape v1 v2 (+)

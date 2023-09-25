@@ -425,6 +425,10 @@ import Language.Wasm.Lexer (
 'i16x8.sub_sat_u'     { Lexeme _ (TKeyword "i16x8.sub_sat_u") }
 'i8x16.avgr_u'        { Lexeme _ (TKeyword "i8x16.avgr_u") }
 'i16x8.avgr_u'        { Lexeme _ (TKeyword "i16x8.avgr_u") }
+'i16x8.extadd_pairwise_i8x16_s' { Lexeme _ (TKeyword "i16x8.extadd_pairwise_i8x16_s") }
+'i32x4.extadd_pairwise_i16x8_s' { Lexeme _ (TKeyword "i32x4.extadd_pairwise_i16x8_s") }
+'i16x8.extadd_pairwise_i8x16_u' { Lexeme _ (TKeyword "i16x8.extadd_pairwise_i8x16_u") }
+'i32x4.extadd_pairwise_i16x8_u' { Lexeme _ (TKeyword "i32x4.extadd_pairwise_i16x8_u") }
 'i16x8.extmul_low_i8x16_s' { Lexeme _ (TKeyword "i16x8.extmul_low_i8x16_s") }
 'i32x4.extmul_low_i16x8_s' { Lexeme _ (TKeyword "i32x4.extmul_low_i16x8_s") }
 'i64x2.extmul_low_i32x4_s' { Lexeme _ (TKeyword "i64x2.extmul_low_i32x4_s") }
@@ -1058,6 +1062,10 @@ plaininstr :: { PlainInstr }
     | 'i16x8.neg'                        { IUnOp (BS128 I16x8) INeg }
     | 'i32x4.neg'                        { IUnOp (BS128 I32x4) INeg }
     | 'i64x2.neg'                        { IUnOp (BS128 I64x2) INeg }
+    | 'i16x8.extadd_pairwise_i8x16_s'    { IUnOp (BS128 I16x8) (IExtAddPairwise True) }
+    | 'i32x4.extadd_pairwise_i16x8_s'    { IUnOp (BS128 I32x4) (IExtAddPairwise True) }
+    | 'i16x8.extadd_pairwise_i8x16_u'    { IUnOp (BS128 I16x8) (IExtAddPairwise False) }
+    | 'i32x4.extadd_pairwise_i16x8_u'    { IUnOp (BS128 I32x4) (IExtAddPairwise False) }
     | 'i8x16.bitmask'                    { V128BitMask I8x16 }
     | 'i16x8.bitmask'                    { V128BitMask I16x8 }
     | 'i32x4.bitmask'                    { V128BitMask I32x4 }

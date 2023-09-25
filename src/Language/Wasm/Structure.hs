@@ -74,6 +74,7 @@ data IUnOp =
     | INot
     | IAbs
     | INeg
+    | IExtAddPairwise {- Signed -} Bool
     deriving (Show, Eq, Generic, NFData)
 
 data IBinOp =
