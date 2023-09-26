@@ -588,10 +588,12 @@ getInstrType _ (FConvertIU BS32 BS32) = return $ I32 ==> F32
 getInstrType _ (FConvertIU BS32 BS64) = return $ I64 ==> F32
 getInstrType _ (FConvertIU BS64 BS32) = return $ I32 ==> F64
 getInstrType _ (FConvertIU BS64 BS64) = return $ I64 ==> F64
+getInstrType _ (FConvertIU (BS128 _) (BS128 _)) = return $ V128 ==> V128
 getInstrType _ (FConvertIS BS32 BS32) = return $ I32 ==> F32
 getInstrType _ (FConvertIS BS32 BS64) = return $ I64 ==> F32
 getInstrType _ (FConvertIS BS64 BS32) = return $ I32 ==> F64
 getInstrType _ (FConvertIS BS64 BS64) = return $ I64 ==> F64
+getInstrType _ (FConvertIS (BS128 _) (BS128 _)) = return $ V128 ==> V128
 getInstrType _ F32DemoteF64 = return $ F64 ==> F32
 getInstrType _ F64PromoteF32 = return $ F32 ==> F64
 getInstrType _ (IReinterpretF BS32) = return $ F32 ==> I32
@@ -619,6 +621,14 @@ getInstrType _ V128BitSelect =
     return $ [V128, V128, V128] ==> V128
 getInstrType _ (V128BitMask _) =
     return $ V128 ==> I32
+getInstrType _ (V128Narrow _ _ _) =
+    return $ [V128, V128] ==> V128
+getInstrType _ F64x2PromoteLowF32x4 =
+    return $ V128 ==> V128
+getInstrType _ F32x4DemoteF64x2Zero =
+    return $ V128 ==> V128
+getInstrType _ (V128IExtend _ _ _ _) =
+    return $ V128 ==> V128
 
 getShapeElemType :: SimdShape -> ValueType
 getShapeElemType I8x16 = I32

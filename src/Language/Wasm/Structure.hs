@@ -272,6 +272,10 @@ data Instruction index =
     | V128BitSelect
     | I8x16Swizzle
     | I8x16Shuffle [Int]
+    | V128Narrow SimdShape SimdShape {- signed -} Bool
+    | F64x2PromoteLowF32x4
+    | F32x4DemoteF64x2Zero
+    | V128IExtend SimdShape SimdShape {- high -} Bool {- signed -} Bool
     deriving (Show, Eq, Generic, NFData)
 
 type Expression = [Instruction Natural]

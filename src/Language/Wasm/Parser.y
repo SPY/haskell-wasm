@@ -337,6 +337,16 @@ import Language.Wasm.Lexer (
 'f32.convert_i32_u'   { Lexeme _ (TKeyword "f32.convert_i32_u") }
 'f32.convert_i64_s'   { Lexeme _ (TKeyword "f32.convert_i64_s") }
 'f32.convert_i64_u'   { Lexeme _ (TKeyword "f32.convert_i64_u") }
+'f32x4.convert_i32x4_s' { Lexeme _ (TKeyword "f32x4.convert_i32x4_s") }
+'f32x4.convert_i32x4_u' { Lexeme _ (TKeyword "f32x4.convert_i32x4_u") }
+'f64x2.convert_low_i32x4_s' { Lexeme _ (TKeyword "f64x2.convert_low_i32x4_s") }
+'f64x2.convert_low_i32x4_u' { Lexeme _ (TKeyword "f64x2.convert_low_i32x4_u") }
+'i8x16.narrow_i16x8_s'{ Lexeme _ (TKeyword "i8x16.narrow_i16x8_s") }
+'i8x16.narrow_i16x8_u'{ Lexeme _ (TKeyword "i8x16.narrow_i16x8_u") }
+'i16x8.narrow_i32x4_s'{ Lexeme _ (TKeyword "i16x8.narrow_i32x4_s") }
+'i16x8.narrow_i32x4_u'{ Lexeme _ (TKeyword "i16x8.narrow_i32x4_u") }
+'f64x2.promote_low_f32x4'{ Lexeme _ (TKeyword "f64x2.promote_low_f32x4") }
+'f32x4.demote_f64x2_zero'{ Lexeme _ (TKeyword "f32x4.demote_f64x2_zero") }
 'f32.demote_f64'      { Lexeme _ (TKeyword "f32.demote_f64") }
 'f64.convert_i32_s'   { Lexeme _ (TKeyword "f64.convert_i32_s") }
 'f64.convert_i32_u'   { Lexeme _ (TKeyword "f64.convert_i32_u") }
@@ -562,6 +572,18 @@ import Language.Wasm.Lexer (
 'f64x2.gt'            { Lexeme _ (TKeyword "f64x2.gt") }
 'f32x4.ge'            { Lexeme _ (TKeyword "f32x4.ge") }
 'f64x2.ge'            { Lexeme _ (TKeyword "f64x2.ge") }
+'i16x8.extend_high_i8x16_s' { Lexeme _ (TKeyword "i16x8.extend_high_i8x16_s") }
+'i16x8.extend_high_i8x16_u' { Lexeme _ (TKeyword "i16x8.extend_high_i8x16_u") }
+'i16x8.extend_low_i8x16_s'  { Lexeme _ (TKeyword "i16x8.extend_low_i8x16_s") }
+'i16x8.extend_low_i8x16_u'  { Lexeme _ (TKeyword "i16x8.extend_low_i8x16_u") }
+'i32x4.extend_high_i16x8_s' { Lexeme _ (TKeyword "i32x4.extend_high_i16x8_s") }
+'i32x4.extend_high_i16x8_u' { Lexeme _ (TKeyword "i32x4.extend_high_i16x8_u") }
+'i32x4.extend_low_i16x8_s'  { Lexeme _ (TKeyword "i32x4.extend_low_i16x8_s") }
+'i32x4.extend_low_i16x8_u'  { Lexeme _ (TKeyword "i32x4.extend_low_i16x8_u") }
+'i64x2.extend_high_i32x4_s' { Lexeme _ (TKeyword "i64x2.extend_high_i32x4_s") }
+'i64x2.extend_high_i32x4_u' { Lexeme _ (TKeyword "i64x2.extend_high_i32x4_u") }
+'i64x2.extend_low_i32x4_s'  { Lexeme _ (TKeyword "i64x2.extend_low_i32x4_s") }
+'i64x2.extend_low_i32x4_u'  { Lexeme _ (TKeyword "i64x2.extend_low_i32x4_u") }
 -- script extension
 'binary'              { Lexeme _ (TKeyword "binary") }
 'quote'               { Lexeme _ (TKeyword "quote") }
@@ -951,6 +973,16 @@ plaininstr :: { PlainInstr }
     | 'f32.convert_i32_u'                { FConvertIU BS32 BS32 }
     | 'f32.convert_i64_s'                { FConvertIS BS32 BS64 }
     | 'f32.convert_i64_u'                { FConvertIU BS32 BS64 }
+    | 'f32x4.convert_i32x4_s'            { FConvertIS (BS128 F32x4) (BS128 I32x4) }
+    | 'f32x4.convert_i32x4_u'            { FConvertIU (BS128 F32x4) (BS128 I32x4) }
+    | 'f64x2.convert_low_i32x4_s'        { FConvertIS (BS128 F64x2) (BS128 I32x4) }
+    | 'f64x2.convert_low_i32x4_u'        { FConvertIU (BS128 F64x2) (BS128 I32x4) }
+    | 'i8x16.narrow_i16x8_s'             { V128Narrow I8x16 I16x8 True }
+    | 'i8x16.narrow_i16x8_u'             { V128Narrow I8x16 I16x8 False }
+    | 'i16x8.narrow_i32x4_s'             { V128Narrow I16x8 I32x4 True }
+    | 'i16x8.narrow_i32x4_u'             { V128Narrow I16x8 I32x4 False }
+    | 'f64x2.promote_low_f32x4'          { F64x2PromoteLowF32x4 }
+    | 'f32x4.demote_f64x2_zero'          { F32x4DemoteF64x2Zero }
     | 'f32.demote_f64'                   { F32DemoteF64 }
     | 'f64.convert_i32_s'                { FConvertIS BS64 BS32 }
     | 'f64.convert_i32_u'                { FConvertIU BS64 BS32 }
@@ -1156,6 +1188,18 @@ plaininstr :: { PlainInstr }
     | 'f64x2.gt'                         { FRelOp (BS128 F64x2) FGt }
     | 'f32x4.ge'                         { FRelOp (BS128 F32x4) FGe }
     | 'f64x2.ge'                         { FRelOp (BS128 F64x2) FGe }
+    | 'i16x8.extend_high_i8x16_s'        { V128IExtend I16x8 I8x16 True True }
+    | 'i16x8.extend_high_i8x16_u'        { V128IExtend I16x8 I8x16 True False }
+    | 'i16x8.extend_low_i8x16_s'         { V128IExtend I16x8 I8x16 False True }
+    | 'i16x8.extend_low_i8x16_u'         { V128IExtend I16x8 I8x16 False False }
+    | 'i32x4.extend_high_i16x8_s'        { V128IExtend I32x4 I16x8 True True }
+    | 'i32x4.extend_high_i16x8_u'        { V128IExtend I32x4 I16x8 True False }
+    | 'i32x4.extend_low_i16x8_s'         { V128IExtend I32x4 I16x8 False True }
+    | 'i32x4.extend_low_i16x8_u'         { V128IExtend I32x4 I16x8 False False}
+    | 'i64x2.extend_high_i32x4_s'        { V128IExtend I64x2 I32x4 True True }
+    | 'i64x2.extend_high_i32x4_u'        { V128IExtend I64x2 I32x4 True False }
+    | 'i64x2.extend_low_i32x4_s'         { V128IExtend I64x2 I32x4 False True }
+    | 'i64x2.extend_low_i32x4_u'         { V128IExtend I64x2 I32x4 False False }
 
 typeuse(next)
     : '(' typeuse1(folded_instr_list(next), instruction_list(next)) {
@@ -1886,6 +1930,10 @@ data PlainInstr =
     | V128BitSelect
     | I8x16Shuffle [Int]
     | I8x16Swizzle
+    | V128Narrow SimdShape SimdShape Bool
+    | F64x2PromoteLowF32x4
+    | F32x4DemoteF64x2Zero
+    | V128IExtend SimdShape SimdShape {- high -} Bool {- signed -} Bool
     deriving (Show, Eq)
 
 data TypeDef = TypeDef (Maybe Ident) FuncType deriving (Show, Eq)
@@ -2488,6 +2536,10 @@ desugarize fields = do
         synInstrToStruct _ (PlainInstr V128BitSelect) = return $ S.V128BitSelect
         synInstrToStruct _ (PlainInstr (I8x16Shuffle idxs)) = return $ S.I8x16Shuffle idxs
         synInstrToStruct _ (PlainInstr I8x16Swizzle) = return $ S.I8x16Swizzle
+        synInstrToStruct _ (PlainInstr F64x2PromoteLowF32x4) = return $ S.F64x2PromoteLowF32x4
+        synInstrToStruct _ (PlainInstr F32x4DemoteF64x2Zero) = return $ S.F32x4DemoteF64x2Zero
+        synInstrToStruct _ (PlainInstr (V128Narrow t f s)) = return $ S.V128Narrow t f s
+        synInstrToStruct _ (PlainInstr (V128IExtend t f h s)) = return $ S.V128IExtend t f h s
         synInstrToStruct ctx@FunCtx { ctxMod = Module { types } } BlockInstr {label, blockType, body} = do
             let ctx' = ctx { ctxLabels = label : ctxLabels ctx }
             bt <- case blockType of
