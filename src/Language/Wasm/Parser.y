@@ -584,6 +584,8 @@ import Language.Wasm.Lexer (
 'i64x2.extend_high_i32x4_u' { Lexeme _ (TKeyword "i64x2.extend_high_i32x4_u") }
 'i64x2.extend_low_i32x4_s'  { Lexeme _ (TKeyword "i64x2.extend_low_i32x4_s") }
 'i64x2.extend_low_i32x4_u'  { Lexeme _ (TKeyword "i64x2.extend_low_i32x4_u") }
+'i32x4.trunc_sat_f32x4_s'   { Lexeme _ (TKeyword "i32x4.trunc_sat_f32x4_s") }
+'i32x4.trunc_sat_f32x4_u'   { Lexeme _ (TKeyword "i32x4.trunc_sat_f32x4_u") }
 -- script extension
 'binary'              { Lexeme _ (TKeyword "binary") }
 'quote'               { Lexeme _ (TKeyword "quote") }
@@ -1200,6 +1202,8 @@ plaininstr :: { PlainInstr }
     | 'i64x2.extend_high_i32x4_u'        { V128IExtend I64x2 I32x4 True False }
     | 'i64x2.extend_low_i32x4_s'         { V128IExtend I64x2 I32x4 False True }
     | 'i64x2.extend_low_i32x4_u'         { V128IExtend I64x2 I32x4 False False }
+    | 'i32x4.trunc_sat_f32x4_s'          { I32x4TruncSatF32x4 True }
+    | 'i32x4.trunc_sat_f32x4_u'          { I32x4TruncSatF32x4 False }
 
 typeuse(next)
     : '(' typeuse1(folded_instr_list(next), instruction_list(next)) {
@@ -1934,6 +1938,7 @@ data PlainInstr =
     | F64x2PromoteLowF32x4
     | F32x4DemoteF64x2Zero
     | V128IExtend SimdShape SimdShape {- high -} Bool {- signed -} Bool
+    | I32x4TruncSatF32x4 {- signed -} Bool
     deriving (Show, Eq)
 
 data TypeDef = TypeDef (Maybe Ident) FuncType deriving (Show, Eq)
@@ -2540,6 +2545,7 @@ desugarize fields = do
         synInstrToStruct _ (PlainInstr F32x4DemoteF64x2Zero) = return $ S.F32x4DemoteF64x2Zero
         synInstrToStruct _ (PlainInstr (V128Narrow t f s)) = return $ S.V128Narrow t f s
         synInstrToStruct _ (PlainInstr (V128IExtend t f h s)) = return $ S.V128IExtend t f h s
+        synInstrToStruct _ (PlainInstr (I32x4TruncSatF32x4 s)) = return $ S.I32x4TruncSatF32x4 s
         synInstrToStruct ctx@FunCtx { ctxMod = Module { types } } BlockInstr {label, blockType, body} = do
             let ctx' = ctx { ctxLabels = label : ctxLabels ctx }
             bt <- case blockType of

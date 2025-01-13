@@ -2277,6 +2277,19 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
                     _ -> error "impossible due to validation"
             in
             return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (I32x4TruncSatF32x4 signed) =
+            let
+                floatTruncSat :: Bool -> Float -> Word32
+                floatTruncSat True v  | isNaN v = 0
+                floatTruncSat True v  | v >= 2^31 = 0x7fffffff
+                floatTruncSat True v  | v < -2^31 - 1 = 0x80000000
+                floatTruncSat True v  = asWord32 $ truncate v
+                floatTruncSat False v | v <= -1 || isNaN v = 0
+                floatTruncSat False v | v >= 2^32 = 0xffffffff
+                floatTruncSat False v = truncate v
+            in
+            let r = floatTruncSat signed . ByteArray.indexByteArray @Float v <$> [0..3] in
+            return $ Done ctx { stack = VV128 (ByteArray.byteArrayFromList @Word32 r) : rest }
         step EvalCtx{ stack } instr = error $ "Error during evaluation of instruction: " ++ show instr ++ ". Stack " ++ show stack
 eval _ _ _ HostInstance { funcType, hostCode } args = Just <$> hostCode args
 
