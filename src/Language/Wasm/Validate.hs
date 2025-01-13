@@ -629,7 +629,7 @@ getInstrType _ F32x4DemoteF64x2Zero =
     return $ V128 ==> V128
 getInstrType _ (V128IExtend _ _ _ _) =
     return $ V128 ==> V128
-getInstrType _ (I32x4TruncSatF32x4 _) =
+getInstrType _ (I32x4TruncSatF _ _) =
     return $ V128 ==> V128
 
 getShapeElemType :: SimdShape -> ValueType

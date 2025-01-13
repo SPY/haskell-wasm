@@ -276,7 +276,7 @@ data Instruction index =
     | F64x2PromoteLowF32x4
     | F32x4DemoteF64x2Zero
     | V128IExtend SimdShape SimdShape {- high -} Bool {- signed -} Bool
-    | I32x4TruncSatF32x4 {- signed -} Bool
+    | I32x4TruncSatF {- signed -} Bool {- Float Size -} BitSize
     deriving (Show, Eq, Generic, NFData)
 
 type Expression = [Instruction Natural]
