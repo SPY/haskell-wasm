@@ -2235,6 +2235,7 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
                     I16x8 -> all (/= 0) $ ByteArray.indexByteArray @Word16 v <$> [0..7]
                     I32x4 -> all (/= 0) $ ByteArray.indexByteArray @Word32 v <$> [0..3]
                     I64x2 -> all (/= 0) $ ByteArray.indexByteArray @Word64 v <$> [0..1]
+                    _ -> error "impossible due to validation"
             in
             return $ Done ctx { stack = VI32 (if r then 1 else 0) : rest }
         step ctx@EvalCtx{ stack = (VV128 v:rest) } (V128BitMask shape) =
@@ -2243,6 +2244,7 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
                     I16x8 -> (\i -> flip shiftL i . flip shiftR 15 . fromIntegral $ ByteArray.indexByteArray @Word16 v i) <$> [0..7]
                     I32x4 -> (\i -> flip shiftL i . flip shiftR 31 . fromIntegral $ ByteArray.indexByteArray @Word32 v i) <$> [0..3]
                     I64x2 -> (\i -> flip shiftL i . fromIntegral $ flip shiftR 63 $ ByteArray.indexByteArray @Word64 v i) <$> [0..1]
+                    _ -> error "impossible due to validation"
             in
             return $ Done ctx { stack = VI32 r : rest }
         step ctx@EvalCtx{ stack = (VV128 c:VV128 v2:VV128 v1:rest) } V128BitSelect =
@@ -2253,6 +2255,27 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
                     (w1 .&. wc) .|. (w2 .&. complement wc)
             in
             let r = ByteArray.byteArrayFromList @Word64 $ bitselect <$> [0, 1] in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (V128IExtend to from high signed) =
+            let vals = case from of
+                    I8x16 ->
+                        (if signed then fromIntegral . asInt8 else fromIntegral)
+                        . ByteArray.indexByteArray @Word8 v
+                        <$> if high then [8..15] else [0..7]
+                    I16x8 -> (if signed then fromIntegral . asInt16 else fromIntegral)
+                        . ByteArray.indexByteArray @Word16 v
+                        <$> if high then [4..7] else [0..3]
+                    I32x4 -> fromIntegral . (if signed then fromIntegral . asInt32 else fromIntegral)
+                        . ByteArray.indexByteArray @Word32 v
+                        <$> if high then [2..3] else [0..1]
+                    _ -> error "impossible due to validation"
+            in
+            let r = case to of
+                    I16x8 -> ByteArray.byteArrayFromList @Word16 $ fromIntegral <$> vals
+                    I32x4 -> ByteArray.byteArrayFromList @Word32 $ fromIntegral <$> vals
+                    I64x2 -> ByteArray.byteArrayFromList @Word64 $ fromIntegral <$> vals
+                    _ -> error "impossible due to validation"
+            in
             return $ Done ctx { stack = VV128 r : rest }
         step EvalCtx{ stack } instr = error $ "Error during evaluation of instruction: " ++ show instr ++ ". Stack " ++ show stack
 eval _ _ _ HostInstance { funcType, hostCode } args = Just <$> hostCode args

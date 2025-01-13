@@ -20,7 +20,7 @@ main = do
     filter (List.isPrefixOf "simd") . 
     filter (List.isSuffixOf ".wast")
       <$> Directory.listDirectory "tests/spec"
-  let files = ["simd_conversions.wast"]
+  -- let files = ["simd_int_to_int_extend.wast"]
   scriptTestCases <- (`mapM` files) $ \file -> do
     test <- LBS.readFile ("tests/spec/" ++ file)
     return $ testCase file $ do
