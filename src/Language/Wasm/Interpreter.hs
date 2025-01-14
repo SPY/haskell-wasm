@@ -69,7 +69,7 @@ import Language.Wasm.FloatUtils (
         wordToFloat,
         floatToWord,
         wordToDouble,
-        doubleToWord
+        doubleToWord, doubleToFloat
     )
 
 import Debug.Trace as Debug
@@ -2128,6 +2128,9 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
             return $ Done ctx { stack = VF64 (realToFrac v) : rest }
         step ctx@EvalCtx{ stack = (VI64 v:rest) } (FConvertIU BS64 BS64) =
             return $ Done ctx { stack = VF64 (realToFrac v) : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (FConvertIU (BS128 F32x4) (BS128 I32x4)) =
+            let r = realToFrac . ByteArray.indexByteArray @Word32 v <$> [0..3] in
+            return $ Done ctx { stack = VV128 (ByteArray.byteArrayFromList @Float r) : rest }
         step ctx@EvalCtx{ stack = (VI32 v:rest) } (FConvertIS BS32 BS32) =
             return $ Done ctx { stack = VF32 (realToFrac $ asInt32 v) : rest }
         step ctx@EvalCtx{ stack = (VI64 v:rest) } (FConvertIS BS32 BS64) =
@@ -2136,6 +2139,9 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
             return $ Done ctx { stack = VF64 (realToFrac $ asInt32 v) : rest }
         step ctx@EvalCtx{ stack = (VI64 v:rest) } (FConvertIS BS64 BS64) =
             return $ Done ctx { stack = VF64 (realToFrac $ asInt64 v) : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (FConvertIS (BS128 F32x4) (BS128 I32x4)) =
+            let r = realToFrac . asInt32 . ByteArray.indexByteArray @Word32 v <$> [0..3] in
+            return $ Done ctx { stack = VV128 (ByteArray.byteArrayFromList @Float r) : rest }
         step ctx@EvalCtx{ stack = (VF64 v:rest) } F32DemoteF64 =
             return $ Done ctx { stack = VF32 (realToFrac v) : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } F64PromoteF32 =
@@ -2294,6 +2300,12 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
                     _ -> error "impossible due to validation"
             in
             return $ Done ctx { stack = VV128 (ByteArray.byteArrayFromList @Word32 r) : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } F64x2PromoteLowF32x4 =
+            let r = realToFrac . ByteArray.indexByteArray @Float v <$> [0..1] in
+            return $ Done ctx { stack = VV128 (ByteArray.byteArrayFromList @Double r) : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } F32x4DemoteF64x2Zero =
+            let r = doubleToFloat . ByteArray.indexByteArray v <$> [0..1] in
+            return $ Done ctx { stack = VV128 (ByteArray.byteArrayFromList $ r ++ [0, 0]) : rest }
         step EvalCtx{ stack } instr = error $ "Error during evaluation of instruction: " ++ show instr ++ ". Stack " ++ show stack
 eval _ _ _ HostInstance { funcType, hostCode } args = Just <$> hostCode args
 
