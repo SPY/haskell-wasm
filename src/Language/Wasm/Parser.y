@@ -588,6 +588,8 @@ import Language.Wasm.Lexer (
 'i32x4.trunc_sat_f32x4_u'       { Lexeme _ (TKeyword "i32x4.trunc_sat_f32x4_u") }
 'i32x4.trunc_sat_f64x2_s_zero'  { Lexeme _ (TKeyword "i32x4.trunc_sat_f64x2_s_zero") }
 'i32x4.trunc_sat_f64x2_u_zero'  { Lexeme _ (TKeyword "i32x4.trunc_sat_f64x2_u_zero") }
+'i32x4.dot_i16x8_s'             { Lexeme _ (TKeyword "i32x4.dot_i16x8_s") }
+'i16x8.q15mulr_sat_s'           { Lexeme _ (TKeyword "i16x8.q15mulr_sat_s") }
 -- script extension
 'binary'                        { Lexeme _ (TKeyword "binary") }
 'quote'                         { Lexeme _ (TKeyword "quote") }
@@ -1208,6 +1210,8 @@ plaininstr :: { PlainInstr }
     | 'i32x4.trunc_sat_f32x4_u'          { I32x4TruncSatF False BS32 }
     | 'i32x4.trunc_sat_f64x2_s_zero'     { I32x4TruncSatF True BS64 }
     | 'i32x4.trunc_sat_f64x2_u_zero'     { I32x4TruncSatF False BS64 }
+    | 'i32x4.dot_i16x8_s'                { I32x4DotI16x8S }
+    | 'i16x8.q15mulr_sat_s'              { I16x8Q15MulrSatS }
 
 typeuse(next)
     : '(' typeuse1(folded_instr_list(next), instruction_list(next)) {
@@ -1943,6 +1947,8 @@ data PlainInstr =
     | F32x4DemoteF64x2Zero
     | V128IExtend SimdShape SimdShape {- high -} Bool {- signed -} Bool
     | I32x4TruncSatF {- signed -} Bool {- Float Size -} BitSize
+    | I32x4DotI16x8S
+    | I16x8Q15MulrSatS
     deriving (Show, Eq)
 
 data TypeDef = TypeDef (Maybe Ident) FuncType deriving (Show, Eq)
@@ -2550,6 +2556,8 @@ desugarize fields = do
         synInstrToStruct _ (PlainInstr (V128Narrow t f s)) = return $ S.V128Narrow t f s
         synInstrToStruct _ (PlainInstr (V128IExtend t f h s)) = return $ S.V128IExtend t f h s
         synInstrToStruct _ (PlainInstr (I32x4TruncSatF s sz)) = return $ S.I32x4TruncSatF s sz
+        synInstrToStruct _ (PlainInstr I32x4DotI16x8S) = return $ S.I32x4DotI16x8S
+        synInstrToStruct _ (PlainInstr I16x8Q15MulrSatS) = return $ S.I16x8Q15MulrSatS
         synInstrToStruct ctx@FunCtx { ctxMod = Module { types } } BlockInstr {label, blockType, body} = do
             let ctx' = ctx { ctxLabels = label : ctxLabels ctx }
             bt <- case blockType of

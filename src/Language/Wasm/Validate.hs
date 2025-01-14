@@ -631,6 +631,10 @@ getInstrType _ (V128IExtend _ _ _ _) =
     return $ V128 ==> V128
 getInstrType _ (I32x4TruncSatF _ _) =
     return $ V128 ==> V128
+getInstrType _ I32x4DotI16x8S =
+    return $[V128, V128] ==> V128
+getInstrType _ I16x8Q15MulrSatS =
+    return $ [V128, V128] ==> V128
 
 getShapeElemType :: SimdShape -> ValueType
 getShapeElemType I8x16 = I32

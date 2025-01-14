@@ -2338,6 +2338,26 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
         step ctx@EvalCtx{ stack = (VV128 v:rest) } F32x4DemoteF64x2Zero =
             let r = doubleToFloat . ByteArray.indexByteArray v <$> [0..1] in
             return $ Done ctx { stack = VV128 (ByteArray.byteArrayFromList $ r ++ [0, 0]) : rest }
+        step ctx@EvalCtx{ stack = (VV128 x:VV128 y:rest) } I32x4DotI16x8S =
+            let dot :: Int -> Int -> Integer
+                dot n m =
+                    let x1 = fromIntegral $ asInt16 $ ByteArray.indexByteArray x n in
+                    let y1 = fromIntegral $ asInt16 $ ByteArray.indexByteArray y n in
+                    let x2 = fromIntegral $ asInt16 $ ByteArray.indexByteArray x m in
+                    let y2 = fromIntegral $ asInt16 $ ByteArray.indexByteArray y m in
+                    (x1 * y1) + (x2 * y2)
+            in
+            let r = fromIntegral <$> [dot 0 1, dot 2 3, dot 4 5, dot 6 7] in
+            return $ Done ctx { stack = VV128 (ByteArray.byteArrayFromList @Word32 $ r) : rest }
+        step ctx@EvalCtx{ stack = (VV128 x:VV128 y:rest) } I16x8Q15MulrSatS =
+            let clamp low high v = if v > high then high else if v < low then low else v in
+            let mulq15 a b =
+                    let x = fromIntegral $ asInt16 a in
+                    let y = fromIntegral $ asInt16 b in
+                    fromIntegral $ clamp (-0x8000) 0x7FFF $ ((x * y :: Integer) + 0x4000) `shiftR` 15
+            in
+            let r = lanewise I16x8 x y mulq15 in
+            return $ Done ctx { stack = VV128 r : rest }
         step EvalCtx{ stack } instr = error $ "Error during evaluation of instruction: " ++ show instr ++ ". Stack " ++ show stack
 eval _ _ _ HostInstance { funcType, hostCode } args = Just <$> hostCode args
 
