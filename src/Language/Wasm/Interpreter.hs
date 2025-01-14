@@ -2131,6 +2131,9 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
         step ctx@EvalCtx{ stack = (VV128 v:rest) } (FConvertIU (BS128 F32x4) (BS128 I32x4)) =
             let r = realToFrac . ByteArray.indexByteArray @Word32 v <$> [0..3] in
             return $ Done ctx { stack = VV128 (ByteArray.byteArrayFromList @Float r) : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (FConvertIU (BS128 F64x2) (BS128 I32x4)) =
+            let r = realToFrac . ByteArray.indexByteArray @Word32 v <$> [0..1] in
+            return $ Done ctx { stack = VV128 (ByteArray.byteArrayFromList @Double r) : rest }
         step ctx@EvalCtx{ stack = (VI32 v:rest) } (FConvertIS BS32 BS32) =
             return $ Done ctx { stack = VF32 (realToFrac $ asInt32 v) : rest }
         step ctx@EvalCtx{ stack = (VI64 v:rest) } (FConvertIS BS32 BS64) =
@@ -2142,6 +2145,9 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
         step ctx@EvalCtx{ stack = (VV128 v:rest) } (FConvertIS (BS128 F32x4) (BS128 I32x4)) =
             let r = realToFrac . asInt32 . ByteArray.indexByteArray @Word32 v <$> [0..3] in
             return $ Done ctx { stack = VV128 (ByteArray.byteArrayFromList @Float r) : rest }
+        step ctx@EvalCtx{ stack = (VV128 v:rest) } (FConvertIS (BS128 F64x2) (BS128 I32x4)) =
+            let r = realToFrac . asInt32 . ByteArray.indexByteArray @Word32 v <$> [0..1] in
+            return $ Done ctx { stack = VV128 (ByteArray.byteArrayFromList @Double r) : rest }
         step ctx@EvalCtx{ stack = (VF64 v:rest) } F32DemoteF64 =
             return $ Done ctx { stack = VF32 (realToFrac v) : rest }
         step ctx@EvalCtx{ stack = (VF32 v:rest) } F64PromoteF32 =
@@ -2280,6 +2286,32 @@ eval budget store inst FunctionInstance { funcType, moduleInstance, code = Funct
                     I16x8 -> ByteArray.byteArrayFromList @Word16 $ fromIntegral <$> vals
                     I32x4 -> ByteArray.byteArrayFromList @Word32 $ fromIntegral <$> vals
                     I64x2 -> ByteArray.byteArrayFromList @Word64 $ fromIntegral <$> vals
+                    _ -> error "impossible due to validation"
+            in
+            return $ Done ctx { stack = VV128 r : rest }
+        step ctx@EvalCtx{ stack = (VV128 v2:VV128 v1:rest) } (V128Narrow to from signed) =
+            let vals v = case from of
+                    I16x8 ->
+                        fromIntegral . asInt16 . ByteArray.indexByteArray @Word16 v <$> [0..7]
+                    I32x4 -> fromIntegral . asInt32 . ByteArray.indexByteArray @Word32 v <$> [0..3]
+                    I64x2 -> fromIntegral . asInt64 . ByteArray.indexByteArray @Word64 v <$> [0..1]
+                    _ -> error "impossible due to validation"
+            in
+            let clamp low high v = if v > high then high else if v < low then low else v in
+            let inp = vals v1 ++ vals v2 in
+            let r = case to of
+                    I8x16 ->
+                        ByteArray.byteArrayFromList @Word8
+                            $ fromIntegral . (if signed then clamp (-0x80) 0x7F else clamp 0 0xFF)
+                            <$> inp
+                    I16x8 ->
+                        ByteArray.byteArrayFromList @Word16
+                        $ fromIntegral . (if signed then clamp (-0x8000) 0x7FFF else clamp 0 0xFFFF)
+                        <$> inp
+                    I32x4 ->
+                        ByteArray.byteArrayFromList @Word32
+                        $ fromIntegral . (if signed then clamp (-0x80000000) 0x7FFFFFFF else clamp 0 0xFFFFFFFF)
+                        <$> inp
                     _ -> error "impossible due to validation"
             in
             return $ Done ctx { stack = VV128 r : rest }
