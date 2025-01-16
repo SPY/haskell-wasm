@@ -19,7 +19,7 @@ main = do
   files <-
     filter (List.isSuffixOf ".wast")
       <$> Directory.listDirectory "tests/spec"
-  -- let files = ["simd_i16x8_q15mulr_sat_s.wast"]
+  -- let files = ["table_grow.wast"]
   scriptTestCases <- (`mapM` files) $ \file -> do
     test <- LBS.readFile ("tests/spec/" ++ file)
     return $ testCase file $ do

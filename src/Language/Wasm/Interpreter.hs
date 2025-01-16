@@ -467,8 +467,9 @@ calcInstance (Store fs ts ms gs es ds) imps mod = do
             tableAddr <- case idx of
                 ExternTable tableAddr -> return tableAddr
                 _ -> throwError "incompatible import type"
-            let TableInstance { t = TableType lim et' } = ts ! tableAddr
-            if limitMatch lim limit && et == et'
+            let TableInstance { t = TableType (Limit _ max) et', items } = ts ! tableAddr
+            len <- MVector.length <$> (liftIO $ readIORef items)
+            if limitMatch (Limit (fromIntegral len) max) limit && et == et'
             then return idx
             else throwError "incompatible import type"
     
