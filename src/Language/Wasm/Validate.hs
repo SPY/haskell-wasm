@@ -278,6 +278,8 @@ getInstrType _ (CallIndirect tableIdx sign) = do
     if length tables <= fromIntegral tableIdx
     then throwError (TableIndexOutOfRange tableIdx)
     else do
+        let TableType _ elemType = tables !! fromIntegral tableIdx
+        when (elemType /= FuncRef) $ throwError (RefTypeMismatch FuncRef ExternRef)
         Arrow from to <- maybeToEither TypeIndexOutOfRange $ asArrow <$> types !? sign
         return $ (from ++ [Val I32]) ==> to
 getInstrType _ Drop = do
