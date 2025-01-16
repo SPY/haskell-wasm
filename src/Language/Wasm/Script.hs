@@ -78,8 +78,8 @@ runScript onAssertFail script = do
         hostGlobals = do
             let globI32 = Interpreter.makeConstGlobal $ Interpreter.VI32 666
             let globI64 = Interpreter.makeConstGlobal $ Interpreter.VI64 666
-            let globF32 = Interpreter.makeConstGlobal $ Interpreter.VF32 666
-            let globF64 = Interpreter.makeConstGlobal $ Interpreter.VF64 666
+            let globF32 = Interpreter.makeConstGlobal $ Interpreter.VF32 666.6
+            let globF64 = Interpreter.makeConstGlobal $ Interpreter.VF64 666.6
             return (
                     Interpreter.HostGlobal globI32,
                     Interpreter.HostGlobal globI64,
