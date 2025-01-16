@@ -39,13 +39,13 @@ $alpha     = [$lower $upper]
 $namepunct = [\! \# \$ \% \& \' \* \+ \- \. \/ \: \< \= \> \? \@ \∖ \^ \_ \` \| \~]
 $idchar    = [$digit $alpha $namepunct]
 $space     = [\  \x09 \x0A \x0D]
-$linechar  = [^ \x09]
+$linechar  = [^ \x09 \x0A \x0D]
 $sign      = [\+ \-]
 $doublequote = \"
 
 @keyword     = $lower $idchar*
 @reserved    = $idchar+
-@linecomment = ";;" $linechar* \x0A
+@linecomment = ";;" $linechar* [\x0A \x0D]
 @startblockcomment = "(;"
 @endblockcomment = ";)"
 @num = $digit (\_? $digit+)*
