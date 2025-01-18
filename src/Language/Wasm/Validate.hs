@@ -193,10 +193,13 @@ getLabel lbl = do
 withLabel :: [ValueType] -> Checker a -> Checker a
 withLabel result = withReaderT (\ctx -> ctx { labels = result : labels ctx })
 
-isMemArgValid :: Int -> MemArg -> Checker ()
-isMemArgValid sizeInBytes MemArg { align } = if 2 ^ align <= sizeInBytes then return () else throwError AlignmentOverflow
+isMemArgValid :: Natural -> MemArg -> Checker ()
+isMemArgValid sizeInBytes MemArg { align } =
+    if 2 ^ align <= sizeInBytes
+    then return ()
+    else throwError AlignmentOverflow
 
-checkMemoryInstr :: Int -> MemArg -> Checker ()
+checkMemoryInstr :: Natural -> MemArg -> Checker ()
 checkMemoryInstr size memarg = do
     isMemArgValid size memarg
     Ctx { mems } <- ask 

@@ -17,6 +17,7 @@ import Data.Bits
 import Data.Word (Word8, Word32, Word64)
 import Data.Int (Int8, Int32, Int64)
 import Data.Serialize
+import Control.Monad (when)
 import Data.Primitive.ByteArray as BA
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
@@ -340,6 +341,7 @@ instance Serialize MemArg where
     put MemArg { align, offset } = putULEB128 align >> putULEB128 offset
     get = do
         align <- getULEB128 32
+        when (align >= 32) $ fail "malformed memop flags"
         offset <- getULEB128 32
         return $ MemArg { align, offset }
 
